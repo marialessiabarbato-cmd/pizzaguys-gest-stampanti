@@ -1,6 +1,9 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
+# Evita che git apra less/more in script interattivo (blocco su ":")
+export GIT_PAGER=cat
+
 # Flusso interattivo: branch → status → stage → commit → push
 # Uso: ./scripts/git-flow.sh
 
@@ -193,7 +196,7 @@ step_stage() {
 
   echo ""
   info "In stage:"
-  git diff --cached --stat
+  git --no-pager diff --cached --stat
 }
 
 step_commit() {
