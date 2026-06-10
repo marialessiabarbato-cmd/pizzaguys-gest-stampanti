@@ -1,0 +1,23 @@
+# fly.toml — cloud-api (T6.1)
+app = "pizzaguys-api"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+  context = "../.."
+
+[env]
+  CLOUD_API_PORT = "4000"
+  NIGHTLY_REPORT_ENABLED = "true"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pizzaguys-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: pizzaguys
+      POSTGRES_PASSWORD: pizzaguys
+      POSTGRES_DB: pizzaguys_cloud
+    volumes:
+      - pizzaguys_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pizzaguys -d pizzaguys_cloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pizzaguys-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - pizzaguys_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pizzaguys_pg_data:
+  pizzaguys_redis_data:

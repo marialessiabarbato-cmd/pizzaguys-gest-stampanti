@@ -1,0 +1,17 @@
+[Unit]
+Description=Pizza Guys Edge API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pizzaguys
+Group=pizzaguys
+WorkingDirectory=/opt/pizzaguys-gest
+EnvironmentFile=/etc/pizzaguys/edge.env
+ExecStart=/usr/bin/node /opt/pizzaguys-gest/services/edge-api/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

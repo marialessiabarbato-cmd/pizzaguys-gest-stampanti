@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+.next/
+out/
+build/
+.turbo/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs & temp
+*.log
+tmp/
+.DS_Store
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Test
+coverage/
+
+# Drizzle
+packages/db/drizzle/
+
+# PWA
+**/dev-dist/
+**/sw.js
+**/workbox-*.js
+
+# Mock prints
+tmp/prints/

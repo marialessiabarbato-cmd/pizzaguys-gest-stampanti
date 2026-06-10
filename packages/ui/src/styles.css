@@ -1,0 +1,42 @@
+:root {
+  --pg-background: 0 0% 100%;
+  --pg-foreground: 222 47% 11%;
+  --pg-card: 0 0% 100%;
+  --pg-card-foreground: 222 47% 11%;
+  --pg-primary: 24 95% 53%;
+  --pg-primary-foreground: 0 0% 100%;
+  --pg-secondary: 210 40% 96%;
+  --pg-secondary-foreground: 222 47% 11%;
+  --pg-muted: 210 40% 96%;
+  --pg-muted-foreground: 215 16% 47%;
+  --pg-border: 214 32% 91%;
+  --pg-radius: 0.5rem;
+  --pg-success: 142 76% 36%;
+  --pg-warning: 38 92% 50%;
+  --pg-danger: 0 84% 60%;
+}
+
+.dark {
+  --pg-background: 222 47% 7%;
+  --pg-foreground: 210 40% 98%;
+  --pg-card: 222 47% 10%;
+  --pg-card-foreground: 210 40% 98%;
+  --pg-primary: 24 95% 53%;
+  --pg-primary-foreground: 0 0% 100%;
+  --pg-secondary: 217 33% 17%;
+  --pg-secondary-foreground: 210 40% 98%;
+  --pg-muted: 217 33% 17%;
+  --pg-muted-foreground: 215 20% 65%;
+  --pg-border: 217 33% 20%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: hsl(var(--pg-background));
+  color: hsl(var(--pg-foreground));
+}

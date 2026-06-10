@@ -1,0 +1,11 @@
+{
+  "tableMap": "Mappa sala",
+  "submitOrder": "SPEDITO",
+  "payment": "Pagamento",
+  "change": "RESTO",
+  "cash": "Contanti",
+  "card": "POS / Carta",
+  "prebill": "STAMPA PRECONTO",
+  "dailyClose": "Chiusura giornaliera",
+  "lockTable": "Tavolo in uso"
+}

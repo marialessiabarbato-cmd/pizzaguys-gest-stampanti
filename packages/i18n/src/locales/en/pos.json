@@ -1,0 +1,11 @@
+{
+  "tableMap": "Floor plan",
+  "submitOrder": "SEND",
+  "payment": "Payment",
+  "change": "CHANGE",
+  "cash": "Cash",
+  "card": "Card",
+  "prebill": "PRINT PRE-BILL",
+  "dailyClose": "Daily close",
+  "lockTable": "Table in use"
+}

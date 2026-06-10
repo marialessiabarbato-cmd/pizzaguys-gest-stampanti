@@ -1,0 +1,16 @@
+export const EU_ALLERGENS = [
+  { id: "glutine", label: "Glutine" },
+  { id: "crostacei", label: "Crostacei" },
+  { id: "uova", label: "Uova" },
+  { id: "pesce", label: "Pesce" },
+  { id: "arachidi", label: "Arachidi" },
+  { id: "soia", label: "Soia" },
+  { id: "latte", label: "Latte" },
+  { id: "frutta_a_guscio", label: "Frutta a guscio" },
+  { id: "sedano", label: "Sedano" },
+  { id: "senape", label: "Senape" },
+  { id: "sesamo", label: "Sesamo" },
+  { id: "solfiti", label: "Solfiti" },
+  { id: "lupini", label: "Lupini" },
+  { id: "molluschi", label: "Molluschi" },
+] as const;

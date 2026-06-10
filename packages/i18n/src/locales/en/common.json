@@ -1,0 +1,13 @@
+{
+  "appName": "Pizza Guys Gest",
+  "save": "Save",
+  "cancel": "Cancel",
+  "confirm": "Confirm",
+  "loading": "Loading...",
+  "error": "Error",
+  "success": "Done",
+  "themeLight": "Light theme",
+  "themeDark": "Dark theme",
+  "connected": "Connected",
+  "offline": "Offline - Local mode"
+}

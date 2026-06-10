@@ -1,0 +1,41 @@
+# **PROJECT OVERVIEW & SPECIFICHE UTENTI — PROGETTO "PIZZA GUYS"**
+
+Il presente documento definisce la visione strategica, l'architettura tecnica e la mappatura analitica degli utenti con le rispettive funzionalità per l'ecosistema Point of Sale (POS) e il BackOffice gestionale multi-sede del brand **"Pizza Guys"** (ed estensioni come *"Burger Guys"*). I requisiti qui descritti sono stati interamente modellati e blindati sulla base dei flussi operativi reali, fiscali ed hardware rilevati sul campo.
+
+## **1\. PROJECT OVERVIEW: VISIONE GENERALE E FILOSOFIA**
+
+L'obiettivo del progetto è lo sviluppo di una piattaforma di gestione e automazione per ristorazione e pizzerie multi-punto in grado di eguagliare la granularità logica dei software enterprise di settore (Benchmark: **Zucchetti Zmenu**), superandone le rigidità infrastrutturali tramite un approccio *cloud-native* combinato a una fortissima resilienza locale (offline-first).
+
+### **A. Gli Obiettivi Strategici**
+
+* **Eliminazione dei Tempi morti in Sala:** Ottimizzare l'invio e lo smistamento dei comandi di produzione per massimizzare la rotazione dei tavoli.  
+* **Integrità Fiscale e Controllo dei Flussi:** Garantire una perfetta aderenza alle normative fiscali italiane (interfacciamento con Registratori Telematici abilitati) e una riconciliazione automatica senza margini d'errore.  
+* **Scalabilità del Brand:** Permettere la gestione centralizzata di listini, categorie ed ingredienti, garantendo l'isolamento dei dati finanziari e amministrativi tra le varie sedi (es. Sede di Caserta).
+
+### **B. Architettura di Rete e Resilienza Hardware**
+
+Il sistema supera il vincolo della connettività Internet (il cui blocco causerebbe il fermo totale del ristorante) implementando un'architettura ibrida a tre livelli:
+
+1. **Cloud Hub (Controllo Remoto):** Sincronizza asincronamente i dati di fine giornata di tutte le sedi, distribuisce i menu e gestisce la reportistica direzionale per la proprietà.  
+2. **Main Station di Cassa Locale (Edge Core):** È il cuore del singolo ristorante. Un server di cassa locale che mantiene il database relazionale della sala sempre attivo in rete locale (LAN). Pilota direttamente via cavo/rete le stampanti termiche di comanda e il registratore telematico hardware (**Micrelec Hydra SF20**).  
+3. **Terminali Handheld (Tablet Camerieri):** Dispositivi mobili identificati nei tablet **Amazon Fire (ottimizzati per Fire OS)**. Comunicano ad altissima frequenza ed a bassissima latenza esclusivamente tramite **WebSocket stabili in rete LAN locale** verso la Main Station di cassa.
+
+## **2\. MATRICE DEGLI UTENTI E RISPETTIVE FUNZIONALITÀ**
+
+Il sistema mappa l'operatività del brand su tre ruoli utente strutturati, ciascuno dotato di permessi e interfacce esclusive.
+
+| Ruolo Utente | Macro-Obiettivo | Funzionalità Dettagliate Esclusive   |
+| :---- | :---- | :---- |
+| **SuperAdmin** *(Proprietario / Gestore Brand)* | Controllo strategico globale, centralizzazione finanziaria multi-negozio e gestione del catalogo prodotti del brand. | **Onboarding Sedi:** Creazione anagrafiche dei locali, generazione token API cifrati per le Main Station locali e associazione dei parametri fiscali legali. **Master Menu Builder:** Creazione di categorie, piatti e varianti con prezzi dinamici differenziati per sede e per canale distributivo (Tavolo, Asporto, Delivery come Glovo/Deliveroo). **Gestione Varianti Prezzate:** Configurazione dei sovrapprezzi monetari automatici legati alle aggiunte di ingredienti (es. \+RUCOLA, \+PROSCIUTTO CR). **Consolidamento Dati & KPI:** Accesso alla dashboard cloud globale con aggregazione dei dati di fatturato, scontrini emessi, medie coperti per singola sede e per intero gruppo. **Mailing List Direzionale:** Ricezione automatica a fine servizio della notifica e-mail HTML testuale nativa con il riepilogo analitico del fatturato e delle performance del punto vendita. |
+| **User Admin** *(Direttore di Sede / Store Manager)* | Configurazione logistica e hardware locale, supervisione del turno, monitoraggio della cassa e del personale della propria sede. | **Sala Builder (Topologia):** Mappatura grafica bidimensionale della sala, creazione tavoli alfanumerici e impostazione dei coperti predefiniti. **Virtual Rooms Setup:** Configurazione di sale virtuali dedicate ad "Asporto" e "Consegna a domicilio" per isolare questi ordini dai tavoli fisici in sala. **Routing Centri di Produzione:** Associazione IP delle stampanti termiche locali ai centri di lavoro fisici (CUCINA, BAR, PIZZERIA, RIEPILOGO CHEF) e instradamento automatico delle categorie del menu. **Approvazione Sconti Critici:** Inserimento del PIN Admin visivo a schermo per autorizzare sconti speciali o doppi sconti avanzati applicati dal cassiere sulle quote di un conto diviso (Split). **Riconciliazione Chiusura:** Accesso alla schermata chiusure per l'inserimento manuale del "Contante Fisico Rilevato" e calcolo automatico del fuori cassa rispetto al report telematico. |
+| **Cameriere & Cassiere** *(Personale Operativo di Sala / Cassa)* | Esecuzione pratica del servizio: presa comande da tablet, modifica dei conti, gestione della cassa e interfacciamento con i clienti. | **Presa Ordine Digitale (Tablet):** Selezione visiva dei tavoli, inserimento facilitato dei piatti e delle varianti (con indicatori grafici \+) tramite applicazione nativa ottimizzata per Fire OS. **Gestione Tempi d'Uscita (Marcia):** Organizzazione automatica delle portate in passi sequenziali (Step 0, Step 1). Gestione dello stato di attesa (HOLD) e generazione della stampa di sblocco MARCIA PORTATA \-\> X. **Flag "X DOLCE":** Comando rapido per isolare visivamente la comanda dei dessert sul centro di produzione a fine servizio, escludendo tutte le altre voci del tavolo. **Prevenzione Perdite (Alert):** Blocco di sicurezza interattivo che impedisce la chiusura accidentale di un ordine non ancora inviato alla cucina (SPEDITO). **Table Locking (Concorrenza):** Sistema di blocco automatico esclusivo del tavolo per impedire sovrascritture simultanee tra due tablet o tra tablet e cassa fissa. **Riorganizzazione dei Conti:** Funzionalità grafiche drag-and-drop per muovere l'intero conto su un altro tavolo, spostare singole righe d'ordine, unire tavoli occupati o dividere il conto (Split alla Romana o Split Analitico per singola quota). **Emissione Fiscale & Resto Dinamico:** Invio dei flussi XML/JSON nativi al firmware della cassa Micrelec Hydra SF20 per stampare Documenti Commerciali (Scontrini), Fatture Elettroniche o Fatture Proforma. Visualizzazione immediata a caratteri giganti del resto da erogare con sblocco automatico del cassetto rendiresto collegato. **Lancio Chiusura Fiscale:** Comando di esecuzione fine servizio per l'emissione dello Z-Report cartaceo e l'invio telematico automatico all'Agenzia delle Entrate e via mail al Cloud. |
+
+## **3\. REGISTRO DETTAGLIATO DEI FLUSSI DELLE STAMPE (REQUISITO CORE)**
+
+A beneficio del team di sviluppo, si riepilogano le specifiche formali per la generazione delle stringhe di testo destinate alle stampanti termiche locali (LAN) ed ai registratori fiscali:
+
+* **Comande Standard:** Devono riportare il nome del centro in alto, il numero del tavolo in dimensioni doppie, le varianti rientrate con prefisso \+ e il blocco metadati nel footer (Ospiti, Numero Articoli totali, Ora esatta di invio, Nome dell'operatore).  
+* **Comande in Attesa:** Devono inserire una linea tratteggiata con il testo SEGUE \-\> \[Numero Portata\] per bloccare la preparazione dei piatti posizionati al di sotto di essa.  
+* **Stampe di Annullamento:** Devono essere generate con la dicitura visiva \--- ANNULLO \--- stampata in modalità testo invertito (sfondo nero, testo bianco) per catturare immediatamente l'attenzione dei cuochi ed evitare la preparazione di un piatto stornato.  
+* **Stampe di Ristampa:** Devono includere obbligatoriamente le etichette \*\*\* RISTAMPA \*\*\* o \*\* Reprint \*\* sia nell'intestazione che nel footer per motivi di tracciabilità contabile interna.  
+* **Report Giornaliero:** Deve aggregare i dati finanziari in formato testuale nativo strutturato per permettere al backend cloud di mappare la stessa identica gerarchia informativa all'interno del corpo delle notifiche e-mail inviate agli amministratori.

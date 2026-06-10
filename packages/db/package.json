@@ -1,0 +1,39 @@
+{
+  "name": "@pizzaguys/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint ok'",
+    "test": "echo 'no tests'",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit push",
+    "seed": "tsx --env-file=../../.env src/seed.ts",
+    "seed:menu": "tsx --env-file=../../.env src/seed-menu.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "drizzle-orm": "^0.44.2",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "drizzle-kit": "^0.31.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}
