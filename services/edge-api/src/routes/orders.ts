@@ -25,6 +25,7 @@ import {
   getSubmittedOrdersByTable,
   getTableRuntime,
   markOrderSubmitted,
+  setTableOccupied,
   releaseDessertQueue,
   stornoLine,
   type KdsTicket,
@@ -135,6 +136,7 @@ export async function orderRoutes(app: FastifyInstance) {
         status: runtime.status,
         lockedBy: runtime.lockedBy,
         lockedByName: runtime.lockedByName,
+        guests: runtime.guests,
       };
     });
   });
@@ -232,6 +234,8 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, order.tableId)).get();
+    const runtime = getTableRuntime(order.tableId);
+    const guestCount = runtime.guests ?? table?.defaultGuests ?? 2;
     const routing = app.edgeDb.select().from(categoryRouting).all();
     const printerList = app.edgeDb.select().from(printers).all();
 
@@ -255,7 +259,7 @@ export async function orderRoutes(app: FastifyInstance) {
       const payload = buildKitchenTicket({
         workCenter: center,
         tableLabel: table?.label ?? order.tableId,
-        guests: table?.defaultGuests ?? 2,
+        guests: guestCount,
         operatorName: order.operatorName,
         hold,
         lines: activeLines.map((l) => ({
@@ -271,6 +275,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const kdsTickets = buildKdsFromOrder(order, table?.label ?? order.tableId);
     addKdsTickets(kdsTickets);
     markOrderSubmitted(order.id);
+    setTableOccupied(order.tableId);
 
     return {
       ok: true,
@@ -348,6 +353,8 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, parsed.data.tableId)).get();
+    const runtime = getTableRuntime(parsed.data.tableId);
+    const guestCount = runtime.guests ?? table?.defaultGuests ?? 2;
     const released = releaseDessertQueue(parsed.data.tableId);
 
     const routing = app.edgeDb.select().from(categoryRouting).all();
@@ -365,7 +372,7 @@ export async function orderRoutes(app: FastifyInstance) {
         const payload = buildKitchenTicket({
           workCenter: center,
           tableLabel: table?.label ?? parsed.data.tableId,
-          guests: table?.defaultGuests ?? 2,
+          guests: guestCount,
           operatorName: "X DOLCE",
           lines,
         });

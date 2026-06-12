@@ -71,18 +71,21 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
     .where(eq(tables.isVirtual, true))
     .all();
   if (virtualTables.length === 0) {
-    for (const [label, virtualType] of [
+    const virtualWidth = 100;
+    const virtualGap = 16;
+    const virtualStartX = 20;
+    for (const [index, [label, virtualType]] of [
       ["ASPORTO", "ASPORTO"],
       ["DELIVERY", "DELIVERY"],
-    ] as const) {
+    ].entries()) {
       db.insert(tables)
         .values({
           id: randomUUID(),
           roomId: null,
           label,
-          x: virtualType === "ASPORTO" ? 20 : 140,
+          x: virtualStartX + index * (virtualWidth + virtualGap),
           y: 20,
-          width: 100,
+          width: virtualWidth,
           height: 60,
           defaultGuests: 1,
           isVirtual: true,

@@ -1,6 +1,6 @@
 import type { PaymentMethod, TableStatus } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
 import { PaymentModal } from "../components/PaymentModal";
 import { parsePaymentAmount } from "../components/PaymentPad";
@@ -131,6 +131,10 @@ export function CassaPage({
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [analyticCheckId, setAnalyticCheckId] = useState<string | undefined>();
+  const tablesRef = useRef(tables);
+  const pendingUnlockTableRef = useRef(pendingUnlockTable);
+  tablesRef.current = tables;
+  pendingUnlockTableRef.current = pendingUnlockTable;
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
@@ -193,6 +197,7 @@ export function CassaPage({
   }, [operator, loadTables, loadPendingPayments, loadActiveShift]);
 
   useEffect(() => {
+    if (!operator) return;
     loadTables();
     const offLocked = on("TABLE_LOCKED_BROADCAST", () => loadTables());
     const offStatus = on("TABLE_STATUS_UPDATE", () => loadTables());
@@ -227,7 +232,8 @@ export function CassaPage({
       const p = payload as { tableId: string };
       setLockPending(null);
       setPinModalError("");
-      const table = tables.find((t) => t.id === p.tableId) ?? pendingUnlockTable;
+      const table =
+        tablesRef.current.find((t) => t.id === p.tableId) ?? pendingUnlockTableRef.current;
       if (table) {
         setSelectedTable(table);
         void loadBill(table.id);
@@ -247,7 +253,7 @@ export function CassaPage({
       offGranted();
       offDenied();
     };
-  }, [on, loadTables, loadPendingPayments, tables, pendingUnlockTable, loadBill]);
+  }, [operator, on, loadTables, loadPendingPayments, loadBill]);
 
   useEffect(() => {
     if (selectedTable) void loadBill(selectedTable.id);

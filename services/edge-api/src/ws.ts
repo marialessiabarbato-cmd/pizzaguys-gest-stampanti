@@ -66,6 +66,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               operatorId: string;
               operatorName: string;
               overridePin?: string;
+              guests?: number;
             };
 
             let force = false;
@@ -78,18 +79,24 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               force = true;
             }
 
+            const guests =
+              typeof payload.guests === "number"
+                ? Math.min(30, Math.max(1, Math.floor(payload.guests)))
+                : undefined;
+
             const result = requestLock(
               payload.tableId,
               payload.operatorId,
               payload.operatorName,
               force,
+              guests,
             );
             if (!result.granted) {
               reply("LOCK_DENIED", { tableId: payload.tableId, reason: result.reason });
               break;
             }
             const runtime = getTableRuntime(payload.tableId);
-            reply("LOCK_GRANTED", { ...payload, status: runtime.status });
+            reply("LOCK_GRANTED", { ...payload, status: runtime.status, guests: runtime.guests });
             broadcast({
               type: "TABLE_LOCKED_BROADCAST",
               payload: {
@@ -97,6 +104,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
                 operatorId: payload.operatorId,
                 operatorName: payload.operatorName,
                 status: "LOCKED",
+                guests: runtime.guests,
               },
               timestamp: new Date().toISOString(),
               messageId: randomUUID(),
@@ -107,7 +115,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
             const payload = msg.payload as { tableId: string; operatorId: string };
             const released = releaseLock(payload.tableId, payload.operatorId);
             if (released) {
-              broadcastTableStatus(payload.tableId, "FREE");
+              broadcastTableStatus(payload.tableId, getTableRuntime(payload.tableId).status);
             }
             break;
           }
@@ -119,6 +127,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               kdsTickets?: unknown[];
             };
             setTableOccupied(payload.tableId);
+            broadcastTableStatus(payload.tableId, "OCCUPIED");
             broadcast({
               type: "KDS_ORDER_UPDATE",
               payload: {

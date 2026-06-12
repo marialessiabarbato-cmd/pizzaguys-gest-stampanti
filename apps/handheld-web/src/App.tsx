@@ -1,6 +1,7 @@
 import type { TableStatus } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GuestsModal } from "./components/GuestsModal";
 import { PinPad } from "./components/PinPad";
 import { PinModal } from "./components/PinModal";
 import { VariantSheet } from "./components/VariantSheet";
@@ -59,6 +60,9 @@ export default function App() {
   const [pinModal, setPinModal] = useState<PinModalMode>(null);
   const [pinModalError, setPinModalError] = useState("");
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
+  const [pendingGuestsTable, setPendingGuestsTable] = useState<LiveTable | null>(null);
+  const [guestCount, setGuestCount] = useState(2);
+  const [unlockOverridePin, setUnlockOverridePin] = useState<string | undefined>();
   const [pendingDiscountLine, setPendingDiscountLine] = useState<string | null>(null);
   const [pendingStorno, setPendingStorno] = useState<SubmittedLine | null>(null);
   const [exitConfirm, setExitConfirm] = useState(false);
@@ -176,16 +180,18 @@ export default function App() {
     const unsub1 = on("TABLE_LOCKED_BROADCAST", () => loadTables());
     const unsub2 = on("TABLE_STATUS_UPDATE", () => loadTables());
     const unsub3 = on("LOCK_GRANTED", (payload) => {
-      const p = payload as { tableId: string };
+      const p = payload as { tableId: string; guests?: number };
       const table = tables.find((t) => t.id === p.tableId);
       if (table && operator) {
-        setActiveTable({ ...table, status: "LOCKED" });
+        setActiveTable({ ...table, status: "LOCKED", guests: p.guests ?? table.guests });
         void loadDraftForTable(p.tableId);
         loadMenu();
         setScreen("order");
       }
       setLockPending(null);
       setPendingUnlockTable(null);
+      setPendingGuestsTable(null);
+      setUnlockOverridePin(undefined);
     });
     const unsub4 = on("LOCK_DENIED", (payload) => {
       const p = payload as { reason?: string };
@@ -240,7 +246,7 @@ export default function App() {
     }
   };
 
-  const requestLock = (table: LiveTable, overridePin?: string) => {
+  const requestLock = (table: LiveTable, overridePin?: string, guests?: number) => {
     if (!operator) return;
     setLockPending(table.id);
     send("REQUEST_TABLE_LOCK", {
@@ -248,24 +254,63 @@ export default function App() {
       operatorId: operator.id,
       operatorName: `${operator.firstName} ${operator.lastName}`,
       overridePin,
+      guests,
     });
+  };
+
+  const openGuestsModal = (table: LiveTable) => {
+    setGuestCount(table.guests ?? table.defaultGuests ?? 2);
+    setPendingGuestsTable(table);
+  };
+
+  const confirmGuests = () => {
+    if (!pendingGuestsTable) return;
+    requestLock(pendingGuestsTable, unlockOverridePin, guestCount);
+    setPendingGuestsTable(null);
+    setUnlockOverridePin(undefined);
+  };
+
+  const enterTable = (table: LiveTable, overridePin?: string) => {
+    if (!table.isVirtual && table.status === "FREE") {
+      if (overridePin) setUnlockOverridePin(overridePin);
+      openGuestsModal(table);
+      return;
+    }
+    requestLock(table, overridePin);
+  };
+
+  const reenterTable = (table: LiveTable) => {
+    setActiveTable(table);
+    void loadDraftForTable(table.id);
+    loadMenu();
+    setScreen("order");
   };
 
   const selectTable = (table: LiveTable) => {
     if (!operator) return;
+    if (table.status === "LOCKED" && table.lockedBy === operator.id) {
+      reenterTable(table);
+      return;
+    }
     if (table.status === "LOCKED" && table.lockedBy !== operator.id) {
       setPendingUnlockTable(table);
       setPinModal("unlock");
       return;
     }
-    requestLock(table);
+    if (table.isVirtual) {
+      requestLock(table, undefined, 1);
+      return;
+    }
+    enterTable(table);
   };
 
   const handleUnlockPin = (value: string) => {
     if (!operator || !pendingUnlockTable) return;
     setPinModalError("");
-    requestLock(pendingUnlockTable, value);
     setPinModal(null);
+    const table = pendingUnlockTable;
+    setPendingUnlockTable(null);
+    enterTable(table, value);
   };
 
   const getChannel = (): "TABLE" | "TAKEAWAY" | "DELIVERY" => {
@@ -559,7 +604,12 @@ export default function App() {
 
         <header className="flex items-center justify-between border-b border-[hsl(var(--pg-border))] p-4">
           <Button variant="ghost" onClick={leaveOrder}>← Mappa</Button>
-          <h1 className="text-lg font-bold">{activeTable.label}</h1>
+          <div className="text-center">
+            <h1 className="text-lg font-bold">{activeTable.label}</h1>
+            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+              {activeTable.guests ?? activeTable.defaultGuests} coperti
+            </p>
+          </div>
           <span className="text-sm">{operator.firstName}</span>
         </header>
 
@@ -825,6 +875,11 @@ export default function App() {
             className={`flex flex-col items-center justify-center rounded-lg text-white shadow-md transition active:scale-95 ${STATUS_COLORS[t.status] ?? "bg-gray-400"} ${lockPending === t.id ? "opacity-50" : ""}`}
           >
             <span className="text-lg font-bold">{t.label}</span>
+            {(t.guests ?? (!t.isVirtual ? t.defaultGuests : undefined)) && (
+              <span className="text-[10px]">
+                {t.guests ?? t.defaultGuests} coperti
+              </span>
+            )}
             {t.lockedByName && t.status === "LOCKED" && (
               <span className="text-[10px]">{t.lockedByName}</span>
             )}
@@ -845,6 +900,19 @@ export default function App() {
           </span>
         ))}
       </div>
+
+      {pendingGuestsTable && (
+        <GuestsModal
+          tableLabel={pendingGuestsTable.label}
+          guests={guestCount}
+          onChange={setGuestCount}
+          onConfirm={confirmGuests}
+          onCancel={() => {
+            setPendingGuestsTable(null);
+            setUnlockOverridePin(undefined);
+          }}
+        />
+      )}
     </main>
   );
 }

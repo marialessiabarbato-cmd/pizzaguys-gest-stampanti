@@ -12,11 +12,13 @@ export interface LiveTable {
   y: number;
   width: number;
   height: number;
+  defaultGuests: number;
   isVirtual: boolean;
   virtualType: string | null;
   status: import("@pizzaguys/types").TableStatus;
   lockedBy?: string;
   lockedByName?: string;
+  guests?: number;
 }
 
 export interface VariantOption {

@@ -18,7 +18,10 @@ import { variantRoutes } from "./routes/variants.js";
 const PORT = Number(process.env.CLOUD_API_PORT ?? 4000);
 
 const app = Fastify({ logger: true });
-await app.register(cors, { origin: true });
+await app.register(cors, {
+  origin: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+});
 await app.register(dbPlugin);
 await app.register(authPlugin);
 

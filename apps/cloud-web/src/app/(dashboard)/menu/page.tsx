@@ -22,6 +22,24 @@ import { useCallback, useEffect, useState } from "react";
 import { EU_ALLERGENS, SALES_CHANNELS, VAT_RATES, localizedName } from "@/lib/constants";
 import { api } from "@/lib/api";
 
+function priceFieldKey(productId: string, channel: string) {
+  return `${productId}:${channel}`;
+}
+
+function formatEuroField(price: number | null | undefined): string {
+  if (price == null) return "";
+  return price.toFixed(2).replace(".", ",");
+}
+
+function parseEuroField(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/\s/g, "").replace(",", ".");
+  const n = Number.parseFloat(normalized);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
 interface Category {
   id: string;
   name: Record<string, string>;
@@ -117,6 +135,7 @@ export default function MenuPage() {
   const [variantGroups, setVariantGroups] = useState<VariantGroup[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [prices, setPrices] = useState<ProductPrice[]>([]);
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [priceLocationId, setPriceLocationId] = useState("");
   const [bulkPercent, setBulkPercent] = useState("0");
@@ -174,6 +193,10 @@ export default function MenuPage() {
   useEffect(() => {
     if (tab === "prezzi") void loadPrices();
   }, [tab, loadPrices]);
+
+  useEffect(() => {
+    setPriceDrafts({});
+  }, [priceLocationId]);
 
   const onDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -260,14 +283,36 @@ export default function MenuPage() {
 
   const getPrice = (productId: string, channel: string) => {
     const row = prices.find((p) => p.productId === productId && p.channel === channel);
-    return row?.price ?? null;
+    return row?.price != null ? Number(row.price) : null;
   };
 
-  const setPrice = async (productId: string, channel: string, value: string) => {
-    const price = value === "" ? null : Number(value);
+  const getPriceFieldValue = (productId: string, channel: string) => {
+    const key = priceFieldKey(productId, channel);
+    if (key in priceDrafts) return priceDrafts[key] ?? "";
+    return formatEuroField(getPrice(productId, channel));
+  };
+
+  const setPriceDraft = (productId: string, channel: string, value: string) => {
+    const key = priceFieldKey(productId, channel);
+    setPriceDrafts((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const commitPrice = async (productId: string, channel: string) => {
+    const key = priceFieldKey(productId, channel);
+    const raw = priceDrafts[key];
+    if (raw === undefined) return;
+
+    const price = parseEuroField(raw);
+    if (raw.trim() !== "" && price === null) return;
+
     await api("/api/v2/product-prices", {
       method: "PUT",
       body: JSON.stringify({ productId, locationId: priceLocationId, channel, price }),
+    });
+    setPriceDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
     });
     void loadPrices();
   };
@@ -588,22 +633,22 @@ export default function MenuPage() {
                     <tr key={p.id} className="border-b border-[hsl(var(--pg-border))]">
                       <td className="py-2 pr-4">{localizedName(p.name)}</td>
                       <td className="py-2 pr-4">€ {Number(p.basePrice).toFixed(2)}</td>
-                      {SALES_CHANNELS.map((ch) => {
-                        const override = getPrice(p.id, ch.id);
-                        return (
+                      {SALES_CHANNELS.map((ch) => (
                           <td key={ch.id} className="py-2 pr-4">
                             <input
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              className="w-20 rounded border border-[hsl(var(--pg-border))] bg-transparent px-2 py-1 text-xs"
-                              placeholder={Number(p.basePrice).toFixed(2)}
-                              value={override ?? ""}
-                              onChange={(e) => void setPrice(p.id, ch.id, e.target.value)}
+                              type="text"
+                              inputMode="decimal"
+                              className="w-24 rounded border border-[hsl(var(--pg-border))] bg-transparent px-2 py-1 text-xs"
+                              placeholder={formatEuroField(Number(p.basePrice))}
+                              value={getPriceFieldValue(p.id, ch.id)}
+                              onChange={(e) => setPriceDraft(p.id, ch.id, e.target.value)}
+                              onBlur={() => void commitPrice(p.id, ch.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") e.currentTarget.blur();
+                              }}
                             />
                           </td>
-                        );
-                      })}
+                        ))}
                     </tr>
                   ))}
                 </tbody>

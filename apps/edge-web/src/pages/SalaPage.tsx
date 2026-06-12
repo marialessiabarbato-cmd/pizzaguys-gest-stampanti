@@ -28,6 +28,7 @@ export function SalaPage() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [newRoomName, setNewRoomName] = useState("");
   const [newTable, setNewTable] = useState({ label: "", guests: 2 });
+  const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
     const [r, t] = await Promise.all([
@@ -36,8 +37,11 @@ export function SalaPage() {
     ]);
     setRooms(r);
     setTables(t);
-    if (!activeRoomId && r[0]) setActiveRoomId(r[0].id);
-  }, [activeRoomId]);
+    setActiveRoomId((current) => {
+      if (current && r.some((room) => room.id === current)) return current;
+      return r[0]?.id ?? null;
+    });
+  }, []);
 
   useEffect(() => {
     void load();
@@ -57,13 +61,20 @@ export function SalaPage() {
   const createTable = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeRoomId) return;
+    const roomPhysical = tables.filter((t) => t.roomId === activeRoomId && !t.isVirtual);
+    const tableSize = 80;
+    const gap = 16;
+    const startX = 20;
+    const startY = 120;
     await edgeApi("/api/tables", {
       method: "POST",
       body: JSON.stringify({
         roomId: activeRoomId,
         label: newTable.label,
-        x: 100 + tables.length * 20,
-        y: 100,
+        x: startX + roomPhysical.length * (tableSize + gap),
+        y: startY,
+        width: tableSize,
+        height: tableSize,
         defaultGuests: newTable.guests,
       }),
     });
@@ -84,12 +95,40 @@ export function SalaPage() {
     void load();
   };
 
+  const deleteRoom = async () => {
+    const room = rooms.find((r) => r.id === activeRoomId);
+    if (!activeRoomId || !room) return;
+    const tableCount = tables.filter((t) => t.roomId === activeRoomId && !t.isVirtual).length;
+    const confirmMessage =
+      tableCount > 0
+        ? `Eliminare la sala "${room.name}" e i suoi ${tableCount} tavoli?`
+        : `Eliminare la sala "${room.name}"?`;
+    if (!confirm(confirmMessage)) return;
+    try {
+      setMessage("");
+      await edgeApi(`/api/rooms/${activeRoomId}`, { method: "DELETE" });
+      const remaining = rooms.filter((r) => r.id !== activeRoomId);
+      setActiveRoomId(remaining[0]?.id ?? null);
+      setRooms(remaining);
+      setTables((prev) => prev.filter((t) => t.roomId !== activeRoomId));
+      setMessage(`Sala "${room.name}" eliminata`);
+      void load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore eliminazione sala");
+    }
+  };
+
+  const activeRoom = rooms.find((r) => r.id === activeRoomId);
   const roomTables = tables.filter((t) => t.roomId === activeRoomId);
   const virtualTables = tables.filter((t) => t.isVirtual);
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Sala Builder</h1>
+
+      {message && (
+        <p className="rounded-md bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {rooms.map((r) => (
@@ -140,6 +179,23 @@ export function SalaPage() {
               </form>
             </CardContent>
           </Card>
+
+          {activeRoom && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Sala attiva</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm font-medium">{activeRoom.name}</p>
+                <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                  {roomTables.length} tavol{roomTables.length === 1 ? "o" : "i"} in questa sala
+                </p>
+                <Button type="button" variant="danger" className="w-full" onClick={() => void deleteRoom()}>
+                  Elimina sala
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

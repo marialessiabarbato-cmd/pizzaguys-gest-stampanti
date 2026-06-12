@@ -2,7 +2,7 @@
 
 Piattaforma POS multi-sede per Pizza Guys (Cloud + Edge + PWA).
 
-Documentazione: [`doc/PIANO-OPERATIVO.md`](doc/PIANO-OPERATIVO.md) · [`doc/FASE-1.md`](doc/FASE-1.md) · [`doc/FASE-2.md`](doc/FASE-2.md) · [`doc/FASE-3.md`](doc/FASE-3.md) · [`doc/HANDOFF.md`](doc/HANDOFF.md)
+Documentazione: [`doc/PIANO-OPERATIVO.md`](doc/PIANO-OPERATIVO.md) · [`doc/GIRO-TEST-LOCALE.md`](doc/GIRO-TEST-LOCALE.md) · [`doc/HANDOFF.md`](doc/HANDOFF.md)
 
 **Login dev:** `admin@pizzaguys.it` / `PizzaGuys2026!` → http://localhost:3000/login
 

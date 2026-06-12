@@ -18,18 +18,25 @@ export async function api<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const token = getToken();
+  const hasBody = options.body != null && options.body !== "";
+  const headers = new Headers(options.headers);
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error ?? `Errore ${res.status}`);
+  }
+
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
   }
 
   return res.json() as Promise<T>;

@@ -123,6 +123,7 @@ export function requestLock(
   operatorId: string,
   operatorName: string,
   force = false,
+  guests?: number,
 ): { granted: boolean; reason?: string } {
   const current = getTableRuntime(tableId);
   if (!force && current.status === "LOCKED" && current.lockedBy !== operatorId) {
@@ -141,6 +142,7 @@ export function requestLock(
     lockedBy: operatorId,
     lockedByName: operatorName,
     lockedAt: new Date().toISOString(),
+    guests: guests ?? current.guests,
   });
   return { granted: true };
 }
@@ -152,7 +154,19 @@ export function forceUnlock(tableId: string) {
 export function releaseLock(tableId: string, operatorId: string): boolean {
   const current = getTableRuntime(tableId);
   if (current.lockedBy && current.lockedBy !== operatorId) return false;
-  tableRuntime.set(tableId, { tableId, status: "FREE" });
+  const hasSubmitted = getSubmittedOrdersByTable(tableId).length > 0;
+  if (hasSubmitted) {
+    tableRuntime.set(tableId, {
+      ...current,
+      tableId,
+      status: "OCCUPIED",
+      lockedBy: undefined,
+      lockedByName: undefined,
+      lockedAt: undefined,
+    });
+  } else {
+    tableRuntime.set(tableId, { tableId, status: "FREE" });
+  }
   return true;
 }
 

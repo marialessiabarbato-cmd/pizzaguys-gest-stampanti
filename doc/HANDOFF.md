@@ -29,6 +29,7 @@
 | `doc/PIANO-OPERATIVO.md` | Piano completo |
 | `doc/FASE-1.md` … `doc/FASE-5.md` | Fasi completate |
 | `doc/FASE-6.md` | **Pilota Caserta (in corso)** |
+| `doc/GIRO-TEST-LOCALE.md` | **Checklist test MVP su PC/Mac** |
 | `doc/HANDOFF.md` | Questo file |
 | `deploy/cloud/README.md` | Deploy cloud T6.1 |
 
