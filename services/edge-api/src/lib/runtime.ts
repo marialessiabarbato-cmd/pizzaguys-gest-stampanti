@@ -355,7 +355,7 @@ export function applyLineDiscount(
   tableId: string,
   lineId: string,
   discountPercent: number,
-  discountToken: string,
+  discountToken?: string,
 ): { ok: boolean; error?: string } {
   for (const [orderId, order] of orders) {
     if (order.tableId !== tableId) continue;

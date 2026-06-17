@@ -40,7 +40,11 @@ import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
-type MenuSnapshot = { settings?: { maxDiscountPercent?: number } };
+type MenuSnapshot = {
+  settings?: { maxDiscountPercent?: number; pinDiscountThresholdPercent?: number };
+};
+
+const DEFAULT_PIN_DISCOUNT_THRESHOLD = 10;
 
 function findVirtualTable(
   db: FastifyInstance["edgeDb"],
@@ -79,16 +83,28 @@ export async function posRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
     if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
 
-    const manager = await verifyManagerPin(app.edgeDb, parsed.data.managerPin);
-    if (!manager) return reply.status(401).send({ error: "PIN manager non valido" });
-
     const menu = getMenuSnapshot(app.edgeDb);
-    const maxDiscount = (menu?.snapshot as MenuSnapshot | undefined)?.settings?.maxDiscountPercent ?? 20;
+    const settings = (menu?.snapshot as MenuSnapshot | undefined)?.settings;
+    const maxDiscount = settings?.maxDiscountPercent ?? 20;
+    const pinThreshold = settings?.pinDiscountThresholdPercent ?? DEFAULT_PIN_DISCOUNT_THRESHOLD;
+
     if (parsed.data.discountPercent > maxDiscount) {
       return reply.status(400).send({ error: `Sconto massimo ${maxDiscount}%` });
     }
 
-    const token = createDiscountToken(parsed.data.discountPercent);
+    const needsPin = parsed.data.discountPercent > pinThreshold;
+    let authorizedBy: string | undefined;
+
+    if (needsPin) {
+      if (!parsed.data.managerPin) {
+        return reply.status(401).send({ error: "PIN manager richiesto per questo sconto" });
+      }
+      const manager = await verifyManagerPin(app.edgeDb, parsed.data.managerPin);
+      if (!manager) return reply.status(401).send({ error: "PIN manager non valido" });
+      authorizedBy = `${manager.firstName} ${manager.lastName}`;
+    }
+
+    const token = needsPin ? createDiscountToken(parsed.data.discountPercent) : undefined;
     const result = applyLineDiscount(
       req.params.id,
       parsed.data.lineId,
@@ -97,26 +113,31 @@ export async function posRoutes(app: FastifyInstance) {
     );
     if (!result.ok) return reply.status(404).send({ error: result.error });
 
-    if (!consumeDiscountToken(token, parsed.data.discountPercent)) {
+    if (token && !consumeDiscountToken(token, parsed.data.discountPercent)) {
       return reply.status(500).send({ error: "Errore token sconto" });
     }
 
     const bill = consolidateTableBill(req.params.id);
-    writeEdgeAudit(app.edgeDb, {
-      staffId: manager.id,
-      operation: "POS_DISCOUNT_APPLIED",
-      severity: "WARNING",
-      nextState: {
-        tableId: req.params.id,
-        lineId: parsed.data.lineId,
-        discountPercent: parsed.data.discountPercent,
-        authorizedBy: `${manager.firstName} ${manager.lastName}`,
-      },
-    });
+    if (needsPin && parsed.data.managerPin) {
+      const manager = await verifyManagerPin(app.edgeDb, parsed.data.managerPin);
+      if (manager) {
+        writeEdgeAudit(app.edgeDb, {
+          staffId: manager.id,
+          operation: "POS_DISCOUNT_APPLIED",
+          severity: "WARNING",
+          nextState: {
+            tableId: req.params.id,
+            lineId: parsed.data.lineId,
+            discountPercent: parsed.data.discountPercent,
+            authorizedBy,
+          },
+        });
+      }
+    }
     return {
       ok: true,
       bill,
-      authorizedBy: `${manager.firstName} ${manager.lastName}`,
+      authorizedBy,
     };
   });
 

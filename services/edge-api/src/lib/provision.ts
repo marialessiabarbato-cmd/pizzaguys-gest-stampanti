@@ -74,23 +74,24 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
     const virtualWidth = 100;
     const virtualGap = 16;
     const virtualStartX = 20;
-    for (const [index, [label, virtualType]] of [
-      ["ASPORTO", "ASPORTO"],
-      ["DELIVERY", "DELIVERY"],
-    ].entries()) {
+    const virtualDefs = [
+      { label: "ASPORTO", virtualType: "ASPORTO" as const, sortOrder: 0 },
+      { label: "DELIVERY", virtualType: "DELIVERY" as const, sortOrder: 1 },
+    ];
+    for (const [index, def] of virtualDefs.entries()) {
       db.insert(tables)
         .values({
           id: randomUUID(),
           roomId: null,
-          label,
+          label: def.label,
           x: virtualStartX + index * (virtualWidth + virtualGap),
           y: 20,
           width: virtualWidth,
           height: 60,
           defaultGuests: 1,
           isVirtual: true,
-          virtualType,
-          sortOrder: virtualType === "ASPORTO" ? 0 : 1,
+          virtualType: def.virtualType,
+          sortOrder: def.sortOrder,
           createdAt: now,
         })
         .run();

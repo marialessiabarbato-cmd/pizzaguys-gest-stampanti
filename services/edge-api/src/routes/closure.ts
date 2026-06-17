@@ -77,6 +77,7 @@ export async function closureRoutes(app: FastifyInstance) {
       })),
       openShifts: openShifts.map((s) => ({ id: s.id, staffId: s.staffId })),
       zReportIssued: getZReportToday() != null,
+      theoretical: getDayTheoretical(),
     };
   });
 

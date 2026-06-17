@@ -156,7 +156,7 @@ export const closureCompleteSchema = z.object({
 export const applyPosDiscountSchema = z.object({
   lineId: z.string().uuid(),
   discountPercent: z.number().min(1).max(100),
-  managerPin: z.string().regex(/^[0-9]{4}$/),
+  managerPin: z.string().regex(/^[0-9]{4}$/).optional(),
 });
 
 export const counterSaleSchema = z.object({

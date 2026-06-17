@@ -1,6 +1,7 @@
 import type { TableStatus } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ConfirmModal } from "./components/ConfirmModal";
 import { GuestsModal } from "./components/GuestsModal";
 import { PinPad } from "./components/PinPad";
 import { PinModal } from "./components/PinModal";
@@ -66,6 +67,8 @@ export default function App() {
   const [pendingDiscountLine, setPendingDiscountLine] = useState<string | null>(null);
   const [pendingStorno, setPendingStorno] = useState<SubmittedLine | null>(null);
   const [exitConfirm, setExitConfirm] = useState(false);
+  const [submitConfirm, setSubmitConfirm] = useState(false);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
   const cartDirty = useRef(false);
 
   const isOffline = !connected || !online;
@@ -565,12 +568,14 @@ export default function App() {
   const filteredProducts = products.filter((p) => {
     if (selectedCat && p.categoryId !== selectedCat) return false;
     if (search && !fuzzyMatch(localized(p.name), search)) return false;
-    if (allergenFilter.length > 0) {
-      const ids = p.allergenIds ?? [];
-      if (allergenFilter.some((a) => ids.includes(a))) return false;
-    }
     return true;
   });
+
+  const isProductExcluded = (p: Product) => {
+    if (allergenFilter.length === 0) return false;
+    const ids = p.allergenIds ?? [];
+    return allergenFilter.some((a) => ids.includes(a));
+  };
 
   if (screen === "pin") {
     return (
@@ -614,11 +619,13 @@ export default function App() {
         </header>
 
         {exitConfirm && (
-          <div className="border-b border-yellow-500 bg-yellow-500/10 px-4 py-2 text-sm">
-            Uscire senza SPEDITO? La bozza verrà salvata.
-            <Button className="ml-2 h-9 min-h-9 px-3 text-xs" onClick={leaveOrder}>Conferma</Button>
-            <Button className="h-9 min-h-9 px-3 text-xs" variant="ghost" onClick={() => setExitConfirm(false)}>Annulla</Button>
-          </div>
+          <ConfirmModal
+            title="Uscire dalla comanda?"
+            message="La bozza verrà salvata. Il tavolo verrà sbloccato."
+            confirmLabel="Esci"
+            onConfirm={leaveOrder}
+            onCancel={() => setExitConfirm(false)}
+          />
         )}
 
         {message && (
@@ -674,19 +681,28 @@ export default function App() {
           </aside>
 
           <section className="grid flex-1 grid-cols-2 gap-2 overflow-y-auto p-3 content-start sm:grid-cols-3">
-            {filteredProducts.map((p) => (
+            {filteredProducts.map((p) => {
+              const excluded = isProductExcluded(p);
+              return (
               <button
                 key={p.id}
                 type="button"
+                disabled={excluded}
                 onClick={() => addProduct(p)}
-                className="min-h-[72px] rounded-lg border border-[hsl(var(--pg-border))] p-3 text-left active:scale-95"
+                className={`min-h-[72px] rounded-lg border border-[hsl(var(--pg-border))] p-3 text-left active:scale-95 ${
+                  excluded ? "pointer-events-none opacity-30" : ""
+                }`}
               >
-                <p className="font-medium">{localized(p.name)}</p>
+                <p className="font-medium">
+                  {excluded && <span className="mr-1">🚫</span>}
+                  {localized(p.name)}
+                </p>
                 <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                   € {resolvePrice(p, channel, menu.prices ?? []).toFixed(2)}
                 </p>
               </button>
-            ))}
+            );
+            })}
           </section>
 
           <aside className="flex w-52 flex-col border-l border-[hsl(var(--pg-border))] p-3">
@@ -781,7 +797,7 @@ export default function App() {
               size="lg"
               className="mb-2 w-full"
               disabled={cart.length === 0 || isOffline}
-              onClick={() => void submitOrder()}
+              onClick={() => setSubmitConfirm(true)}
             >
               {isOffline ? "OFFLINE" : "SPEDITO"}
             </Button>
@@ -807,6 +823,18 @@ export default function App() {
           />
         )}
 
+        {submitConfirm && (
+          <ConfirmModal
+            title="Inviare in cucina?"
+            message={`Confermi SPEDITO per ${cart.length} righe?`}
+            confirmLabel="SPEDITO"
+            onConfirm={() => {
+              setSubmitConfirm(false);
+              void submitOrder();
+            }}
+            onCancel={() => setSubmitConfirm(false)}
+          />
+        )}
         {pinModal === "unlock" && (
           <PinModal
             title="PIN manager per sblocco tavolo"
@@ -850,12 +878,25 @@ export default function App() {
           <span className={`rounded-full px-2 py-1 text-xs ${!isOffline ? "bg-green-500/20 text-green-600" : "bg-yellow-500/20"}`}>
             {!isOffline ? "Online" : "Offline"}
           </span>
-          <Button variant="outline" onClick={logout}>Esci</Button>
+          <Button variant="outline" onClick={() => setLogoutConfirm(true)}>Esci</Button>
         </div>
       </header>
 
       {message && (
         <p className="mb-3 rounded bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
+      )}
+
+      {logoutConfirm && (
+        <ConfirmModal
+          title="Uscire dalla sessione?"
+          message="Dovrai reinserire il PIN per accedere."
+          confirmLabel="Esci"
+          onConfirm={() => {
+            setLogoutConfirm(false);
+            logout();
+          }}
+          onCancel={() => setLogoutConfirm(false)}
+        />
       )}
 
       <div className="relative mx-auto h-[480px] max-w-3xl rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20">

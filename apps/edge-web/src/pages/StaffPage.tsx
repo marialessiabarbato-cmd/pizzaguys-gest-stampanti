@@ -1,6 +1,7 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useEffect, useState } from "react";
 import { edgeApi } from "@/lib/api";
+import { ConfirmModal } from "@/components/ConfirmModal";
 
 interface StaffMember {
   id: string;
@@ -10,29 +11,19 @@ interface StaffMember {
   isActive: boolean;
 }
 
-interface Shift {
-  id: string;
-  staffId: string;
-  startedAt: string;
-}
-
 export function StaffPage() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
     role: "WAITER",
     pin: "",
   });
+  const [deactivateTarget, setDeactivateTarget] = useState<StaffMember | null>(null);
 
   const load = async () => {
-    const [s, sh] = await Promise.all([
-      edgeApi<StaffMember[]>("/api/staff"),
-      edgeApi<Shift[]>("/api/shifts"),
-    ]);
+    const s = await edgeApi<StaffMember[]>("/api/staff");
     setStaff(s);
-    setShifts(sh);
   };
 
   useEffect(() => {
@@ -46,17 +37,14 @@ export function StaffPage() {
     void load();
   };
 
-  const startShift = async (staffId: string) => {
-    await edgeApi("/api/shifts/start", { method: "POST", body: JSON.stringify({ staffId }) });
+  const toggleActive = async (member: StaffMember) => {
+    await edgeApi(`/api/staff/${member.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isActive: !member.isActive }),
+    });
+    setDeactivateTarget(null);
     void load();
   };
-
-  const endShift = async (shiftId: string) => {
-    await edgeApi(`/api/shifts/${shiftId}/end`, { method: "POST" });
-    void load();
-  };
-
-  const activeShift = (staffId: string) => shifts.find((s) => s.staffId === staffId);
 
   return (
     <div className="space-y-4">
@@ -106,27 +94,42 @@ export function StaffPage() {
       </Card>
 
       <div className="space-y-2">
-        {staff.map((m) => {
-          const shift = activeShift(m.id);
-          return (
-            <Card key={m.id}>
-              <CardContent className="flex items-center justify-between pt-6">
-                <div>
-                  <p className="font-medium">{m.firstName} {m.lastName}</p>
-                  <p className="text-xs uppercase text-[hsl(var(--pg-muted-foreground))]">{m.role}</p>
-                </div>
-                {shift ? (
-                  <Button variant="outline" onClick={() => void endShift(shift.id)}>
-                    Chiudi turno
-                  </Button>
-                ) : (
-                  <Button onClick={() => void startShift(m.id)}>Apri turno</Button>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+        {staff.map((m) => (
+          <Card key={m.id} className={!m.isActive ? "opacity-60" : ""}>
+            <CardContent className="flex items-center justify-between pt-6">
+              <div>
+                <p className="font-medium">
+                  {m.firstName} {m.lastName}
+                  {!m.isActive && (
+                    <span className="ml-2 text-xs text-orange-600">(disattivato)</span>
+                  )}
+                </p>
+                <p className="text-xs uppercase text-[hsl(var(--pg-muted-foreground))]">{m.role}</p>
+              </div>
+              {m.isActive ? (
+                <Button variant="outline" onClick={() => setDeactivateTarget(m)}>
+                  Disattiva
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => void toggleActive(m)}>
+                  Riattiva
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ))}
       </div>
+
+      {deactivateTarget && (
+        <ConfirmModal
+          title="Disattivare operatore?"
+          message={`${deactivateTarget.firstName} ${deactivateTarget.lastName} non potrà più accedere con il PIN.`}
+          confirmLabel="Disattiva"
+          variant="danger"
+          onConfirm={() => void toggleActive(deactivateTarget)}
+          onCancel={() => setDeactivateTarget(null)}
+        />
+      )}
     </div>
   );
 }

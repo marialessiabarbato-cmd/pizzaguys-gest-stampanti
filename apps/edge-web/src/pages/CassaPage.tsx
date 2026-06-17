@@ -2,6 +2,9 @@ import type { PaymentMethod, TableStatus } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
+import { ComandaPanel } from "../components/ComandaPanel";
+import { ConfirmModal } from "../components/ConfirmModal";
+import { DiscountModal } from "../components/DiscountModal";
 import { PaymentModal } from "../components/PaymentModal";
 import { parsePaymentAmount } from "../components/PaymentPad";
 import { PinModal } from "../components/PinModal";
@@ -31,6 +34,8 @@ interface LiveTable {
   status: TableStatus;
   lockedBy?: string;
   lockedByName?: string;
+  guests?: number;
+  defaultGuests?: number;
   isVirtual: boolean;
   virtualType: string | null;
 }
@@ -125,16 +130,25 @@ export function CassaPage({
   const [pendingPayments, setPendingPayments] = useState<PaymentRequest[]>([]);
   const [romanShares, setRomanShares] = useState("2");
   const [discountLine, setDiscountLine] = useState<BillLine | null>(null);
-  const [discountPercent, setDiscountPercent] = useState(10);
+  const [discountError, setDiscountError] = useState("");
   const [maxDiscount, setMaxDiscount] = useState(20);
+  const [pinDiscountThreshold, setPinDiscountThreshold] = useState(10);
+  const [panelTab, setPanelTab] = useState<"conto" | "comanda">("conto");
+  const [pendingUnlockAction, setPendingUnlockAction] = useState<"view" | "comanda" | null>(null);
+  const [confirmPay, setConfirmPay] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [analyticCheckId, setAnalyticCheckId] = useState<string | undefined>();
   const tablesRef = useRef(tables);
   const pendingUnlockTableRef = useRef(pendingUnlockTable);
+  const pendingUnlockActionRef = useRef(pendingUnlockAction);
   tablesRef.current = tables;
   pendingUnlockTableRef.current = pendingUnlockTable;
+  pendingUnlockActionRef.current = pendingUnlockAction;
+
+  const canComanda = operator?.role === "USER_ADMIN" || operator?.role === "CASHIER";
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
@@ -191,9 +205,14 @@ export function CassaPage({
     loadTables();
     loadPendingPayments();
     void loadActiveShift(operator.id);
-    void edgeApi<{ snapshot?: { settings?: { maxDiscountPercent?: number } } }>("/api/menu").then(
-      (m) => setMaxDiscount(m.snapshot?.settings?.maxDiscountPercent ?? 20),
-    );
+    void edgeApi<{
+      snapshot?: {
+        settings?: { maxDiscountPercent?: number; pinDiscountThresholdPercent?: number };
+      };
+    }>("/api/menu").then((m) => {
+      setMaxDiscount(m.snapshot?.settings?.maxDiscountPercent ?? 20);
+      setPinDiscountThreshold(m.snapshot?.settings?.pinDiscountThresholdPercent ?? 10);
+    });
   }, [operator, loadTables, loadPendingPayments, loadActiveShift]);
 
   useEffect(() => {
@@ -236,9 +255,12 @@ export function CassaPage({
         tablesRef.current.find((t) => t.id === p.tableId) ?? pendingUnlockTableRef.current;
       if (table) {
         setSelectedTable(table);
-        void loadBill(table.id);
+        const action = pendingUnlockActionRef.current;
+        setPanelTab(action === "comanda" ? "comanda" : "conto");
+        if (action !== "comanda") void loadBill(table.id);
       }
       setPendingUnlockTable(null);
+      setPendingUnlockAction(null);
     });
     const offDenied = on("LOCK_DENIED", (payload) => {
       const p = payload as { reason?: string };
@@ -282,6 +304,7 @@ export function CassaPage({
       operatorId: operator.id,
       operatorName: `${operator.firstName} ${operator.lastName}`,
       overridePin,
+      guests: table.guests ?? table.defaultGuests ?? 2,
     });
   };
 
@@ -295,16 +318,43 @@ export function CassaPage({
   };
 
   const selectTable = (table: LiveTable) => {
+    if (table.status === "LOCKED" && table.lockedBy === operator?.id) {
+      setPaymentRequestId(undefined);
+      setSelectedTable(table);
+      setPanelTab("conto");
+      setMessage("");
+      setPaymentResult(null);
+      void loadBill(table.id);
+      return;
+    }
     if (table.status === "LOCKED" && table.lockedBy !== operator?.id) {
       setPendingUnlockTable(table);
+      setPendingUnlockAction("view");
       setPinModalError("");
       return;
     }
     setPaymentRequestId(undefined);
     setSelectedTable(table);
+    setPanelTab("conto");
     setMessage("");
     setPaymentResult(null);
     void loadBill(table.id);
+  };
+
+  const enterComanda = () => {
+    if (!selectedTable || !operator || !canComanda) return;
+    if (selectedTable.status === "LOCKED" && selectedTable.lockedBy !== operator.id) {
+      setPendingUnlockTable(selectedTable);
+      setPendingUnlockAction("comanda");
+      setPinModalError("");
+      return;
+    }
+    if (selectedTable.status !== "LOCKED" || selectedTable.lockedBy !== operator.id) {
+      setPendingUnlockAction("comanda");
+      requestLock(selectedTable);
+      return;
+    }
+    setPanelTab("comanda");
   };
 
   const handleUnlockPin = (value: string) => {
@@ -353,9 +403,9 @@ export function CassaPage({
     }
   };
 
-  const handleDiscountPin = async (pin: string) => {
+  const handleDiscountApply = async (percent: number, managerPin?: string) => {
     if (!selectedTable || !discountLine) return;
-    setPinModalError("");
+    setDiscountError("");
     setLoading(true);
     try {
       const result = await edgeApi<{ bill: TableBill }>(
@@ -364,16 +414,16 @@ export function CassaPage({
           method: "POST",
           body: JSON.stringify({
             lineId: discountLine.id,
-            discountPercent,
-            managerPin: pin,
+            discountPercent: percent,
+            ...(managerPin ? { managerPin } : {}),
           }),
         },
       );
       setBill(result.bill);
       setDiscountLine(null);
-      setMessage(`Sconto ${discountPercent}% applicato`);
+      setMessage(`Sconto ${percent}% applicato`);
     } catch (err) {
-      setPinModalError(err instanceof Error ? err.message : "PIN non valido");
+      setDiscountError(err instanceof Error ? err.message : "Sconto rifiutato");
     } finally {
       setLoading(false);
     }
@@ -391,7 +441,7 @@ export function CassaPage({
     setCashAmount("");
     setPaymentRequestId(requestId);
     setAnalyticCheckId(checkId);
-    setShowPayment(true);
+    setConfirmPay(true);
   };
 
   const handlePay = async () => {
@@ -526,7 +576,7 @@ export function CassaPage({
           <Button variant="outline" className="h-9 px-3 text-sm" onClick={onAdmin}>
             Admin
           </Button>
-          <Button variant="ghost" className="h-9 px-3 text-sm" onClick={() => setOperator(null)}>
+          <Button variant="ghost" className="h-9 px-3 text-sm" onClick={() => setConfirmLogout(true)}>
             Esci
           </Button>
         </div>
@@ -614,10 +664,44 @@ export function CassaPage({
           </div>
         </section>
 
-        <aside className="flex w-96 shrink-0 flex-col border-l border-[hsl(var(--pg-border))]">
-          {selectedTable && bill ? (
+        <aside className="flex w-[28rem] shrink-0 flex-col border-l border-[hsl(var(--pg-border))]">
+          {selectedTable && panelTab === "comanda" && canComanda && operator ? (
+            <ComandaPanel
+              table={selectedTable}
+              operator={operator}
+              onClose={() => {
+                setPanelTab("conto");
+                loadTables();
+                void loadBill(selectedTable.id);
+              }}
+              onSubmitted={() => {
+                setPanelTab("conto");
+                loadTables();
+                void loadBill(selectedTable.id);
+                setMessage("Comanda inviata in cucina");
+              }}
+            />
+          ) : selectedTable && bill ? (
             <>
               <div className="border-b border-[hsl(var(--pg-border))] p-4">
+                <div className="mb-2 flex gap-2">
+                  <Button
+                    className="h-8 flex-1 text-xs"
+                    variant={panelTab === "conto" ? "default" : "outline"}
+                    onClick={() => setPanelTab("conto")}
+                  >
+                    Conto
+                  </Button>
+                  {canComanda && (
+                    <Button
+                      className="h-8 flex-1 text-xs"
+                      variant="outline"
+                      onClick={() => enterComanda()}
+                    >
+                      Comanda
+                    </Button>
+                  )}
+                </div>
                 <h2 className="text-lg font-bold">Tavolo {bill.tableLabel}</h2>
                 <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                   {selectedTable.status}
@@ -647,10 +731,7 @@ export function CassaPage({
                           <button
                             type="button"
                             className="flex w-full justify-between gap-2 border-b border-[hsl(var(--pg-border))]/50 pb-2 text-left text-sm active:bg-[hsl(var(--pg-muted))]"
-                            onClick={() => {
-                              setDiscountPercent(maxDiscount);
-                              setDiscountLine(line);
-                            }}
+                            onClick={() => setDiscountLine(line)}
                           >
                             <span>
                               {line.quantity}× {line.name}
@@ -664,7 +745,7 @@ export function CassaPage({
                       ))}
                     </ul>
                     <p className="mt-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
-                      Tap riga per sconto (PIN manager)
+                      Tap riga per sconto (PIN oltre {pinDiscountThreshold}%)
                     </p>
                   </>
                 )}
@@ -754,14 +835,42 @@ export function CassaPage({
       )}
 
       {discountLine && (
-        <PinModal
-          title={`Sconto ${discountPercent}% su ${discountLine.name}`}
-          onComplete={(pin) => void handleDiscountPin(pin)}
+        <DiscountModal
+          lineName={discountLine.name}
+          maxPercent={maxDiscount}
+          pinThreshold={pinDiscountThreshold}
+          onApply={(percent, pin) => void handleDiscountApply(percent, pin)}
           onCancel={() => {
             setDiscountLine(null);
-            setPinModalError("");
+            setDiscountError("");
           }}
-          error={pinModalError}
+          error={discountError}
+        />
+      )}
+
+      {confirmPay && bill && (
+        <ConfirmModal
+          title="Confermi il pagamento?"
+          message={`Incasso di € ${payAmount.toFixed(2)} per tavolo ${bill.tableLabel}.`}
+          confirmLabel="Procedi"
+          onConfirm={() => {
+            setConfirmPay(false);
+            setShowPayment(true);
+          }}
+          onCancel={() => setConfirmPay(false)}
+        />
+      )}
+
+      {confirmLogout && (
+        <ConfirmModal
+          title="Uscire dalla cassa?"
+          message="La sessione operatore verrà chiusa."
+          confirmLabel="Esci"
+          onConfirm={() => {
+            setConfirmLogout(false);
+            setOperator(null);
+          }}
+          onCancel={() => setConfirmLogout(false)}
         />
       )}
 

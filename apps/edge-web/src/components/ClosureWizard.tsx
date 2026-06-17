@@ -4,14 +4,25 @@ import { edgeApi } from "../lib/api";
 
 type Step = "precheck" | "zreport" | "reconcile" | "done";
 
+interface Theoretical {
+  cash: number;
+  pos: number;
+  total: number;
+  transactionCount: number;
+  byPaymentMethod: Record<string, number>;
+}
+
 interface PreCheck {
   canClose: boolean;
   blockers: string[];
   openTables: Array<{ tableId: string; status: string }>;
   zReportIssued: boolean;
+  theoretical: Theoretical;
 }
 
 interface ReconcileResult {
+  theoretical: Theoretical;
+  declared: { cash: number; pos: number };
   discrepancy: { cash: number; pos: number; total: number };
 }
 
@@ -99,6 +110,8 @@ export function ClosureWizard({
     }
   };
 
+  const theoretical = reconcile?.theoretical ?? preCheck?.theoretical;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
@@ -118,6 +131,25 @@ export function ClosureWizard({
                 </ul>
               </div>
             )}
+
+            {theoretical && (
+              <div className="rounded-lg border border-[hsl(var(--pg-border))] p-3 text-sm">
+                <p className="mb-2 font-medium">Totali teorici giornata</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <span>Contanti</span>
+                  <span className="text-right tabular-nums">€ {theoretical.cash.toFixed(2)}</span>
+                  <span>POS</span>
+                  <span className="text-right tabular-nums">€ {theoretical.pos.toFixed(2)}</span>
+                  <span className="font-semibold">Totale</span>
+                  <span className="text-right font-semibold tabular-nums">
+                    € {theoretical.total.toFixed(2)}
+                  </span>
+                  <span>Transazioni</span>
+                  <span className="text-right">{theoretical.transactionCount}</span>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={onClose}>
                 Annulla
@@ -140,6 +172,21 @@ export function ClosureWizard({
                 Z mock #{zNumber} emessa
               </p>
             )}
+
+            {theoretical && !reconcile && (
+              <div className="rounded-lg bg-[hsl(var(--pg-muted))]/40 p-3 text-sm">
+                <p className="mb-2 font-medium">Riepilogo teorico (calcolato dalla cassa)</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <span>Contanti teorici</span>
+                  <span className="text-right tabular-nums">€ {theoretical.cash.toFixed(2)}</span>
+                  <span>POS teorico</span>
+                  <span className="text-right tabular-nums">€ {theoretical.pos.toFixed(2)}</span>
+                  <span>Totale teorico</span>
+                  <span className="text-right tabular-nums">€ {theoretical.total.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
             <p className="text-sm">Conteggio cieco — inserisci i valori reali:</p>
             <label className="block text-sm">
               Contanti (€)
@@ -157,19 +204,48 @@ export function ClosureWizard({
                 onChange={(e) => setPosDeclared(e.target.value)}
               />
             </label>
+
             {reconcile && (
-              <div
-                className={`rounded-lg p-3 text-center font-bold ${
-                  reconcile.discrepancy.total < 0
-                    ? "bg-red-500/10 text-red-600"
-                    : reconcile.discrepancy.total > 0
-                      ? "bg-orange-500/10 text-orange-600"
-                      : "bg-green-500/10 text-green-600"
-                }`}
-              >
-                Scostamento: € {reconcile.discrepancy.total.toFixed(2)}
+              <div className="space-y-2 rounded-lg border border-[hsl(var(--pg-border))] p-3 text-sm">
+                <div className="grid grid-cols-3 gap-2 border-b border-[hsl(var(--pg-border))] pb-2 font-medium">
+                  <span />
+                  <span className="text-right">Teorico</span>
+                  <span className="text-right">Dichiarato</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span>Contanti</span>
+                  <span className="text-right tabular-nums">€ {reconcile.theoretical.cash.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">€ {reconcile.declared.cash.toFixed(2)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span>POS</span>
+                  <span className="text-right tabular-nums">€ {reconcile.theoretical.pos.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">€ {reconcile.declared.pos.toFixed(2)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 font-semibold">
+                  <span>Totale</span>
+                  <span className="text-right tabular-nums">€ {reconcile.theoretical.total.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">
+                    € {(reconcile.declared.cash + reconcile.declared.pos).toFixed(2)}
+                  </span>
+                </div>
+                <div
+                  className={`rounded-lg p-3 text-center font-bold ${
+                    reconcile.discrepancy.total < 0
+                      ? "bg-red-500/10 text-red-600"
+                      : reconcile.discrepancy.total > 0
+                        ? "bg-orange-500/10 text-orange-600"
+                        : "bg-green-500/10 text-green-600"
+                  }`}
+                >
+                  Scostamento: € {reconcile.discrepancy.total.toFixed(2)}
+                </div>
+                <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                  Transazioni: {reconcile.theoretical.transactionCount}
+                </p>
               </div>
             )}
+
             {error && <p className="text-sm text-red-500">{error}</p>}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={onClose}>
