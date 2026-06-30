@@ -42,6 +42,9 @@ async function buildCatalogSnapshot(
   const settings = await app.db.query.brandSettings.findFirst({
     where: eq(brandSettings.brandId, brandId),
   });
+  const location = await app.db.query.locations.findFirst({
+    where: eq(locations.id, locationId),
+  });
 
   return {
     schemaVersion,
@@ -56,6 +59,7 @@ async function buildCatalogSnapshot(
       maxDiscountPercent: settings?.maxDiscountPercent ?? 20,
       tableLockTimeoutMinutes: settings?.tableLockTimeoutMinutes ?? 15,
       deliveryBrokers: settings?.deliveryBrokers ?? [],
+      coverChargeAmount: Number(location?.coverChargeAmount ?? 0),
     },
   };
 }

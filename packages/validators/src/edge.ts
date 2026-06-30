@@ -8,6 +8,7 @@ export const provisionEdgeSchema = z.object({
 export const createRoomSchema = z.object({
   name: z.string().min(1).max(80),
   sortOrder: z.number().int().min(0).optional(),
+  applyCoverCharge: z.boolean().optional(),
 });
 
 export const createTableSchema = z.object({
@@ -92,7 +93,8 @@ export const upsertOrderSchema = z.object({
 
 export const stornoLineSchema = z.object({
   lineId: z.string().uuid(),
-  managerPin: z.string().regex(/^[0-9]{4}$/),
+  operatorId: z.string().min(1),
+  operatorName: z.string().min(1),
   quantity: z.number().int().positive().optional(),
 });
 
@@ -119,6 +121,7 @@ export const payTableSchema = z.object({
   shiftId: z.string().uuid().optional(),
   splitMode: z.enum(["FULL", "ROMAN", "ANALYTIC"]).default("FULL"),
   checkId: z.string().uuid().optional(),
+  documentType: z.enum(["RECEIPT", "INVOICE", "TRAINING"]).default("RECEIPT"),
 });
 
 export const romanSplitSchema = z.object({

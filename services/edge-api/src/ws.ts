@@ -3,12 +3,12 @@ import { edgeState, tables } from "@pizzaguys/edge-db";
 import type { WsEnvelope } from "@pizzaguys/types";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { consolidateTableBill } from "./lib/bill.js";
+import { consolidateBillForTable } from "./lib/cover-charge.js";
+import { processCallCourse } from "./lib/call-course.js";
 import { executeTablePayment } from "./lib/payment.js";
 import {
-  callCourse,
   createPaymentRequest,
-  getKdsTickets,
+  getKdsSnapshot,
   getAnalyticSplit,
   getPaymentRequest,
   getRomanSplit,
@@ -131,8 +131,8 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
             broadcast({
               type: "KDS_ORDER_UPDATE",
               payload: {
+                ...getKdsSnapshot(),
                 ...payload,
-                tickets: payload.kdsTickets ?? getKdsTickets(),
               },
               timestamp: new Date().toISOString(),
               messageId: randomUUID(),
@@ -141,13 +141,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
           }
           case "CALL_COURSE": {
             const payload = msg.payload as { tableId: string; course: number };
-            const released = callCourse(payload.tableId, payload.course);
-            broadcast({
-              type: "KDS_ORDER_UPDATE",
-              payload: { tableId: payload.tableId, released, tickets: getKdsTickets() },
-              timestamp: new Date().toISOString(),
-              messageId: randomUUID(),
-            });
+            await processCallCourse(app, payload.tableId, payload.course);
             break;
           }
           case "REQUEST_STORNO_AUTHORIZATION": {
@@ -180,7 +174,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               reply("PAYMENT_REJECTED", { reason: "Tavolo non trovato" });
               break;
             }
-            const bill = consolidateTableBill(payload.tableId);
+            const bill = consolidateBillForTable(app.edgeDb, payload.tableId);
             if (bill.lines.length === 0) {
               reply("PAYMENT_REJECTED", { reason: "Conto vuoto" });
               break;
@@ -228,15 +222,26 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               reply("RECEIPT_ERROR", { success: false, errorMessage: "Richiesta pagamento non valida" });
               break;
             }
+            const payTable = app.edgeDb
+              .select()
+              .from(tables)
+              .where(eq(tables.id, request.tableId))
+              .get();
             const roman = getRomanSplit(request.tableId);
             const analytic = getAnalyticSplit(request.tableId);
             const result = await executeTablePayment({
+              edgeDb: app.edgeDb,
               tableId: request.tableId,
               locationId: state?.locationId ?? "unknown",
               paymentMethod: payload.paymentMethod,
               amountReceived: payload.amountReceived,
               splitMode: analytic ? "ANALYTIC" : roman ? "ROMAN" : "FULL",
               paymentRequestId: payload.requestId,
+              operatorId: payload.operatorId,
+              operatorName: payload.operatorName,
+              tableLabel: payTable?.label ?? request.tableLabel,
+              isVirtual: payTable?.isVirtual,
+              virtualType: payTable?.virtualType,
             });
             if (!result.ok) {
               reply("RECEIPT_ERROR", { success: false, errorMessage: result.error });
@@ -255,15 +260,28 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               tableId: string;
               paymentMethod: "CASH" | "POS" | "MEAL_VOUCHER" | "SATISPAY" | "OTHER";
               amountReceived?: number;
+              operatorId?: string;
+              operatorName?: string;
             };
+            const fiscalTable = app.edgeDb
+              .select()
+              .from(tables)
+              .where(eq(tables.id, payload.tableId))
+              .get();
             const roman = getRomanSplit(payload.tableId);
             const analytic = getAnalyticSplit(payload.tableId);
             const result = await executeTablePayment({
+              edgeDb: app.edgeDb,
               tableId: payload.tableId,
               locationId: state?.locationId ?? "unknown",
               paymentMethod: payload.paymentMethod,
               amountReceived: payload.amountReceived,
               splitMode: analytic ? "ANALYTIC" : roman ? "ROMAN" : "FULL",
+              operatorId: payload.operatorId ?? "ws",
+              operatorName: payload.operatorName ?? "Cassa",
+              tableLabel: fiscalTable?.label ?? payload.tableId,
+              isVirtual: fiscalTable?.isVirtual,
+              virtualType: fiscalTable?.virtualType,
             });
             if (!result.ok) {
               reply("RECEIPT_ERROR", { success: false, errorMessage: result.error });

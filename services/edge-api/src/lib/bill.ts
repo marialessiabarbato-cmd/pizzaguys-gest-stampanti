@@ -45,9 +45,17 @@ export interface TableBill {
   lines: BillLine[];
   total: number;
   orderCount: number;
+  coverCharge?: { guestCount: number; unitPrice: number; lineTotal: number };
   romanSplit?: RomanSplitInfo;
   analyticSplit?: AnalyticSplitInfo;
 }
+
+export interface CoverChargeParams {
+  unitPrice: number;
+  guestCount: number;
+}
+
+const COVER_LINE_ID = "__cover_charge__";
 
 function variantLabels(line: OrderLine): string[] {
   return (line.variants ?? []).map((v) => (v.type === "REMOVE" ? `NO ${v.name}` : v.name));
@@ -81,13 +89,33 @@ function orderToBillLines(order: TableOrder): BillLine[] {
   return lines;
 }
 
-export function consolidateTableBill(tableId: string): TableBill {
+export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeParams): TableBill {
   const draft = getOrderByTable(tableId);
   const submitted = getSubmittedOrdersByTable(tableId);
   const orders = [...(draft ? [draft] : []), ...submitted];
 
   const lines = orders.flatMap(orderToBillLines);
-  const total = Math.round(lines.reduce((sum, l) => sum + l.lineTotal, 0) * 100) / 100;
+  let total = Math.round(lines.reduce((sum, l) => sum + l.lineTotal, 0) * 100) / 100;
+
+  let coverChargeInfo: TableBill["coverCharge"];
+  if (coverCharge && coverCharge.guestCount > 0 && coverCharge.unitPrice > 0) {
+    const lineTotal =
+      Math.round(coverCharge.unitPrice * coverCharge.guestCount * 100) / 100;
+    lines.push({
+      id: COVER_LINE_ID,
+      orderId: "cover",
+      name: "Coperto",
+      quantity: coverCharge.guestCount,
+      unitPrice: coverCharge.unitPrice,
+      lineTotal,
+    });
+    total = Math.round((total + lineTotal) * 100) / 100;
+    coverChargeInfo = {
+      guestCount: coverCharge.guestCount,
+      unitPrice: coverCharge.unitPrice,
+      lineTotal,
+    };
+  }
 
   const split = getRomanSplit(tableId);
   const romanSplit = split
@@ -105,7 +133,8 @@ export function consolidateTableBill(tableId: string): TableBill {
   let analyticSplit: AnalyticSplitInfo | undefined;
   if (analytic) {
     const assigned = new Set(analytic.checks.flatMap((c) => c.lineIds));
-    const unassignedLineIds = lines.filter((l) => !assigned.has(l.id)).map((l) => l.id);
+    const foodLines = lines.filter((l) => l.id !== COVER_LINE_ID);
+    const unassignedLineIds = foodLines.filter((l) => !assigned.has(l.id)).map((l) => l.id);
     const checks: AnalyticCheckInfo[] = analytic.checks.map((c) => ({
       id: c.id,
       label: c.label,
@@ -118,18 +147,20 @@ export function consolidateTableBill(tableId: string): TableBill {
     analyticSplit = {
       checks,
       unassignedLineIds,
-      allAssigned: unassignedLineIds.length === 0 && lines.length > 0,
+      allAssigned: unassignedLineIds.length === 0 && foodLines.length > 0,
       allPaid: checks.length > 0 && checks.every((c) => c.paid),
     };
   }
 
-  return { tableId, lines, total, orderCount: orders.length, romanSplit, analyticSplit };
+  return { tableId, lines, total, orderCount: orders.length, coverCharge: coverChargeInfo, romanSplit, analyticSplit };
 }
 
 export function billLinesForCheck(bill: TableBill, checkId: string): BillLine[] {
   const check = bill.analyticSplit?.checks.find((c) => c.id === checkId);
   if (!check) return [];
-  return bill.lines.filter((l) => check.lineIds.includes(l.id));
+  return bill.lines.filter(
+    (l) => l.id !== COVER_LINE_ID && check.lineIds.includes(l.id),
+  );
 }
 
 export function billToReceiptLines(bill: TableBill, amount?: number, lines?: BillLine[]) {

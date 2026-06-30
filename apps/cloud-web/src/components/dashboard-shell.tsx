@@ -8,6 +8,7 @@ import { clearToken } from "@/lib/api";
 const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/locations", label: "Sedi" },
+  { href: "/closures", label: "Chiusure & Report" },
   { href: "/menu", label: "Menu" },
   { href: "/users", label: "Utenti" },
   { href: "/settings", label: "Impostazioni" },
@@ -33,7 +34,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               key={item.href}
               href={item.href}
               className={`block rounded-md px-3 py-2 text-sm ${
-                pathname === item.href
+                pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
                   ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                   : "hover:bg-[hsl(var(--pg-muted))]"
               }`}

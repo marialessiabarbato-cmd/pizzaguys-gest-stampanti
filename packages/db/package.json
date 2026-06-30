@@ -23,7 +23,10 @@
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit push",
     "seed": "tsx --env-file=../../.env src/seed.ts",
-    "seed:menu": "tsx --env-file=../../.env src/seed-menu.ts"
+    "seed:menu": "tsx --env-file=../../.env src/seed-menu.ts",
+    "patch:allergens": "tsx --env-file=../../.env src/patch-menu-allergens.ts",
+    "patch:variants": "tsx --env-file=../../.env src/patch-menu-variants.ts",
+    "patch:variants:reset": "tsx --env-file=../../.env src/patch-menu-variants-reset.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

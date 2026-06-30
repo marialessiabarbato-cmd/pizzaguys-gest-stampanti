@@ -1,12 +1,14 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Layer, Rect, Stage, Text } from "react-konva";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { edgeApi } from "@/lib/api";
 
 interface Room {
   id: string;
   name: string;
   sortOrder: number;
+  applyCoverCharge: boolean;
 }
 
 interface Table {
@@ -27,7 +29,10 @@ export function SalaPage() {
   const [tables, setTables] = useState<Table[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomCoverCharge, setNewRoomCoverCharge] = useState(true);
   const [newTable, setNewTable] = useState({ label: "", guests: 2 });
+  const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(false);
+  const [confirmDeleteTable, setConfirmDeleteTable] = useState<{ id: string; label: string } | null>(null);
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
@@ -51,9 +56,14 @@ export function SalaPage() {
     e.preventDefault();
     const room = await edgeApi<Room>("/api/rooms", {
       method: "POST",
-      body: JSON.stringify({ name: newRoomName, sortOrder: rooms.length }),
+      body: JSON.stringify({
+        name: newRoomName,
+        sortOrder: rooms.length,
+        applyCoverCharge: newRoomCoverCharge,
+      }),
     });
     setNewRoomName("");
+    setNewRoomCoverCharge(true);
     setActiveRoomId(room.id);
     void load();
   };
@@ -98,12 +108,6 @@ export function SalaPage() {
   const deleteRoom = async () => {
     const room = rooms.find((r) => r.id === activeRoomId);
     if (!activeRoomId || !room) return;
-    const tableCount = tables.filter((t) => t.roomId === activeRoomId && !t.isVirtual).length;
-    const confirmMessage =
-      tableCount > 0
-        ? `Eliminare la sala "${room.name}" e i suoi ${tableCount} tavoli?`
-        : `Eliminare la sala "${room.name}"?`;
-    if (!confirm(confirmMessage)) return;
     try {
       setMessage("");
       await edgeApi(`/api/rooms/${activeRoomId}`, { method: "DELETE" });
@@ -112,6 +116,7 @@ export function SalaPage() {
       setRooms(remaining);
       setTables((prev) => prev.filter((t) => t.roomId !== activeRoomId));
       setMessage(`Sala "${room.name}" eliminata`);
+      setConfirmDeleteRoom(false);
       void load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Errore eliminazione sala");
@@ -121,6 +126,11 @@ export function SalaPage() {
   const activeRoom = rooms.find((r) => r.id === activeRoomId);
   const roomTables = tables.filter((t) => t.roomId === activeRoomId);
   const virtualTables = tables.filter((t) => t.isVirtual);
+  const deleteRoomMessage = activeRoom
+    ? roomTables.length > 0
+      ? `Eliminare la sala "${activeRoom.name}" e i suoi ${roomTables.length} tavoli?`
+      : `Eliminare la sala "${activeRoom.name}"?`
+    : "";
 
   return (
     <div className="space-y-4">
@@ -151,10 +161,21 @@ export function SalaPage() {
             <Stage width={720} height={480} className="rounded border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30">
               <Layer>
                 {roomTables.map((t) => (
-                  <TableShape key={t.id} table={t} onMove={moveTable} onDelete={deleteTable} />
+                  <TableShape
+                    key={t.id}
+                    table={t}
+                    onMove={moveTable}
+                    onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
+                  />
                 ))}
                 {virtualTables.map((t) => (
-                  <TableShape key={t.id} table={t} onMove={moveTable} onDelete={deleteTable} virtual />
+                  <TableShape
+                    key={t.id}
+                    table={t}
+                    onMove={moveTable}
+                    onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
+                    virtual
+                  />
                 ))}
               </Layer>
             </Stage>
@@ -167,15 +188,25 @@ export function SalaPage() {
               <CardTitle className="text-base">Nuova sala</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={createRoom} className="flex gap-2">
+              <form onSubmit={createRoom} className="space-y-2">
                 <input
-                  className="flex-1 rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-2 py-2 text-sm"
+                  className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-2 py-2 text-sm"
                   placeholder="Nome sala"
                   value={newRoomName}
                   onChange={(e) => setNewRoomName(e.target.value)}
                   required
                 />
-                <Button type="submit">+</Button>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newRoomCoverCharge}
+                    onChange={(e) => setNewRoomCoverCharge(e.target.checked)}
+                  />
+                  Applica coperto sui tavoli di questa sala
+                </label>
+                <Button type="submit" className="w-full">
+                  Crea sala
+                </Button>
               </form>
             </CardContent>
           </Card>
@@ -190,7 +221,10 @@ export function SalaPage() {
                 <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
                   {roomTables.length} tavol{roomTables.length === 1 ? "o" : "i"} in questa sala
                 </p>
-                <Button type="button" variant="danger" className="w-full" onClick={() => void deleteRoom()}>
+                <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                  Coperto: {activeRoom.applyCoverCharge ? "attivo" : "disattivato"}
+                </p>
+                <Button type="button" variant="danger" className="w-full" onClick={() => setConfirmDeleteRoom(true)}>
                   Elimina sala
                 </Button>
               </CardContent>
@@ -226,6 +260,31 @@ export function SalaPage() {
           </Card>
         </div>
       </div>
+
+      {confirmDeleteRoom && (
+        <ConfirmModal
+          title="Eliminare sala?"
+          message={deleteRoomMessage}
+          confirmLabel="Elimina"
+          variant="danger"
+          onConfirm={() => void deleteRoom()}
+          onCancel={() => setConfirmDeleteRoom(false)}
+        />
+      )}
+
+      {confirmDeleteTable && (
+        <ConfirmModal
+          title="Eliminare tavolo?"
+          message={`Rimuovere ${confirmDeleteTable.label} dalla mappa?`}
+          confirmLabel="Elimina"
+          variant="danger"
+          onConfirm={() => {
+            void deleteTable(confirmDeleteTable.id);
+            setConfirmDeleteTable(null);
+          }}
+          onCancel={() => setConfirmDeleteTable(null)}
+        />
+      )}
     </div>
   );
 }
@@ -238,7 +297,7 @@ function TableShape({
 }: {
   table: Table;
   onMove: (id: string, x: number, y: number) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, label: string) => void;
   virtual?: boolean;
 }) {
   return (
@@ -252,9 +311,7 @@ function TableShape({
         cornerRadius={8}
         draggable
         onDragEnd={(e) => onMove(table.id, e.target.x(), e.target.y())}
-        onDblClick={() => {
-          if (confirm(`Eliminare ${table.label}?`)) onDelete(table.id);
-        }}
+        onDblClick={() => onDelete(table.id, table.label)}
       />
       <Text
         x={table.x + 8}

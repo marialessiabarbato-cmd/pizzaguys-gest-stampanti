@@ -1,6 +1,7 @@
-import { dailyClosures, locations } from "@pizzaguys/db/schema";
-import { createLocationSchema } from "@pizzaguys/validators";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { dailyClosures, locations, brandSettings } from "@pizzaguys/db/schema";
+import { extractDailyReportFromReceipts } from "@pizzaguys/types";
+import { createLocationSchema, updateLocationSchema } from "@pizzaguys/validators";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { writeAudit } from "../lib/audit.js";
 import { getDefaultBrand } from "../lib/brand.js";
@@ -17,6 +18,7 @@ export async function locationRoutes(app: FastifyInstance) {
       address: l.address,
       vatNumber: l.vatNumber,
       managerEmail: l.managerEmail,
+      coverChargeAmount: Number(l.coverChargeAmount ?? 0),
       schemaVersion: l.schemaVersion,
       healthStatus: l.healthStatus,
       lastHeartbeatAt: l.lastHeartbeatAt,
@@ -59,6 +61,48 @@ export async function locationRoutes(app: FastifyInstance) {
       apiToken: rawToken,
       warning: "Salvare il token ora: non sarà più mostrato",
     });
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/v2/locations/:id", guard, async (req, reply) => {
+    const parsed = updateLocationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+
+    const existing = await app.db.query.locations.findFirst({
+      where: eq(locations.id, req.params.id),
+    });
+    if (!existing) return reply.status(404).send({ error: "Sede non trovata" });
+
+    const [updated] = await app.db
+      .update(locations)
+      .set({
+        coverChargeAmount: parsed.data.coverChargeAmount,
+        updatedAt: new Date(),
+      })
+      .where(eq(locations.id, req.params.id))
+      .returning();
+
+    await app.db
+      .update(brandSettings)
+      .set({
+        schemaVersion: sql`${brandSettings.schemaVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(brandSettings.brandId, existing.brandId));
+
+    await writeAudit(app, {
+      userId: req.user.sub,
+      locationId: updated?.id,
+      operation: "location.update",
+      previousState: { coverChargeAmount: existing.coverChargeAmount },
+      nextState: { coverChargeAmount: parsed.data.coverChargeAmount },
+    });
+
+    return {
+      id: updated?.id,
+      coverChargeAmount: Number(updated?.coverChargeAmount ?? 0),
+    };
   });
 
   app.post<{ Params: { id: string } }>(
@@ -118,6 +162,7 @@ export async function locationRoutes(app: FastifyInstance) {
       byPaymentMethod: row.byPaymentMethod,
       receivedAt: row.receivedAt,
       createdAt: row.createdAt,
+      dailyReport: extractDailyReportFromReceipts(row.receipts as unknown[]),
     }));
   });
 

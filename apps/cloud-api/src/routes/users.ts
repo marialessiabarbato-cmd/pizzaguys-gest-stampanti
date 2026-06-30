@@ -2,9 +2,15 @@ import { users } from "@pizzaguys/db/schema";
 import { createUserAdminSchema, updateUserAdminSchema } from "@pizzaguys/validators";
 import bcrypt from "bcryptjs";
 import { and, eq } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { writeAudit } from "../lib/audit.js";
 import { generateApiToken } from "../lib/tokens.js";
+
+async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
+  if (request.user.role !== "SUPER_ADMIN") {
+    return reply.status(403).send({ error: "Solo SuperAdmin", code: "FORBIDDEN" });
+  }
+}
 
 function randomPassword() {
   return `Pg${generateApiToken().slice(0, 12)}!`;
@@ -123,4 +129,36 @@ export async function userRoutes(app: FastifyInstance) {
 
     return row;
   });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v2/users/:id",
+    { preHandler: [app.authenticate, requireSuperAdmin] },
+    async (req, reply) => {
+      if (req.params.id === req.user.sub) {
+        return reply.status(400).send({ error: "Non puoi eliminare il tuo account" });
+      }
+
+      const existing = await app.db.query.users.findFirst({
+        where: and(eq(users.id, req.params.id), eq(users.role, "USER_ADMIN")),
+      });
+      if (!existing) return reply.status(404).send({ error: "Utente non trovato" });
+
+      await app.db.delete(users).where(eq(users.id, req.params.id));
+
+      await writeAudit(app, {
+        userId: req.user.sub,
+        locationId: existing.locationId ?? undefined,
+        operation: "user_admin.delete",
+        severity: "CRITICAL",
+        previousState: {
+          id: existing.id,
+          email: existing.email,
+          firstName: existing.firstName,
+          lastName: existing.lastName,
+        },
+      });
+
+      return { ok: true };
+    },
+  );
 }

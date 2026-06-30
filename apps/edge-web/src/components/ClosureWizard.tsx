@@ -1,6 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
-import { edgeApi } from "../lib/api";
+import { edgeApi, edgeApiDownload } from "../lib/api";
 
 type Step = "precheck" | "zreport" | "reconcile" | "done";
 
@@ -26,6 +26,31 @@ interface ReconcileResult {
   discrepancy: { cash: number; pos: number; total: number };
 }
 
+interface ClosureRecord {
+  id: string;
+  closureDate: string;
+  zNumber?: number;
+  theoretical: Theoretical;
+  declared: { cash: number; pos: number };
+  discrepancy: { cash: number; pos: number; total: number };
+  operatorName: string;
+  syncedAt?: string;
+  createdAt: string;
+}
+
+interface CompleteResult {
+  closure: ClosureRecord;
+  syncError?: string;
+  syncQueued: boolean;
+  tablesReset: number;
+  dailyReportPath?: string;
+  dailyReportHtml?: string;
+}
+
+function euro(value: number) {
+  return `€ ${value.toFixed(2).replace(".", ",")}`;
+}
+
 export function ClosureWizard({
   operatorId,
   operatorName,
@@ -43,6 +68,8 @@ export function ClosureWizard({
   const [error, setError] = useState("");
   const [zNumber, setZNumber] = useState<number | null>(null);
   const [reconcile, setReconcile] = useState<ReconcileResult | null>(null);
+  const [completeResult, setCompleteResult] = useState<CompleteResult | null>(null);
+  const [csvLoading, setCsvLoading] = useState(false);
 
   const loadPreCheck = useCallback(async () => {
     const data = await edgeApi<PreCheck>("/api/closure/pre-check");
@@ -93,7 +120,7 @@ export function ClosureWizard({
     setLoading(true);
     setError("");
     try {
-      await edgeApi("/api/closure/complete", {
+      const result = await edgeApi<CompleteResult>("/api/closure/complete", {
         method: "POST",
         body: JSON.stringify({
           cashDeclared: Number.parseFloat(cashDeclared.replace(",", ".")) || 0,
@@ -102,6 +129,7 @@ export function ClosureWizard({
           operatorName,
         }),
       });
+      setCompleteResult(result);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore chiusura");
@@ -110,7 +138,21 @@ export function ClosureWizard({
     }
   };
 
+  const downloadCsv = async () => {
+    setCsvLoading(true);
+    setError("");
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      await edgeApiDownload(`/api/closure/export.csv?to=${today}`, `chiusure-${today}.csv`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore export CSV");
+    } finally {
+      setCsvLoading(false);
+    }
+  };
+
   const theoretical = reconcile?.theoretical ?? preCheck?.theoretical;
+  const closure = completeResult?.closure;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -137,12 +179,12 @@ export function ClosureWizard({
                 <p className="mb-2 font-medium">Totali teorici giornata</p>
                 <div className="grid grid-cols-2 gap-2">
                   <span>Contanti</span>
-                  <span className="text-right tabular-nums">€ {theoretical.cash.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(theoretical.cash)}</span>
                   <span>POS</span>
-                  <span className="text-right tabular-nums">€ {theoretical.pos.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(theoretical.pos)}</span>
                   <span className="font-semibold">Totale</span>
                   <span className="text-right font-semibold tabular-nums">
-                    € {theoretical.total.toFixed(2)}
+                    {euro(theoretical.total)}
                   </span>
                   <span>Transazioni</span>
                   <span className="text-right">{theoretical.transactionCount}</span>
@@ -169,20 +211,35 @@ export function ClosureWizard({
           <div className="space-y-4">
             {zNumber != null && (
               <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                Z mock #{zNumber} emessa
+                Z mock #{zNumber} emessa — report in tmp/prints/
               </p>
             )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 text-xs"
+                onClick={() =>
+                  window.open(
+                    `${import.meta.env.VITE_EDGE_API_URL ?? "http://localhost:4100"}/api/closure/daily-report.html`,
+                    "_blank",
+                  )
+                }
+              >
+                Anteprima report
+              </Button>
+            </div>
 
             {theoretical && !reconcile && (
               <div className="rounded-lg bg-[hsl(var(--pg-muted))]/40 p-3 text-sm">
                 <p className="mb-2 font-medium">Riepilogo teorico (calcolato dalla cassa)</p>
                 <div className="grid grid-cols-2 gap-1">
                   <span>Contanti teorici</span>
-                  <span className="text-right tabular-nums">€ {theoretical.cash.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(theoretical.cash)}</span>
                   <span>POS teorico</span>
-                  <span className="text-right tabular-nums">€ {theoretical.pos.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(theoretical.pos)}</span>
                   <span>Totale teorico</span>
-                  <span className="text-right tabular-nums">€ {theoretical.total.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(theoretical.total)}</span>
                 </div>
               </div>
             )}
@@ -214,19 +271,19 @@ export function ClosureWizard({
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span>Contanti</span>
-                  <span className="text-right tabular-nums">€ {reconcile.theoretical.cash.toFixed(2)}</span>
-                  <span className="text-right tabular-nums">€ {reconcile.declared.cash.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(reconcile.theoretical.cash)}</span>
+                  <span className="text-right tabular-nums">{euro(reconcile.declared.cash)}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span>POS</span>
-                  <span className="text-right tabular-nums">€ {reconcile.theoretical.pos.toFixed(2)}</span>
-                  <span className="text-right tabular-nums">€ {reconcile.declared.pos.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(reconcile.theoretical.pos)}</span>
+                  <span className="text-right tabular-nums">{euro(reconcile.declared.pos)}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 font-semibold">
                   <span>Totale</span>
-                  <span className="text-right tabular-nums">€ {reconcile.theoretical.total.toFixed(2)}</span>
+                  <span className="text-right tabular-nums">{euro(reconcile.theoretical.total)}</span>
                   <span className="text-right tabular-nums">
-                    € {(reconcile.declared.cash + reconcile.declared.pos).toFixed(2)}
+                    {euro(reconcile.declared.cash + reconcile.declared.pos)}
                   </span>
                 </div>
                 <div
@@ -238,7 +295,7 @@ export function ClosureWizard({
                         : "bg-green-500/10 text-green-600"
                   }`}
                 >
-                  Scostamento: € {reconcile.discrepancy.total.toFixed(2)}
+                  Scostamento: {euro(reconcile.discrepancy.total)}
                 </div>
                 <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
                   Transazioni: {reconcile.theoretical.transactionCount}
@@ -264,15 +321,86 @@ export function ClosureWizard({
           </div>
         )}
 
-        {step === "done" && (
-          <div className="space-y-4 text-center">
-            <p className="text-lg font-bold text-green-600">Giornata chiusa</p>
-            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-              Sala resettata. Report in tmp/prints/
+        {step === "done" && closure && completeResult && (
+          <div className="space-y-4">
+            <p className="text-center text-lg font-bold text-green-600">Giornata chiusa</p>
+
+            <div className="rounded-lg border border-[hsl(var(--pg-border))] p-3 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <span>Data</span>
+                <span className="text-right">{closure.closureDate}</span>
+                {closure.zNumber != null && (
+                  <>
+                    <span>Chiusura Z</span>
+                    <span className="text-right">#{closure.zNumber}</span>
+                  </>
+                )}
+                <span>Totale</span>
+                <span className="text-right tabular-nums">{euro(closure.theoretical.total)}</span>
+                <span>Scostamento</span>
+                <span
+                  className={`text-right tabular-nums ${
+                    closure.discrepancy.total !== 0 ? "font-medium text-orange-600" : ""
+                  }`}
+                >
+                  {euro(closure.discrepancy.total)}
+                </span>
+                <span>Tavoli resettati</span>
+                <span className="text-right">{completeResult.tablesReset}</span>
+              </div>
+            </div>
+
+            <div
+              className={`rounded-lg p-3 text-sm ${
+                completeResult.syncQueued
+                  ? "bg-yellow-500/10 text-yellow-800"
+                  : closure.syncedAt
+                    ? "bg-green-500/10 text-green-700"
+                    : "bg-[hsl(var(--pg-muted))]/40 text-[hsl(var(--pg-muted-foreground))]"
+              }`}
+            >
+              {closure.syncedAt ? (
+                <p>
+                  <strong>Sync cloud:</strong> completata alle{" "}
+                  {new Date(closure.syncedAt).toLocaleString("it-IT")}
+                </p>
+              ) : completeResult.syncQueued ? (
+                <p>
+                  <strong>Sync cloud:</strong> in coda — verrà ritentata automaticamente.
+                  {completeResult.syncError ? ` (${completeResult.syncError})` : ""}
+                </p>
+              ) : (
+                <p>
+                  <strong>Sync cloud:</strong> non configurata (edge senza token API).
+                </p>
+              )}
+            </div>
+
+            <p className="text-center text-xs text-[hsl(var(--pg-muted-foreground))]">
+              Report giornaliero salvato in tmp/prints/
+              {completeResult.dailyReportPath ? (
+                <>
+                  <br />
+                  <span className="break-all">{completeResult.dailyReportPath}</span>
+                </>
+              ) : null}
             </p>
-            <Button className="w-full" onClick={onClose}>
-              OK
-            </Button>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                disabled={csvLoading}
+                onClick={() => void downloadCsv()}
+              >
+                Scarica CSV
+              </Button>
+              <Button className="flex-1" onClick={onClose}>
+                OK
+              </Button>
+            </div>
           </div>
         )}
       </div>

@@ -1,7 +1,10 @@
 import { dailyClosures, locations, users } from "@pizzaguys/db/schema";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { sendEmail } from "./email.js";
+import type { DailyReportSnapshot } from "@pizzaguys/types";
+import { extractDailyReportFromReceipts } from "@pizzaguys/types";
+import { buildLocationReportDetailHtml } from "./daily-report-email.js";
+import { sendEmail, getEmailDeliveryMode } from "./email.js";
 
 export interface NightlyReportRow {
   locationId: string;
@@ -13,6 +16,7 @@ export interface NightlyReportRow {
   missing: boolean;
   fiscalZNumber?: number;
   discrepancy: number;
+  dailyReport: DailyReportSnapshot | null;
 }
 
 function money(value: string | number | null | undefined): number {
@@ -54,12 +58,14 @@ export async function buildNightlyReportRows(
         zStatus: "Mancante" as const,
         missing: true,
         discrepancy: 0,
+        dailyReport: null,
       };
     }
 
     const byMethod = closure.byPaymentMethod ?? {};
     const cash = money(byMethod.CASH ?? closure.cashDeclared);
     const pos = money(byMethod.POS ?? closure.posDeclared);
+    const dailyReport = extractDailyReportFromReceipts(closure.receipts as unknown[]);
 
     return {
       locationId: loc.id,
@@ -71,6 +77,7 @@ export async function buildNightlyReportRows(
       missing: false,
       fiscalZNumber: closure.fiscalZNumber ?? undefined,
       discrepancy: money(closure.discrepancy),
+      dailyReport,
     };
   });
 }
@@ -98,6 +105,11 @@ export function buildNightlyReportHtml(closureDate: string, rows: NightlyReportR
     })
     .join("\n");
 
+  const locationDetails = rows
+    .filter((r) => r.dailyReport && !r.missing)
+    .map((r) => buildLocationReportDetailHtml(r.dailyReport!))
+    .join("\n");
+
   return `<!DOCTYPE html>
 <html lang="it">
 <head>
@@ -106,7 +118,7 @@ export function buildNightlyReportHtml(closureDate: string, rows: NightlyReportR
   <title>Report notturno Pizza Guys — ${closureDate}</title>
 </head>
 <body style="margin:0;padding:16px;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background-color:#ffffff;border:1px solid #e5e7eb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;margin:0 auto;background-color:#ffffff;border:1px solid #e5e7eb;">
     <tr>
       <td style="padding:20px 16px;background-color:#b91c1c;color:#ffffff;">
         <h1 style="margin:0;font-size:20px;line-height:1.3;">Pizza Guys — Report notturno</h1>
@@ -116,7 +128,7 @@ export function buildNightlyReportHtml(closureDate: string, rows: NightlyReportR
     <tr>
       <td style="padding:16px;">
         <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">
-          Riepilogo automatico delle chiusure giornaliere per tutte le sedi.
+          Riepilogo multi-sede e dettaglio report giornaliero per ogni chiusura sincronizzata.
           ${missingCount > 0 ? `<strong style="color:#b91c1c;"> ${missingCount} sede/i senza chiusura fiscale.</strong>` : ""}
         </p>
         <p style="margin:0 0 16px;font-size:14px;"><strong>Totale lordo:</strong> ${formatEuro(totalGross)}</p>
@@ -134,6 +146,7 @@ export function buildNightlyReportHtml(closureDate: string, rows: NightlyReportR
 ${tableRows}
           </tbody>
         </table>
+        ${locationDetails}
       </td>
     </tr>
     <tr>
@@ -168,18 +181,38 @@ export async function getSuperAdminEmails(app: FastifyInstance): Promise<string[
 export async function sendNightlyReport(
   app: FastifyInstance,
   closureDate?: string,
-): Promise<{ closureDate: string; recipients: string[]; path?: string; rowCount: number }> {
+): Promise<{
+  closureDate: string;
+  recipients: string[];
+  path?: string;
+  messageId?: string;
+  mode: ReturnType<typeof getEmailDeliveryMode>;
+  rowCount: number;
+  detailCount: number;
+}> {
   const date = closureDate ?? yesterdayKey();
   const rows = await buildNightlyReportRows(app, date);
   const html = buildNightlyReportHtml(date, rows);
   const recipients = await getSuperAdminEmails(app);
   const subject = `Pizza Guys — Report notturno ${date}`;
+  const mode = getEmailDeliveryMode();
+  const detailCount = rows.filter((r) => r.dailyReport).length;
 
   let lastPath: string | undefined;
+  let lastMessageId: string | undefined;
   for (const to of recipients) {
     const result = await sendEmail({ to, subject, html });
-    lastPath = result.path;
+    lastPath = result.path ?? lastPath;
+    lastMessageId = result.messageId ?? lastMessageId;
   }
 
-  return { closureDate: date, recipients, path: lastPath, rowCount: rows.length };
+  return {
+    closureDate: date,
+    recipients,
+    path: lastPath,
+    messageId: lastMessageId,
+    mode,
+    rowCount: rows.length,
+    detailCount,
+  };
 }

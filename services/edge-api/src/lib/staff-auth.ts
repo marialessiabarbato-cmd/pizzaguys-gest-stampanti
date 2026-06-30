@@ -39,3 +39,17 @@ export async function verifyManagerPin(
   if (member.role === "WAITER") return null;
   return member;
 }
+
+export function getActiveStaffById(
+  db: EdgeDatabase,
+  staffId: string,
+): VerifiedStaff | null {
+  const member = db.select().from(staff).where(eq(staff.id, staffId)).get();
+  if (!member?.isActive) return null;
+  return {
+    id: member.id,
+    firstName: member.firstName,
+    lastName: member.lastName,
+    role: member.role,
+  };
+}

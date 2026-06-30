@@ -1,5 +1,5 @@
 import type { MockReceipt } from "@pizzaguys/fiscal";
-import type { PaymentMethod } from "@pizzaguys/types";
+import type { FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
 
 export interface PrintResult {
   success: boolean;
@@ -19,6 +19,7 @@ export interface FiscalOrderInput {
   locationId: string;
   tableId?: string;
   paymentMethod: PaymentMethod;
+  documentType?: FiscalDocumentType;
   lines: ReceiptLineInput[];
   amountReceived?: number;
 }

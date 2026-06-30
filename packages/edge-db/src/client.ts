@@ -35,6 +35,7 @@ export function createEdgeDb(dbPath: string) {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      apply_cover_charge INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS tables (
@@ -112,7 +113,27 @@ export function createEdgeDb(dbPath: string) {
       synced_at TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS day_report_transactions (
+      id TEXT PRIMARY KEY,
+      closure_date TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_day_report_tx_date ON day_report_transactions(closure_date);
+    CREATE TABLE IF NOT EXISTS day_report_stornos (
+      id TEXT PRIMARY KEY,
+      closure_date TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_day_report_storno_date ON day_report_stornos(closure_date);
   `);
+
+  try {
+    sqlite.exec(`ALTER TABLE rooms ADD COLUMN apply_cover_charge INTEGER NOT NULL DEFAULT 1`);
+  } catch {
+    /* colonna già presente */
+  }
 
   const row = db.select().from(schema.edgeState).get();
   if (!row) {

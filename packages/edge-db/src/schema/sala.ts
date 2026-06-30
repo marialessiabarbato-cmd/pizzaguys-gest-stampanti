@@ -4,6 +4,7 @@ export const rooms = sqliteTable("rooms", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
+  applyCoverCharge: integer("apply_cover_charge", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull(),
 });
 

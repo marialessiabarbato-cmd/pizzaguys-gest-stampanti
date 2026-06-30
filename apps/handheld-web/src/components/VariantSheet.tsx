@@ -1,21 +1,31 @@
 import { Button } from "@pizzaguys/ui";
 import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useState } from "react";
-import type { Product, VariantGroup, VariantSelection } from "../lib/types";
+import type { Product, VariantOption, VariantSelection } from "../lib/types";
 import { localized } from "../lib/menu";
 
 interface Props {
   product: Product;
-  groups: VariantGroup[];
+  variants: VariantOption[];
   basePrice: number;
+  initialVariants?: VariantSelection[];
+  confirmLabel?: string;
   onConfirm: (variants: VariantSelection[]) => void;
   onCancel: () => void;
 }
 
-export function VariantSheet({ product, groups, basePrice, onConfirm, onCancel }: Props) {
-  const [selected, setSelected] = useState<VariantSelection[]>([]);
+export function VariantSheet({
+  product,
+  variants,
+  basePrice,
+  initialVariants = [],
+  confirmLabel = "Aggiungi",
+  onConfirm,
+  onCancel,
+}: Props) {
+  const [selected, setSelected] = useState<VariantSelection[]>(initialVariants);
 
-  const toggle = (group: VariantGroup, variant: VariantGroup["variants"][0]) => {
+  const toggle = (variant: VariantOption) => {
     const name = localized(variant.name);
     const entry: VariantSelection = {
       variantId: variant.id,
@@ -24,12 +34,8 @@ export function VariantSheet({ product, groups, basePrice, onConfirm, onCancel }
       priceDelta: Number(variant.priceDelta),
     };
     setSelected((prev) => {
-      const sameGroup = prev.filter((v) => {
-        const inGroup = group.variants.some((gv) => gv.id === v.variantId);
-        return !inGroup;
-      });
       const exists = prev.some((v) => v.variantId === variant.id);
-      return exists ? sameGroup : [...sameGroup, entry];
+      return exists ? prev.filter((v) => v.variantId !== variant.id) : [...prev, entry];
     });
   };
 
@@ -40,46 +46,50 @@ export function VariantSheet({ product, groups, basePrice, onConfirm, onCancel }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-      <div className="max-h-[70vh] w-full overflow-y-auto rounded-t-2xl bg-[hsl(var(--pg-background))] p-4 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="flex max-h-[75vh] w-full flex-col rounded-t-2xl bg-[hsl(var(--pg-background))] shadow-xl">
+        <div className="flex items-center justify-between border-b border-[hsl(var(--pg-border))] px-4 py-3">
           <h2 className="text-lg font-bold">{localized(product.name)}</h2>
           <Button variant="ghost" onClick={onCancel}>✕</Button>
         </div>
 
-        {groups.length === 0 ? (
-          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Nessuna variante disponibile</p>
-        ) : (
-          groups.map((group) => (
-            <div key={group.id} className="mb-4">
-              <p className="mb-2 text-sm font-semibold">{localized(group.name)}</p>
-              <div className="flex flex-wrap gap-2">
-                {group.variants.map((v) => {
-                  const active = selected.some((s) => s.variantId === v.id);
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => toggle(group, v)}
-                      className={`rounded-lg border px-3 py-2 text-sm ${
-                        active
-                          ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
-                          : "border-[hsl(var(--pg-border))]"
-                      }`}
-                    >
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {variants.length === 0 ? (
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Nessuna variante disponibile</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {variants.map((v) => {
+                const active = selected.some((s) => s.variantId === v.id);
+                const price = Number(v.priceDelta);
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => toggle(v)}
+                    className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm ${
+                      active
+                        ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                        : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]"
+                    }`}
+                  >
+                    <span className="font-medium">
                       {v.type === "REMOVE" ? "NO " : "+"}
                       {localized(v.name)}
-                      {Number(v.priceDelta) > 0 && ` (+€${Number(v.priceDelta).toFixed(2)})`}
-                    </button>
-                  );
-                })}
-              </div>
+                    </span>
+                    {price > 0 && (
+                      <span className={active ? "opacity-90" : "text-[hsl(var(--pg-muted-foreground))]"}>
+                        +€ {price.toFixed(2)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-          ))
-        )}
+          )}
+        </div>
 
-        <div className="mt-4 flex items-center justify-between border-t border-[hsl(var(--pg-border))] pt-4">
+        <div className="flex items-center justify-between border-t border-[hsl(var(--pg-border))] px-4 py-3">
           <span className="text-lg font-bold">€ {unitPrice.toFixed(2)}</span>
-          <Button onClick={() => onConfirm(selected)}>Aggiungi</Button>
+          <Button onClick={() => onConfirm(selected)}>{confirmLabel}</Button>
         </div>
       </div>
     </div>

@@ -28,7 +28,7 @@ export function ConfirmModal({
           </Button>
           <Button
             className="flex-1"
-            variant={variant === "danger" ? "destructive" : "default"}
+            variant={variant === "danger" ? "danger" : "default"}
             onClick={onConfirm}
           >
             {confirmLabel}

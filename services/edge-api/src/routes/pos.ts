@@ -12,7 +12,7 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
-import { consolidateTableBill } from "../lib/bill.js";
+import { consolidateBillForTable } from "../lib/cover-charge.js";
 import { executeTablePayment } from "../lib/payment.js";
 import { getMenuSnapshot } from "../lib/provision.js";
 import {
@@ -65,7 +65,7 @@ export async function posRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
     if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
 
-    const bill = consolidateTableBill(req.params.id);
+    const bill = consolidateBillForTable(app.edgeDb,req.params.id);
     return {
       ...bill,
       tableLabel: table.label,
@@ -117,7 +117,7 @@ export async function posRoutes(app: FastifyInstance) {
       return reply.status(500).send({ error: "Errore token sconto" });
     }
 
-    const bill = consolidateTableBill(req.params.id);
+    const bill = consolidateBillForTable(app.edgeDb,req.params.id);
     if (needsPin && parsed.data.managerPin) {
       const manager = await verifyManagerPin(app.edgeDb, parsed.data.managerPin);
       if (manager) {
@@ -150,7 +150,7 @@ export async function posRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
     if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
 
-    const bill = consolidateTableBill(req.params.id);
+    const bill = consolidateBillForTable(app.edgeDb,req.params.id);
     if (bill.lines.length === 0) {
       return reply.status(400).send({ error: "Nessuna voce da dividere" });
     }
@@ -171,7 +171,7 @@ export async function posRoutes(app: FastifyInstance) {
         remainingShares: split.shares,
         nextShareAmount: split.shareAmounts[0],
       },
-      bill: consolidateTableBill(req.params.id),
+      bill: consolidateBillForTable(app.edgeDb,req.params.id),
     };
   });
 
@@ -184,7 +184,7 @@ export async function posRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
     if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
 
-    const bill = consolidateTableBill(req.params.id);
+    const bill = consolidateBillForTable(app.edgeDb,req.params.id);
     if (bill.lines.length === 0) {
       return reply.status(400).send({ error: "Nessuna voce da dividere" });
     }
@@ -219,7 +219,7 @@ export async function posRoutes(app: FastifyInstance) {
 
       return {
         ok: true,
-        bill: consolidateTableBill(req.params.id),
+        bill: consolidateBillForTable(app.edgeDb,req.params.id),
       };
     }
 
@@ -233,7 +233,7 @@ export async function posRoutes(app: FastifyInstance) {
 
     return {
       ok: true,
-      bill: consolidateTableBill(req.params.id),
+      bill: consolidateBillForTable(app.edgeDb,req.params.id),
     };
   });
 
@@ -241,7 +241,7 @@ export async function posRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
     if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
 
-    const bill = consolidateTableBill(req.params.id);
+    const bill = consolidateBillForTable(app.edgeDb,req.params.id);
     if (bill.lines.length === 0) {
       return reply.status(400).send({ error: "Nessuna voce da stampare" });
     }
@@ -314,6 +314,7 @@ export async function posRoutes(app: FastifyInstance) {
     const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
 
     const result = await executeTablePayment({
+      edgeDb: app.edgeDb,
       tableId: req.params.id,
       locationId: state?.locationId ?? "unknown",
       paymentMethod: parsed.data.paymentMethod,
@@ -322,6 +323,12 @@ export async function posRoutes(app: FastifyInstance) {
       checkId: parsed.data.checkId,
       paymentRequestId: parsed.data.paymentRequestId,
       shiftId: parsed.data.shiftId,
+      operatorId: parsed.data.operatorId,
+      operatorName: parsed.data.operatorName,
+      tableLabel: table.label,
+      isVirtual: table.isVirtual,
+      virtualType: table.virtualType,
+      documentType: parsed.data.documentType,
     });
 
     if (!result.ok) {
@@ -340,7 +347,7 @@ export async function posRoutes(app: FastifyInstance) {
       paidShares: result.paidShares,
       totalShares: result.totalShares,
       paidCheckId: result.paidCheckId,
-      bill: result.tableFreed ? null : consolidateTableBill(req.params.id),
+      bill: result.tableFreed ? null : consolidateBillForTable(app.edgeDb,req.params.id),
     };
   });
 
@@ -405,7 +412,7 @@ export async function posRoutes(app: FastifyInstance) {
     upsertOrder(order);
     markOrderSubmitted(order.id);
 
-    const bill = consolidateTableBill(virtualTable.id);
+    const bill = consolidateBillForTable(app.edgeDb,virtualTable.id);
     return reply.status(201).send({
       ok: true,
       orderId: order.id,

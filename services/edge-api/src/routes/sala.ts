@@ -19,6 +19,7 @@ export async function salaRoutes(app: FastifyInstance) {
       id: randomUUID(),
       name: parsed.data.name,
       sortOrder: parsed.data.sortOrder ?? 0,
+      applyCoverCharge: parsed.data.applyCoverCharge ?? true,
       createdAt: new Date().toISOString(),
     };
     app.edgeDb.insert(rooms).values(row).run();

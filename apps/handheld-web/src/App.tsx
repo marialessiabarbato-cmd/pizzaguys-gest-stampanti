@@ -1,22 +1,15 @@
-import type { TableStatus } from "@pizzaguys/types";
-import { Button } from "@pizzaguys/ui";
+import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmModal } from "./components/ConfirmModal";
-import { GuestsModal } from "./components/GuestsModal";
 import { PinPad } from "./components/PinPad";
 import { PinModal } from "./components/PinModal";
-import { VariantSheet } from "./components/VariantSheet";
-import { EU_ALLERGENS } from "./constants/allergens";
 import { edgeApi } from "./lib/api";
 import {
   buildCartLine,
-  cartTotal,
-  fuzzyMatch,
   lineKey,
-  localized,
-  resolvePrice,
-  variantGroupsForProduct,
+  variantsForProduct,
 } from "./lib/menu";
+import { normalizeCourse, stepLabel, suggestedCourseForCategory } from "./lib/course";
 import { clearDraft, loadDraft, saveDraft } from "./lib/offline";
 import type {
   CartLine,
@@ -27,30 +20,33 @@ import type {
   Screen,
   SubmittedLine,
   VariantSelection,
+  WorkspaceTab,
 } from "./lib/types";
 import { useEdgeWs } from "./lib/ws";
+import { MapScreen } from "./screens/MapScreen";
+import { TableWorkspace } from "./screens/TableWorkspace";
+import { VariantSheet } from "./components/VariantSheet";
 
-const STATUS_COLORS: Record<TableStatus, string> = {
-  FREE: "bg-green-500",
-  OCCUPIED: "bg-blue-500",
-  LOCKED: "bg-red-500",
-  BILL_REQUESTED: "bg-yellow-500 animate-pulse",
-  SPLIT_IN_PROGRESS: "bg-purple-500",
-};
-
-type PinModalMode = "unlock" | "discount" | "storno" | null;
+type PinModalMode = "unlock" | "discount" | null;
 
 export default function App() {
   const { connected, send, on } = useEdgeWs();
   const [online, setOnline] = useState(navigator.onLine);
   const [screen, setScreen] = useState<Screen>("pin");
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("comanda");
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [selectedSubmittedId, setSelectedSubmittedId] = useState<string | null>(null);
+  const pendingAfterLockRef = useRef<(() => void) | null>(null);
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [tables, setTables] = useState<LiveTable[]>([]);
   const [activeTable, setActiveTable] = useState<LiveTable | null>(null);
+  const activeTableRef = useRef(activeTable);
+  activeTableRef.current = activeTable;
   const [menu, setMenu] = useState<MenuSnapshot | null>(null);
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
+  const [activeCourse, setActiveCourse] = useState(1);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [submittedLines, setSubmittedLines] = useState<SubmittedLine[]>([]);
   const [message, setMessage] = useState("");
@@ -58,6 +54,8 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [allergenFilter, setAllergenFilter] = useState<string[]>([]);
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
+  const [editCartLine, setEditCartLine] = useState<CartLine | null>(null);
+  const [noteLineId, setNoteLineId] = useState<string | null>(null);
   const [pinModal, setPinModal] = useState<PinModalMode>(null);
   const [pinModalError, setPinModalError] = useState("");
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
@@ -65,98 +63,146 @@ export default function App() {
   const [guestCount, setGuestCount] = useState(2);
   const [unlockOverridePin, setUnlockOverridePin] = useState<string | undefined>();
   const [pendingDiscountLine, setPendingDiscountLine] = useState<string | null>(null);
-  const [pendingStorno, setPendingStorno] = useState<SubmittedLine | null>(null);
   const [exitConfirm, setExitConfirm] = useState(false);
   const [submitConfirm, setSubmitConfirm] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [confirmCallCourse, setConfirmCallCourse] = useState<number | null>(null);
+  const [confirmReleaseDessert, setConfirmReleaseDessert] = useState(false);
+  const [confirmPayment, setConfirmPayment] = useState(false);
+  const [confirmStorno, setConfirmStorno] = useState<SubmittedLine | null>(null);
+  const [pendingNoteSave, setPendingNoteSave] = useState<{
+    lineId: string;
+    note: string;
+    lineName: string;
+  } | null>(null);
+  const [pendingVariantSave, setPendingVariantSave] = useState<VariantSelection[] | null>(null);
+  const [confirmDiscountLine, setConfirmDiscountLine] = useState<string | null>(null);
   const cartDirty = useRef(false);
 
   const isOffline = !connected || !online;
   const categories = menu?.categories ?? [];
   const products = menu?.products ?? [];
   const settings = menu?.settings ?? { maxDiscountPercent: 20, tableLockTimeoutMinutes: 15 };
+  const hasLock =
+    !!operator &&
+    !!activeTable &&
+    activeTable.lockedBy === operator.id &&
+    (activeTable.status === "LOCKED" || activeTable.status === "OCCUPIED");
+
+  const openWorkspace = async (
+    table: LiveTable,
+    tab: WorkspaceTab = "comanda",
+    options?: { resetNavigation?: boolean },
+  ) => {
+    setActiveTable(table);
+    await loadDraftForTable(table.id);
+    loadMenu({ resetNavigation: options?.resetNavigation ?? false });
+    setWorkspaceTab(tab);
+    setActiveCourse(1);
+    setSelectedLineId(null);
+    setSelectedSubmittedId(null);
+    setScreen("table");
+  };
+
+  const ensureLock = (action: () => void) => {
+    if (!operator || !activeTable) return;
+    if (hasLock) {
+      action();
+      return;
+    }
+    pendingAfterLockRef.current = action;
+    requestLock(activeTable);
+  };
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
   }, []);
 
-  const loadMenu = useCallback(() => {
+  const loadMenu = useCallback((options?: { resetNavigation?: boolean }) => {
     void edgeApi<{ snapshot: MenuSnapshot }>("/api/menu").then((m) => {
       const snap = m.snapshot;
       const cats = [...(snap?.categories ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
       setMenu({ ...snap, categories: cats });
-      if (cats[0]) setSelectedCat(cats[0].id);
+      if (options?.resetNavigation && cats[0]) {
+        setSelectedCat(cats[0].id);
+        setActiveCourse(suggestedCourseForCategory(cats[0]));
+      }
     });
   }, []);
 
-  const loadDraftForTable = useCallback(async (tableId: string) => {
-    if (isOffline) {
-      const local = await loadDraft(tableId);
-      if (local) setCart(local.cart);
-      return;
-    }
-    const data = await edgeApi<{
-      draft: {
-        lines: Array<{
-          id: string;
-          productId: string;
-          name: string;
-          unitPrice: number;
-          basePrice?: number;
-          quantity: number;
-          variants?: CartLine["variants"];
+  const loadDraftForTable = useCallback(
+    async (tableId: string) => {
+      if (isOffline) {
+        const local = await loadDraft(tableId);
+        const lines = local?.cart ?? [];
+        setCart(lines);
+        setSubmittedLines([]);
+        return { cart: lines, submitted: [] as SubmittedLine[] };
+      }
+      const data = await edgeApi<{
+        draft: {
+          lines: Array<{
+            id: string;
+            productId: string;
+            name: string;
+            unitPrice: number;
+            basePrice?: number;
+            quantity: number;
+            variants?: CartLine["variants"];
           course?: number;
           hold?: boolean;
           dessertDefer?: boolean;
+          notes?: string;
           discountPercent?: number;
-          discountToken?: string;
-        }>;
-      } | null;
-      submitted: Array<{
-        id: string;
-        lines: Array<{
+            discountToken?: string;
+          }>;
+        } | null;
+        submitted: Array<{
           id: string;
-          name: string;
-          quantity: number;
-          voidedQuantity?: number;
+          lines: Array<{
+            id: string;
+            name: string;
+            quantity: number;
+            voidedQuantity?: number;
+          }>;
         }>;
-      }>;
-    }>(`/api/orders?tableId=${tableId}`);
-    if (data.draft?.lines) {
-      setCart(
-        data.draft.lines.map((l) => ({
-          lineId: l.id,
-          productId: l.productId,
-          name: l.name,
-          basePrice: l.basePrice ?? l.unitPrice,
-          unitPrice: l.unitPrice,
-          quantity: l.quantity,
-          variants: l.variants ?? [],
-          course: l.course ?? 1,
-          hold: l.hold ?? false,
-          dessertDefer: l.dessertDefer ?? false,
-          discountPercent: l.discountPercent,
-          discountToken: l.discountToken,
-          allergenIds: [],
-        })),
-      );
-    } else {
-      setCart([]);
-    }
-    const submitted: SubmittedLine[] = [];
-    for (const order of data.submitted ?? []) {
-      for (const line of order.lines) {
-        submitted.push({
-          orderId: order.id,
-          lineId: line.id,
-          name: line.name,
-          quantity: line.quantity,
-          voidedQuantity: line.voidedQuantity,
-        });
+      }>(`/api/orders?tableId=${tableId}`);
+      const cartLines: CartLine[] = data.draft?.lines
+        ? data.draft.lines.map((l) => ({
+            lineId: l.id,
+            productId: l.productId,
+            name: l.name,
+            basePrice: l.basePrice ?? l.unitPrice,
+            unitPrice: l.unitPrice,
+            quantity: l.quantity,
+            variants: l.variants ?? [],
+            course: normalizeCourse(l.course ?? 1),
+            hold: l.hold ?? false,
+            dessertDefer: l.dessertDefer ?? false,
+            notes: l.notes,
+            discountPercent: l.discountPercent,
+            discountToken: l.discountToken,
+            allergenIds: [],
+          }))
+        : [];
+      setCart(cartLines);
+      const submitted: SubmittedLine[] = [];
+      for (const order of data.submitted ?? []) {
+        for (const line of order.lines) {
+          submitted.push({
+            orderId: order.id,
+            lineId: line.id,
+            name: line.name,
+            quantity: line.quantity,
+            voidedQuantity: line.voidedQuantity,
+          });
+        }
       }
-    }
-    setSubmittedLines(submitted);
-  }, [isOffline]);
+      setSubmittedLines(submitted);
+      return { cart: cartLines, submitted };
+    },
+    [isOffline],
+  );
 
   useEffect(() => {
     const onOnline = () => setOnline(true);
@@ -184,12 +230,21 @@ export default function App() {
     const unsub2 = on("TABLE_STATUS_UPDATE", () => loadTables());
     const unsub3 = on("LOCK_GRANTED", (payload) => {
       const p = payload as { tableId: string; guests?: number };
-      const table = tables.find((t) => t.id === p.tableId);
+      const table =
+        tables.find((t) => t.id === p.tableId) ??
+        (activeTableRef.current?.id === p.tableId ? activeTableRef.current : null);
       if (table && operator) {
         setActiveTable({ ...table, status: "LOCKED", guests: p.guests ?? table.guests });
-        void loadDraftForTable(p.tableId);
-        loadMenu();
-        setScreen("order");
+        const run = pendingAfterLockRef.current;
+        pendingAfterLockRef.current = null;
+        if (run) {
+          void loadDraftForTable(p.tableId).then(() => run());
+        } else {
+          void loadDraftForTable(p.tableId);
+          loadMenu({ resetNavigation: true });
+          setWorkspaceTab("menu");
+        }
+        setScreen("table");
       }
       setLockPending(null);
       setPendingUnlockTable(null);
@@ -208,6 +263,7 @@ export default function App() {
         setCart([]);
         setSubmittedLines([]);
         setScreen("map");
+        setActiveTable(null);
         loadTables();
       } else {
         loadTables();
@@ -220,11 +276,11 @@ export default function App() {
       unsub4();
       unsub5();
     };
-  }, [on, loadTables, tables, operator, loadMenu, loadDraftForTable, activeTable]);
+  }, [on, loadTables, tables, operator, loadMenu, loadDraftForTable]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (screen === "order" && cart.length > 0) {
+      if ((screen === "table") && cart.length > 0) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -282,22 +338,32 @@ export default function App() {
     requestLock(table, overridePin);
   };
 
-  const reenterTable = (table: LiveTable) => {
-    setActiveTable(table);
-    void loadDraftForTable(table.id);
-    loadMenu();
-    setScreen("order");
+  const reenterTable = async (table: LiveTable) => {
+    const data = await loadDraftForTable(table.id);
+    const tab: WorkspaceTab =
+      data.cart.length > 0 ? "comanda" : data.submitted.length > 0 ? "comanda" : "menu";
+    await openWorkspace({ ...table, status: "LOCKED" }, tab);
   };
 
   const selectTable = (table: LiveTable) => {
     if (!operator) return;
+    setMessage("");
     if (table.status === "LOCKED" && table.lockedBy === operator.id) {
-      reenterTable(table);
+      void reenterTable(table);
       return;
     }
     if (table.status === "LOCKED" && table.lockedBy !== operator.id) {
       setPendingUnlockTable(table);
       setPinModal("unlock");
+      return;
+    }
+    if (
+      !table.isVirtual &&
+      (table.status === "OCCUPIED" ||
+        table.status === "BILL_REQUESTED" ||
+        table.status === "SPLIT_IN_PROGRESS")
+    ) {
+      void openWorkspace(table, "comanda");
       return;
     }
     if (table.isVirtual) {
@@ -322,44 +388,80 @@ export default function App() {
     return "TAKEAWAY";
   };
 
-  const addProduct = (product: Product) => {
-    if (!menu) return;
-    const groups = variantGroupsForProduct(product, menu.variantGroups ?? []);
-    const channel = getChannel();
-    const basePrice = resolvePrice(product, channel, menu.prices ?? []);
-
-    if (groups.some((g) => g.variants.length > 0)) {
-      setVariantProduct(product);
-      return;
-    }
-
-    const category = categories.find((c) => c.id === product.categoryId) ?? {};
-    const line = buildCartLine(product, category, channel, menu.prices ?? []);
-    if ("error" in line) {
-      setMessage(line.error);
-      return;
-    }
-    mergeCartLine(line);
-  };
+  const findCategory = (categoryId: string) =>
+    categories.find((c) => c.id === categoryId) ?? {
+      id: categoryId,
+      name: { it: "" },
+      colorHex: "#888888",
+      sortOrder: 0,
+    };
 
   const mergeCartLine = (line: CartLine) => {
-    const key = lineKey(line.productId, line.variants);
+    const key = lineKey(line.productId, line.variants, line.course);
+    let focusId = line.lineId;
     setCart((prev) => {
-      const existing = prev.find((l) => lineKey(l.productId, l.variants) === key);
+      const existing = prev.find(
+        (l) => lineKey(l.productId, l.variants, l.course) === key,
+      );
       if (existing) {
+        focusId = existing.lineId;
         return prev.map((l) =>
-          lineKey(l.productId, l.variants) === key ? { ...l, quantity: l.quantity + 1 } : l,
+          lineKey(l.productId, l.variants, l.course) === key
+            ? { ...l, quantity: l.quantity + 1 }
+            : l,
         );
       }
-      return [...prev, line];
+      const courseHold = prev.some((l) => l.course === line.course && l.hold);
+      return [...prev, courseHold ? { ...line, hold: true } : line];
     });
+    setSelectedLineId(focusId);
+  };
+
+  const handleSelectCat = (catId: string) => {
+    setSelectedCat(catId);
+    const cat = categories.find((c) => c.id === catId);
+    if (cat) setActiveCourse(suggestedCourseForCategory(cat));
+  };
+
+  const addProduct = (product: Product) => {
+    if (!menu) return;
+    const doAdd = () => {
+      const options = variantsForProduct(product, menu.variantGroups ?? []);
+      const channel = getChannel();
+      if (options.length > 0) {
+        setVariantProduct(product);
+        return;
+      }
+      const category = findCategory(product.categoryId);
+      const line = buildCartLine(
+        product,
+        category,
+        channel,
+        menu.prices ?? [],
+        [],
+        activeCourse,
+      );
+      if ("error" in line) {
+        setMessage(line.error);
+        return;
+      }
+      mergeCartLine(line);
+    };
+    ensureLock(doAdd);
   };
 
   const confirmVariants = (variants: VariantSelection[]) => {
     if (!variantProduct || !menu) return;
-    const category = categories.find((c) => c.id === variantProduct.categoryId) ?? {};
+    const category = findCategory(variantProduct.categoryId);
     const channel = getChannel();
-    const line = buildCartLine(variantProduct, category, channel, menu.prices ?? [], variants);
+    const line = buildCartLine(
+      variantProduct,
+      category,
+      channel,
+      menu.prices ?? [],
+      variants,
+      activeCourse,
+    );
     if ("error" in line) {
       setMessage(line.error);
     } else {
@@ -368,31 +470,33 @@ export default function App() {
     setVariantProduct(null);
   };
 
+  const mapLinePayload = (l: CartLine) => ({
+    id: l.lineId,
+    productId: l.productId,
+    name: l.name,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    basePrice: l.basePrice,
+    channel: getChannel(),
+    notes: l.notes || undefined,
+    variants: l.variants,
+    course: normalizeCourse(l.course),
+    hold: l.hold,
+    dessertDefer: l.dessertDefer,
+    discountPercent: l.discountPercent,
+    discountToken: l.discountToken,
+  });
+
   const persistDraft = async () => {
     if (!operator || !activeTable || cart.length === 0) return;
-    const channel = getChannel();
     await edgeApi("/api/orders", {
       method: "POST",
       body: JSON.stringify({
         tableId: activeTable.id,
         operatorId: operator.id,
         operatorName: `${operator.firstName} ${operator.lastName}`,
-        channel,
-        lines: cart.map((l) => ({
-          id: l.lineId,
-          productId: l.productId,
-          name: l.name,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          basePrice: l.basePrice,
-          channel,
-          variants: l.variants,
-          course: l.course,
-          hold: l.hold,
-          dessertDefer: l.dessertDefer,
-          discountPercent: l.discountPercent,
-          discountToken: l.discountToken,
-        })),
+        channel: getChannel(),
+        lines: cart.map(mapLinePayload),
       }),
     });
     await saveDraft(activeTable.id, cart, operator.id);
@@ -405,7 +509,11 @@ export default function App() {
       await saveDraft(activeTable.id, cart, operator.id);
       return;
     }
-
+    const guests = activeTable.guests ?? activeTable.defaultGuests ?? 0;
+    if (!activeTable.isVirtual && guests <= 0) {
+      setMessage("Imposta i coperti prima di SPEDITO");
+      return;
+    }
     const invalid = cart.find((l) => l.unitPrice <= 0);
     if (invalid) {
       setMessage(`Prezzo non valido: ${invalid.name}`);
@@ -413,29 +521,14 @@ export default function App() {
     }
 
     await persistDraft();
-    const channel = getChannel();
     const order = await edgeApi<{ id: string }>("/api/orders", {
       method: "POST",
       body: JSON.stringify({
         tableId: activeTable.id,
         operatorId: operator.id,
         operatorName: `${operator.firstName} ${operator.lastName}`,
-        channel,
-        lines: cart.map((l) => ({
-          id: l.lineId,
-          productId: l.productId,
-          name: l.name,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          basePrice: l.basePrice,
-          channel,
-          variants: l.variants,
-          course: l.course,
-          hold: l.hold,
-          dessertDefer: l.dessertDefer,
-          discountPercent: l.discountPercent,
-          discountToken: l.discountToken,
-        })),
+        channel: getChannel(),
+        lines: cart.map(mapLinePayload),
       }),
     });
 
@@ -457,10 +550,19 @@ export default function App() {
       setMessage("SPEDITO — comanda inviata in cucina");
       await clearDraft(activeTable.id);
       send("RELEASE_TABLE_LOCK", { tableId: activeTable.id, operatorId: operator.id });
-      setActiveTable(null);
+      const tableId = activeTable.id;
       setCart([]);
       cartDirty.current = false;
-      setScreen("map");
+      await loadDraftForTable(tableId);
+      const refreshed = tables.find((t) => t.id === tableId);
+      if (refreshed) {
+        setActiveTable({ ...refreshed, status: "OCCUPIED" });
+        setWorkspaceTab("comanda");
+        setScreen("table");
+      } else {
+        setActiveTable(null);
+        setScreen("map");
+      }
       loadTables();
     }
   };
@@ -471,8 +573,8 @@ export default function App() {
       method: "POST",
       body: JSON.stringify({ tableId: activeTable.id, course }),
     });
-    send("CALL_COURSE", { tableId: activeTable.id, course });
-    setMessage(`Portata ${course} chiamata`);
+    setConfirmCallCourse(null);
+    setMessage(`Marcia — ${stepLabel(course)} inviata in cucina`);
   };
 
   const releaseDessert = async () => {
@@ -481,6 +583,7 @@ export default function App() {
       method: "POST",
       body: JSON.stringify({ tableId: activeTable.id }),
     });
+    setConfirmReleaseDessert(false);
     setMessage("X DOLCE — dolci inviati in cucina");
   };
 
@@ -491,6 +594,7 @@ export default function App() {
       operatorId: operator.id,
       operatorName: `${operator.firstName} ${operator.lastName}`,
     });
+    setConfirmPayment(false);
     setMessage("Pagamento richiesto — cassa notificata");
     loadTables();
   };
@@ -501,7 +605,7 @@ export default function App() {
     try {
       const line = cart.find((l) => l.lineId === pendingDiscountLine);
       if (!line) return;
-      const percent = line.discountPercent ?? settings.maxDiscountPercent;
+      const percent = settings.maxDiscountPercent;
       const auth = await edgeApi<{ token: string; percent: number }>("/api/staff/authorize-discount", {
         method: "POST",
         body: JSON.stringify({ managerPin: pin, discountPercent: percent }),
@@ -521,41 +625,105 @@ export default function App() {
     }
   };
 
-  const executeStorno = async (pin: string) => {
-    if (!pendingStorno) return;
-    setPinModalError("");
+  const executeStorno = async (line: SubmittedLine) => {
+    if (!operator) return;
     try {
-      await edgeApi(`/api/orders/${pendingStorno.orderId}/storno`, {
+      await edgeApi(`/api/orders/${line.orderId}/storno`, {
         method: "POST",
-        body: JSON.stringify({ lineId: pendingStorno.lineId, managerPin: pin }),
+        body: JSON.stringify({
+          lineId: line.lineId,
+          operatorId: operator.id,
+          operatorName: `${operator.firstName} ${operator.lastName}`,
+        }),
       });
       setSubmittedLines((prev) =>
         prev.map((l) =>
-          l.lineId === pendingStorno.lineId
-            ? { ...l, voidedQuantity: (l.voidedQuantity ?? 0) + 1 }
-            : l,
+          l.lineId === line.lineId ? { ...l, voidedQuantity: (l.voidedQuantity ?? 0) + 1 } : l,
         ),
       );
-      setPinModal(null);
-      setPendingStorno(null);
+      setConfirmStorno(null);
+      setSelectedSubmittedId(null);
       setMessage("Storno inviato — ticket ANNULLO stampato");
     } catch {
-      setPinModalError("Storno rifiutato — verifica PIN manager");
+      setMessage("Storno non riuscito — riprova");
     }
   };
 
-  const leaveOrder = () => {
+  const releaseLockIfHeld = () => {
+    if (operator && activeTable?.status === "LOCKED") {
+      send("RELEASE_TABLE_LOCK", { tableId: activeTable.id, operatorId: operator.id });
+    }
+  };
+
+  const leaveTable = () => {
     if (cart.length > 0 && !exitConfirm) {
       setExitConfirm(true);
       return;
     }
-    if (operator && activeTable) {
+    if (operator && activeTable && cart.length > 0) {
       void persistDraft();
-      send("RELEASE_TABLE_LOCK", { tableId: activeTable.id, operatorId: operator.id });
     }
     setExitConfirm(false);
+    releaseLockIfHeld();
     setScreen("map");
     setActiveTable(null);
+    setSelectedLineId(null);
+    setSelectedSubmittedId(null);
+  };
+
+  const handleEditLine = (line: CartLine) => {
+    if (!menu) return;
+    const product = products.find((p) => p.id === line.productId);
+    if (!product) return;
+    const options = variantsForProduct(product, menu.variantGroups ?? []);
+    if (options.length > 0) {
+      setEditCartLine(line);
+    } else {
+      setNoteLineId(line.lineId);
+    }
+  };
+
+  const stageVariantSave = (variants: VariantSelection[]) => {
+    if (!editCartLine) return;
+    const unitPrice = calculateLinePrice(
+      editCartLine.basePrice,
+      variants.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
+    );
+    if (unitPrice <= 0) {
+      setMessage("Prezzo riga non valido (vincolo fiscale)");
+      return;
+    }
+    setPendingVariantSave(variants);
+  };
+
+  const applyVariantSave = () => {
+    if (!editCartLine || !pendingVariantSave) return;
+    const unitPrice = calculateLinePrice(
+      editCartLine.basePrice,
+      pendingVariantSave.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
+    );
+    setCart((prev) =>
+      prev.map((l) =>
+        l.lineId === editCartLine.lineId
+          ? { ...l, variants: pendingVariantSave, unitPrice }
+          : l,
+      ),
+    );
+    setPendingVariantSave(null);
+    setEditCartLine(null);
+  };
+
+  const applyNoteSave = () => {
+    if (!pendingNoteSave) return;
+    setCart((prev) =>
+      prev.map((l) =>
+        l.lineId === pendingNoteSave.lineId
+          ? { ...l, notes: pendingNoteSave.note || undefined }
+          : l,
+      ),
+    );
+    setPendingNoteSave(null);
+    setNoteLineId(null);
   };
 
   const logout = () => {
@@ -565,17 +733,134 @@ export default function App() {
     setCart([]);
   };
 
-  const filteredProducts = products.filter((p) => {
-    if (selectedCat && p.categoryId !== selectedCat) return false;
-    if (search && !fuzzyMatch(localized(p.name), search)) return false;
-    return true;
-  });
-
-  const isProductExcluded = (p: Product) => {
-    if (allergenFilter.length === 0) return false;
-    const ids = p.allergenIds ?? [];
-    return allergenFilter.some((a) => ids.includes(a));
-  };
+  const modals = (
+    <>
+      {exitConfirm && (
+        <ConfirmModal
+          title="Attenzione!"
+          message="Ci sono comande non spedite. Se esci dal tavolo senza spedire, la bozza resta salvata ma il tavolo verrà sbloccato."
+          confirmLabel="Esci"
+          cancelLabel="Continua ordine"
+          onConfirm={leaveTable}
+          onCancel={() => setExitConfirm(false)}
+        />
+      )}
+      {submitConfirm && (
+        <ConfirmModal
+          title="Inviare in cucina?"
+          message={`Confermi SPEDITO per ${cart.length} righe?`}
+          confirmLabel="SPEDITO"
+          onConfirm={() => {
+            setSubmitConfirm(false);
+            void submitOrder();
+          }}
+          onCancel={() => setSubmitConfirm(false)}
+        />
+      )}
+      {confirmCallCourse != null && (
+        <ConfirmModal
+          title={`Chiamare ${stepLabel(confirmCallCourse)}?`}
+          message="Verrà inviato un sollecito in cucina e sbloccati i piatti in HOLD."
+          confirmLabel="Marcia"
+          onConfirm={() => void callCourse(confirmCallCourse)}
+          onCancel={() => setConfirmCallCourse(null)}
+        />
+      )}
+      {confirmReleaseDessert && (
+        <ConfirmModal
+          title="Inviare i dolci?"
+          message="I dessert differiti verranno stampati in cucina."
+          confirmLabel="X DOLCE"
+          onConfirm={() => void releaseDessert()}
+          onCancel={() => setConfirmReleaseDessert(false)}
+        />
+      )}
+      {confirmPayment && (
+        <ConfirmModal
+          title="Richiedere preconto?"
+          message="La cassa riceverà una notifica per stampare il preconto."
+          confirmLabel="Preconto"
+          onConfirm={requestPayment}
+          onCancel={() => setConfirmPayment(false)}
+        />
+      )}
+      {confirmStorno && (
+        <ConfirmModal
+          title="Stornare la riga?"
+          message={`Annullare ${confirmStorno.name}? Verrà stampato il ticket ANNULLO in cucina.`}
+          confirmLabel="Annulla piatto"
+          variant="danger"
+          onConfirm={() => void executeStorno(confirmStorno)}
+          onCancel={() => setConfirmStorno(null)}
+        />
+      )}
+      {pendingNoteSave && (
+        <ConfirmModal
+          title="Salvare la nota?"
+          message={
+            pendingNoteSave.note
+              ? `Aggiungere la nota «${pendingNoteSave.note}» a ${pendingNoteSave.lineName}?`
+              : `Rimuovere la nota da ${pendingNoteSave.lineName}?`
+          }
+          confirmLabel="Salva"
+          onConfirm={applyNoteSave}
+          onCancel={() => setPendingNoteSave(null)}
+        />
+      )}
+      {pendingVariantSave && editCartLine && (
+        <ConfirmModal
+          title="Salvare le modifiche?"
+          message={`Confermi le varianti su «${editCartLine.name}»?`}
+          confirmLabel="Salva"
+          onConfirm={applyVariantSave}
+          onCancel={() => setPendingVariantSave(null)}
+        />
+      )}
+      {confirmDiscountLine && (
+        <ConfirmModal
+          title="Applicare sconto?"
+          message={`Richiedere sconto sulla riga «${
+            cart.find((l) => l.lineId === confirmDiscountLine)?.name ?? ""
+          }»? Serve PIN manager.`}
+          confirmLabel="Continua"
+          onConfirm={() => {
+            const lineId = confirmDiscountLine;
+            setConfirmDiscountLine(null);
+            setPendingDiscountLine(lineId);
+            setCart((prev) =>
+              prev.map((x) =>
+                x.lineId === lineId ? { ...x, discountPercent: settings.maxDiscountPercent } : x,
+              ),
+            );
+            setPinModal("discount");
+          }}
+          onCancel={() => setConfirmDiscountLine(null)}
+        />
+      )}
+      {pinModal === "unlock" && (
+        <PinModal
+          title="PIN manager per sblocco tavolo"
+          onComplete={handleUnlockPin}
+          onCancel={() => {
+            setPinModal(null);
+            setPendingUnlockTable(null);
+          }}
+          error={pinModalError}
+        />
+      )}
+      {pinModal === "discount" && (
+        <PinModal
+          title="PIN manager per sconto"
+          onComplete={(v) => void applyDiscount(v)}
+          onCancel={() => {
+            setPinModal(null);
+            setPendingDiscountLine(null);
+          }}
+          error={pinModalError}
+        />
+      )}
+    </>
+  );
 
   if (screen === "pin") {
     return (
@@ -589,371 +874,111 @@ export default function App() {
     );
   }
 
-  if (screen === "order" && activeTable && operator && menu) {
+  if (screen === "table" && activeTable && operator && menu) {
     const channel = getChannel();
-    const total = cartTotal(cart);
-    const variantGroups = variantProduct
-      ? variantGroupsForProduct(variantProduct, menu.variantGroups ?? [])
-      : [];
-    const basePrice = variantProduct
-      ? resolvePrice(variantProduct, channel, menu.prices ?? [])
-      : 0;
+    const editProduct = editCartLine
+      ? products.find((p) => p.id === editCartLine.productId) ?? null
+      : null;
 
     return (
-      <main className="flex min-h-screen flex-col">
-        {isOffline && (
-          <div className="bg-yellow-500 px-4 py-2 text-center text-sm font-medium text-black">
-            Offline — bozza salvata localmente. SPEDITO disabilitato.
-          </div>
-        )}
-
-        <header className="flex items-center justify-between border-b border-[hsl(var(--pg-border))] p-4">
-          <Button variant="ghost" onClick={leaveOrder}>← Mappa</Button>
-          <div className="text-center">
-            <h1 className="text-lg font-bold">{activeTable.label}</h1>
-            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-              {activeTable.guests ?? activeTable.defaultGuests} coperti
-            </p>
-          </div>
-          <span className="text-sm">{operator.firstName}</span>
-        </header>
-
-        {exitConfirm && (
-          <ConfirmModal
-            title="Uscire dalla comanda?"
-            message="La bozza verrà salvata. Il tavolo verrà sbloccato."
-            confirmLabel="Esci"
-            onConfirm={leaveOrder}
-            onCancel={() => setExitConfirm(false)}
-          />
-        )}
-
-        {message && (
-          <p className="border-b border-[hsl(var(--pg-border))] px-4 py-2 text-sm">{message}</p>
-        )}
-
-        <div className="flex flex-wrap gap-2 border-b border-[hsl(var(--pg-border))] p-2">
-          <input
-            type="search"
-            placeholder="Cerca piatto..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="min-w-[140px] flex-1 rounded-lg border border-[hsl(var(--pg-border))] px-3 py-2 text-sm"
-          />
-          <div className="flex flex-wrap gap-1">
-            {EU_ALLERGENS.slice(0, 6).map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() =>
-                  setAllergenFilter((prev) =>
-                    prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id],
-                  )
-                }
-                className={`rounded px-2 py-1 text-xs ${
-                  allergenFilter.includes(a.id) ? "bg-red-500 text-white" : "bg-[hsl(var(--pg-muted))]"
-                }`}
-              >
-                −{a.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-1 overflow-hidden">
-          <aside className="w-36 overflow-y-auto border-r border-[hsl(var(--pg-border))] p-2">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedCat(c.id)}
-                className={`mb-1 w-full rounded-lg px-2 py-3 text-left text-sm ${
-                  selectedCat === c.id
-                    ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
-                    : "bg-[hsl(var(--pg-muted))]"
-                }`}
-              >
-                {localized(c.name)}
-                {c.hold && " ⏸"}
-                {c.dessert && " 🍰"}
-              </button>
-            ))}
-          </aside>
-
-          <section className="grid flex-1 grid-cols-2 gap-2 overflow-y-auto p-3 content-start sm:grid-cols-3">
-            {filteredProducts.map((p) => {
-              const excluded = isProductExcluded(p);
-              return (
-              <button
-                key={p.id}
-                type="button"
-                disabled={excluded}
-                onClick={() => addProduct(p)}
-                className={`min-h-[72px] rounded-lg border border-[hsl(var(--pg-border))] p-3 text-left active:scale-95 ${
-                  excluded ? "pointer-events-none opacity-30" : ""
-                }`}
-              >
-                <p className="font-medium">
-                  {excluded && <span className="mr-1">🚫</span>}
-                  {localized(p.name)}
-                </p>
-                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                  € {resolvePrice(p, channel, menu.prices ?? []).toFixed(2)}
-                </p>
-              </button>
-            );
-            })}
-          </section>
-
-          <aside className="flex w-52 flex-col border-l border-[hsl(var(--pg-border))] p-3">
-            <h2 className="mb-2 font-semibold">Carrello</h2>
-            <ul className="flex-1 space-y-2 overflow-y-auto text-sm">
-              {cart.map((l) => (
-                <li key={l.lineId} className="rounded border border-[hsl(var(--pg-border))] p-2">
-                  <div className="flex justify-between">
-                    <span>{l.quantity}× {l.name}</span>
-                    <button type="button" className="text-red-500" onClick={() => setCart((prev) => prev.filter((x) => x.lineId !== l.lineId))}>✕</button>
-                  </div>
-                  {l.variants.length > 0 && (
-                    <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                      {l.variants.map((v) => (v.type === "REMOVE" ? `NO ${v.name}` : v.name)).join(", ")}
-                    </p>
-                  )}
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {[1, 2, 3, 4].map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setCart((prev) => prev.map((x) => x.lineId === l.lineId ? { ...x, course: c } : x))}
-                        className={`rounded px-1.5 text-xs ${l.course === c ? "bg-[hsl(var(--pg-primary))] text-white" : "bg-[hsl(var(--pg-muted))]"}`}
-                      >
-                        P{c}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setCart((prev) => prev.map((x) => x.lineId === l.lineId ? { ...x, hold: !x.hold } : x))}
-                      className={`rounded px-1.5 text-xs ${l.hold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-muted))]"}`}
-                    >
-                      HOLD
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPendingDiscountLine(l.lineId);
-                        setCart((prev) => prev.map((x) => x.lineId === l.lineId ? { ...x, discountPercent: settings.maxDiscountPercent } : x));
-                        setPinModal("discount");
-                      }}
-                      className="rounded bg-[hsl(var(--pg-muted))] px-1.5 text-xs"
-                    >
-                      %
-                    </button>
-                  </div>
-                  {l.discountPercent ? (
-                    <p className="text-xs text-green-600">−{l.discountPercent}%</p>
-                  ) : null}
-                  {l.hold && <p className="text-xs text-orange-600">In attesa</p>}
-                  {l.dessertDefer && <p className="text-xs text-pink-600">Dolce differito</p>}
-                </li>
-              ))}
-            </ul>
-
-            {submittedLines.length > 0 && (
-              <div className="mb-2 border-t border-[hsl(var(--pg-border))] pt-2">
-                <p className="mb-1 text-xs font-semibold">Già inviati</p>
-                {submittedLines.map((l) => {
-                  const remaining = l.quantity - (l.voidedQuantity ?? 0);
-                  if (remaining <= 0) return null;
-                  return (
-                    <button
-                      key={l.lineId}
-                      type="button"
-                      className="mb-1 block w-full rounded bg-red-500/10 px-2 py-1 text-left text-xs text-red-700"
-                      onClick={() => {
-                        setPendingStorno(l);
-                        setPinModal("storno");
-                      }}
-                    >
-                      Storno: {l.name} ({remaining})
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="mb-2 flex flex-wrap gap-1">
-              {[1, 2, 3, 4].map((c) => (
-                <Button key={c} className="h-9 min-h-9 px-2 text-xs" variant="outline" onClick={() => void callCourse(c)}>
-                  P{c}
-                </Button>
-              ))}
-              <Button className="h-9 min-h-9 px-2 text-xs" variant="outline" onClick={() => void releaseDessert()}>
-                X DOLCE
-              </Button>
-            </div>
-
-            <p className="mb-3 text-lg font-bold">€ {total.toFixed(2)}</p>
-            <Button
-              size="lg"
-              className="mb-2 w-full"
-              disabled={cart.length === 0 || isOffline}
-              onClick={() => setSubmitConfirm(true)}
-            >
-              {isOffline ? "OFFLINE" : "SPEDITO"}
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="w-full"
-              disabled={isOffline || (submittedLines.length === 0 && cart.length === 0)}
-              onClick={requestPayment}
-            >
-              RICHIEDI PAGAMENTO
-            </Button>
-          </aside>
-        </div>
-
-        {variantProduct && (
+      <>
+        <TableWorkspace
+          table={activeTable}
+          operator={operator}
+          menu={menu}
+          categories={categories}
+          cart={cart}
+          submittedLines={submittedLines}
+          workspaceTab={workspaceTab}
+          selectedLineId={selectedLineId}
+          selectedSubmittedId={selectedSubmittedId}
+          search={search}
+          allergenFilter={allergenFilter}
+          selectedCat={selectedCat}
+          variantProduct={variantProduct}
+          isOffline={isOffline}
+          hasLock={hasLock}
+          message={message}
+          channel={channel}
+          activeCourse={activeCourse}
+          onActiveCourseChange={setActiveCourse}
+          onTabChange={setWorkspaceTab}
+          onSelectLine={setSelectedLineId}
+          onSelectSubmitted={setSelectedSubmittedId}
+          onSearchChange={setSearch}
+          onAllergenToggle={(id) =>
+            setAllergenFilter((prev) =>
+              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+            )
+          }
+          onSelectCat={handleSelectCat}
+          onAddProduct={addProduct}
+          onConfirmVariants={confirmVariants}
+          onCancelVariants={() => setVariantProduct(null)}
+          onUpdateCart={setCart}
+          onLeaveTable={leaveTable}
+          onSpedisci={() => ensureLock(() => setSubmitConfirm(true))}
+          onMarcia={(c) => setConfirmCallCourse(c)}
+          onPreconto={() => setConfirmPayment(true)}
+          onReleaseDessert={() => setConfirmReleaseDessert(true)}
+          onDiscountLine={(lineId) => setConfirmDiscountLine(lineId)}
+          onStorno={(l) => setConfirmStorno(l)}
+          onEditLine={handleEditLine}
+          noteLineId={noteLineId}
+          onSaveNote={(lineId, note) => {
+            const line = cart.find((l) => l.lineId === lineId);
+            if (!line) return;
+            setPendingNoteSave({ lineId, note, lineName: line.name });
+          }}
+          onCancelNote={() => setNoteLineId(null)}
+          onAcquireLock={() => activeTable && ensureLock(() => setMessage("Tavolo acquisito"))}
+        />
+        {editProduct && editCartLine && (
           <VariantSheet
-            product={variantProduct}
-            groups={variantGroups}
-            basePrice={basePrice}
-            onConfirm={confirmVariants}
-            onCancel={() => setVariantProduct(null)}
+            product={editProduct}
+            variants={variantsForProduct(editProduct, menu.variantGroups ?? [])}
+            basePrice={editCartLine.basePrice}
+            initialVariants={editCartLine.variants}
+            confirmLabel="Salva"
+            onConfirm={stageVariantSave}
+            onCancel={() => setEditCartLine(null)}
           />
         )}
-
-        {submitConfirm && (
-          <ConfirmModal
-            title="Inviare in cucina?"
-            message={`Confermi SPEDITO per ${cart.length} righe?`}
-            confirmLabel="SPEDITO"
-            onConfirm={() => {
-              setSubmitConfirm(false);
-              void submitOrder();
-            }}
-            onCancel={() => setSubmitConfirm(false)}
-          />
-        )}
-        {pinModal === "unlock" && (
-          <PinModal
-            title="PIN manager per sblocco tavolo"
-            onComplete={handleUnlockPin}
-            onCancel={() => { setPinModal(null); setPendingUnlockTable(null); }}
-            error={pinModalError}
-          />
-        )}
-        {pinModal === "discount" && (
-          <PinModal
-            title="PIN manager per sconto"
-            onComplete={(v) => void applyDiscount(v)}
-            onCancel={() => { setPinModal(null); setPendingDiscountLine(null); }}
-            error={pinModalError}
-          />
-        )}
-        {pinModal === "storno" && (
-          <PinModal
-            title="PIN manager per storno"
-            onComplete={(v) => void executeStorno(v)}
-            onCancel={() => { setPinModal(null); setPendingStorno(null); }}
-            error={pinModalError}
-          />
-        )}
-      </main>
+        {modals}
+      </>
     );
   }
 
-  return (
-    <main className="min-h-screen p-4">
-      <header className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Mappa sala</h1>
-          {operator && (
-            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-              {operator.firstName} {operator.lastName}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2 py-1 text-xs ${!isOffline ? "bg-green-500/20 text-green-600" : "bg-yellow-500/20"}`}>
-            {!isOffline ? "Online" : "Offline"}
-          </span>
-          <Button variant="outline" onClick={() => setLogoutConfirm(true)}>Esci</Button>
-        </div>
-      </header>
-
-      {message && (
-        <p className="mb-3 rounded bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
-      )}
-
-      {logoutConfirm && (
-        <ConfirmModal
-          title="Uscire dalla sessione?"
-          message="Dovrai reinserire il PIN per accedere."
-          confirmLabel="Esci"
-          onConfirm={() => {
+  if (screen === "map" && operator) {
+    return (
+      <>
+        <MapScreen
+          operator={operator}
+          tables={tables}
+          message={message}
+          isOffline={isOffline}
+          lockPending={lockPending}
+          logoutConfirm={logoutConfirm}
+          pendingGuestsTable={pendingGuestsTable}
+          guestCount={guestCount}
+          onSelectTable={selectTable}
+          onLogout={() => setLogoutConfirm(true)}
+          onConfirmLogout={() => {
             setLogoutConfirm(false);
             logout();
           }}
-          onCancel={() => setLogoutConfirm(false)}
-        />
-      )}
-
-      <div className="relative mx-auto h-[480px] max-w-3xl rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20">
-        {tables.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            disabled={lockPending === t.id}
-            onClick={() => selectTable(t)}
-            style={{
-              position: "absolute",
-              left: t.x,
-              top: t.y,
-              width: t.width,
-              height: t.height,
-            }}
-            className={`flex flex-col items-center justify-center rounded-lg text-white shadow-md transition active:scale-95 ${STATUS_COLORS[t.status] ?? "bg-gray-400"} ${lockPending === t.id ? "opacity-50" : ""}`}
-          >
-            <span className="text-lg font-bold">{t.label}</span>
-            {(t.guests ?? (!t.isVirtual ? t.defaultGuests : undefined)) && (
-              <span className="text-[10px]">
-                {t.guests ?? t.defaultGuests} coperti
-              </span>
-            )}
-            {t.lockedByName && t.status === "LOCKED" && (
-              <span className="text-[10px]">{t.lockedByName}</span>
-            )}
-          </button>
-        ))}
-        {tables.length === 0 && (
-          <p className="flex h-full items-center justify-center text-sm text-[hsl(var(--pg-muted-foreground))]">
-            Nessun tavolo — configura la sala su Main Station
-          </p>
-        )}
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-3 text-xs">
-        {Object.entries(STATUS_COLORS).map(([status, color]) => (
-          <span key={status} className="flex items-center gap-1">
-            <span className={`h-3 w-3 rounded ${color.split(" ")[0]}`} />
-            {status}
-          </span>
-        ))}
-      </div>
-
-      {pendingGuestsTable && (
-        <GuestsModal
-          tableLabel={pendingGuestsTable.label}
-          guests={guestCount}
-          onChange={setGuestCount}
-          onConfirm={confirmGuests}
-          onCancel={() => {
+          onCancelLogout={() => setLogoutConfirm(false)}
+          onGuestsChange={setGuestCount}
+          onConfirmGuests={confirmGuests}
+          onCancelGuests={() => {
             setPendingGuestsTable(null);
             setUnlockOverridePin(undefined);
           }}
         />
-      )}
-    </main>
-  );
+        {modals}
+      </>
+    );
+  }
+
+  return null;
 }

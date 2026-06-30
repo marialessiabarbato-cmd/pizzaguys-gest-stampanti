@@ -38,17 +38,34 @@ export interface TableOrder {
   submittedAt?: string;
 }
 
+export interface KdsTicketLine {
+  lineId: string;
+  name: string;
+  quantity: number;
+  variants?: string[];
+}
+
 export interface KdsTicket {
   id: string;
   orderId: string;
   tableId: string;
   tableLabel: string;
   course: number;
-  lines: { name: string; quantity: number; variants?: string[] }[];
+  lines: KdsTicketLine[];
   submittedAt: string;
   hold: boolean;
   dessertQueue: boolean;
   calledAt?: string;
+  courseCalledAt?: string;
+}
+
+export interface KdsCancellation {
+  id: string;
+  tableLabel: string;
+  course: number;
+  itemName: string;
+  quantity: number;
+  cancelledAt: string;
 }
 
 export interface TableRuntime {
@@ -58,6 +75,8 @@ export interface TableRuntime {
   lockedByName?: string;
   lockedAt?: string;
   guests?: number;
+  /** Coperti massimi addebitati (non diminuisce se si riducono i coperti) */
+  chargedGuests?: number;
 }
 
 export interface RomanSplit {
@@ -95,6 +114,8 @@ export interface AnalyticSplit {
 const tableRuntime = new Map<string, TableRuntime>();
 const orders = new Map<string, TableOrder>();
 const kdsTickets = new Map<string, KdsTicket>();
+const kdsCancellations: KdsCancellation[] = [];
+const MAX_KDS_CANCELLATIONS = 30;
 const discountTokens = new Map<string, { percent: number; used: boolean; createdAt: string }>();
 const romanSplits = new Map<string, RomanSplit>();
 const analyticSplits = new Map<string, AnalyticSplit>();
@@ -136,15 +157,33 @@ export function requestLock(
       return { granted: false, reason: "Tavolo già bloccato" };
     }
   }
+  const nextGuests = guests ?? current.guests;
+  const chargedGuests = Math.max(
+    current.chargedGuests ?? 0,
+    nextGuests ?? current.chargedGuests ?? 0,
+  );
   tableRuntime.set(tableId, {
     tableId,
     status: "LOCKED",
     lockedBy: operatorId,
     lockedByName: operatorName,
     lockedAt: new Date().toISOString(),
-    guests: guests ?? current.guests,
+    guests: nextGuests,
+    chargedGuests: chargedGuests > 0 ? chargedGuests : undefined,
   });
   return { granted: true };
+}
+
+export function getChargedGuests(tableId: string): number | undefined {
+  const runtime = getTableRuntime(tableId);
+  return runtime.chargedGuests ?? runtime.guests;
+}
+
+export function bumpChargedGuests(tableId: string, guests: number) {
+  const current = getTableRuntime(tableId);
+  const chargedGuests = Math.max(current.chargedGuests ?? 0, guests);
+  if (chargedGuests <= 0) return;
+  tableRuntime.set(tableId, { ...current, chargedGuests });
 }
 
 export function forceUnlock(tableId: string) {
@@ -173,7 +212,14 @@ export function releaseLock(tableId: string, operatorId: string): boolean {
 export function setTableOccupied(tableId: string) {
   const current = getTableRuntime(tableId);
   if (current.status === "BILL_REQUESTED" || current.status === "SPLIT_IN_PROGRESS") return;
-  tableRuntime.set(tableId, { ...current, tableId, status: "OCCUPIED" });
+  tableRuntime.set(tableId, {
+    ...current,
+    tableId,
+    status: "OCCUPIED",
+    lockedBy: undefined,
+    lockedByName: undefined,
+    lockedAt: undefined,
+  });
 }
 
 export function setBillRequested(tableId: string) {
@@ -450,15 +496,95 @@ export function addKdsTickets(tickets: KdsTicket[]) {
   for (const t of tickets) kdsTickets.set(t.id, t);
 }
 
+function variantLabels(line: OrderLine): string[] {
+  return (line.variants ?? []).map((v) => (v.type === "REMOVE" ? `NO ${v.name}` : v.name));
+}
+
+/** Ricostruisce i ticket KDS di un ordine (es. dopo storno). */
+export function rebuildKdsTicketsForOrder(order: TableOrder, tableLabel: string): void {
+  const previous = [...kdsTickets.values()].filter((t) => t.orderId === order.id);
+  for (const ticket of previous) kdsTickets.delete(ticket.id);
+
+  const effectiveLines = order.lines
+    .map((l) => ({
+      ...l,
+      quantity: l.quantity - (l.voidedQuantity ?? 0),
+    }))
+    .filter((l) => l.quantity > 0);
+
+  if (!order.submittedAt || effectiveLines.length === 0) return;
+
+  const byCourse = new Map<number, OrderLine[]>();
+  for (const line of effectiveLines) {
+    const course = line.course ?? 1;
+    const group = byCourse.get(course) ?? [];
+    group.push(line);
+    byCourse.set(course, group);
+  }
+
+  for (const [course, lines] of byCourse) {
+    const prev = previous.find((t) => t.course === course);
+    const hold = lines.some((l) => l.hold);
+    const dessertQueue = lines.some((l) => l.dessertDefer);
+    const id = randomUUID();
+    kdsTickets.set(id, {
+      id,
+      orderId: order.id,
+      tableId: order.tableId,
+      tableLabel,
+      course,
+      lines: lines.map((l) => ({
+        lineId: l.id,
+        name: l.name,
+        quantity: l.quantity,
+        variants: variantLabels(l),
+      })),
+      submittedAt: order.submittedAt,
+      hold: hold || dessertQueue,
+      dessertQueue,
+      calledAt: prev?.calledAt,
+      courseCalledAt: prev?.courseCalledAt,
+    });
+  }
+}
+
+export function recordKdsCancellation(
+  entry: Omit<KdsCancellation, "id">,
+): KdsCancellation {
+  const row: KdsCancellation = { id: randomUUID(), ...entry };
+  kdsCancellations.unshift(row);
+  if (kdsCancellations.length > MAX_KDS_CANCELLATIONS) {
+    kdsCancellations.length = MAX_KDS_CANCELLATIONS;
+  }
+  return row;
+}
+
+export function getKdsCancellations(maxAgeMs = 600_000): KdsCancellation[] {
+  const cutoff = Date.now() - maxAgeMs;
+  return kdsCancellations.filter((c) => new Date(c.cancelledAt).getTime() >= cutoff);
+}
+
+export function getKdsSnapshot() {
+  return {
+    tickets: getKdsTickets(),
+    cancellations: getKdsCancellations(),
+  };
+}
+
 export function getKdsTickets(): KdsTicket[] {
   return [...kdsTickets.values()].filter((t) => !t.calledAt);
 }
 
 export function callCourse(tableId: string, course: number): KdsTicket[] {
   const released: KdsTicket[] = [];
+  const now = new Date().toISOString();
   for (const [id, ticket] of kdsTickets) {
-    if (ticket.tableId === tableId && ticket.course === course && ticket.hold) {
-      const updated = { ...ticket, hold: false };
+    if (ticket.tableId === tableId && ticket.course === course) {
+      const updated = {
+        ...ticket,
+        hold: false,
+        courseCalledAt: now,
+      };
       kdsTickets.set(id, updated);
       released.push(updated);
     }

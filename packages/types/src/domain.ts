@@ -21,6 +21,9 @@ export type LocationHealthStatus = "ONLINE" | "OFFLINE" | "DESYNC";
 /** Aliquote IVA supportate */
 export type VatRate = 4 | 10 | 22;
 
+/** Tipo documento fiscale emesso */
+export type FiscalDocumentType = "RECEIPT" | "INVOICE" | "TRAINING";
+
 /** Metodi di pagamento */
 export type PaymentMethod =
   | "CASH"

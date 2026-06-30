@@ -2,6 +2,7 @@
 
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useEffect, useState } from "react";
+import { ConfirmModal } from "@/components/confirm-modal";
 import { api } from "@/lib/api";
 
 interface Location {
@@ -23,6 +24,8 @@ export default function UsersPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [passwordReveal, setPasswordReveal] = useState<string | null>(null);
   const [filterLocationId, setFilterLocationId] = useState("");
+  const [toggleTarget, setToggleTarget] = useState<UserAdmin | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserAdmin | null>(null);
   const [form, setForm] = useState({
     email: "",
     firstName: "",
@@ -60,6 +63,13 @@ export default function UsersPage() {
       method: "PATCH",
       body: JSON.stringify({ isActive: !user.isActive }),
     });
+    setToggleTarget(null);
+    load();
+  };
+
+  const deleteUser = async (user: UserAdmin) => {
+    await api(`/api/v2/users/${user.id}`, { method: "DELETE" });
+    setDeleteTarget(null);
     load();
   };
 
@@ -166,8 +176,11 @@ export default function UsersPage() {
                 <span className={`text-xs uppercase ${u.isActive ? "text-green-600" : "text-red-500"}`}>
                   {u.isActive ? "Attivo" : "Disattivo"}
                 </span>
-                <Button variant="outline" onClick={() => toggleActive(u)}>
+                <Button variant="outline" onClick={() => setToggleTarget(u)}>
                   {u.isActive ? "Disattiva" : "Attiva"}
+                </Button>
+                <Button variant="ghost" onClick={() => setDeleteTarget(u)}>
+                  Elimina
                 </Button>
               </div>
             </CardContent>
@@ -177,6 +190,28 @@ export default function UsersPage() {
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Nessun User Admin configurato.</p>
         )}
       </div>
+
+      {toggleTarget && (
+        <ConfirmModal
+          title={toggleTarget.isActive ? "Disattivare utente?" : "Riattivare utente?"}
+          message={`${toggleTarget.firstName} ${toggleTarget.lastName} (${toggleTarget.email})`}
+          confirmLabel={toggleTarget.isActive ? "Disattiva" : "Attiva"}
+          variant={toggleTarget.isActive ? "danger" : "default"}
+          onConfirm={() => void toggleActive(toggleTarget)}
+          onCancel={() => setToggleTarget(null)}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="Eliminazione definitiva"
+          message={`Rimuovere permanentemente ${deleteTarget.email}? Operazione irreversibile.`}
+          confirmLabel="Elimina"
+          variant="danger"
+          onConfirm={() => void deleteUser(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }

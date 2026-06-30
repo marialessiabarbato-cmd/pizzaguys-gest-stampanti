@@ -1,4 +1,4 @@
-import type { PaymentMethod } from "@pizzaguys/types";
+import type { FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
 
 export interface MockReceiptLine {
   name: string;
@@ -13,6 +13,7 @@ export interface MockReceipt {
   locationId: string;
   tableId?: string;
   paymentMethod: PaymentMethod;
+  documentType: FiscalDocumentType;
   lines: MockReceiptLine[];
   total: number;
   change?: number;
@@ -23,6 +24,7 @@ export function createMockReceipt(params: {
   locationId: string;
   tableId?: string;
   paymentMethod: PaymentMethod;
+  documentType?: FiscalDocumentType;
   lines: MockReceiptLine[];
   amountReceived?: number;
 }): MockReceipt {
@@ -42,6 +44,7 @@ export function createMockReceipt(params: {
     locationId: params.locationId,
     tableId: params.tableId,
     paymentMethod: params.paymentMethod,
+    documentType: params.documentType ?? "RECEIPT",
     lines: params.lines,
     total: rounded,
     change,

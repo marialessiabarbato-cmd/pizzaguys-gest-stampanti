@@ -54,11 +54,12 @@ Tempo stimato prima esecuzione: **1–2 ore**.
 | # | Test | Esito atteso | ✓ |
 |---|------|--------------|---|
 | 1.1 | Login SuperAdmin | Dashboard visibile | ✓ |
-| 1.2 | Sedi → “Caserta — Via Roma” | Sede pilota presente | ✓ |
+| 1.2 | Sedi → “Caserta — Via Roma” | Sede pilota presente; **Coperto (€)** configurabile | ☐ |
 | 1.3 | Menu → categorie e prodotti | 8 categorie, ~80 articoli | ✓ |
 | 1.4 | Matrice prezzi sede Caserta | Prezzi TABLE / TAKEAWAY / DELIVERY | ✓ |
 | 1.5 | Dopo provision edge, attendi ~60 s | Sede **ONLINE** in dashboard | ☐ |
 | 1.6 | Audit log | Eventi recenti visibili | ✓ |
+| 1.7 | Utenti → elimina User Admin (SuperAdmin) | Modale conferma; utente rimosso dal DB | ☐ |
 
 ---
 
@@ -69,12 +70,12 @@ Tempo stimato prima esecuzione: **1–2 ore**.
 | # | Test | Esito atteso | ✓ |
 |---|------|--------------|---|
 | 2.1 | Schermata Provision → incolla API token | Stato **ACTIVE**, menu caricato | ✓ |
-| 2.2 | Sala → crea sala + 3–4 tavoli | Tavoli sulla mappa | ☐ |
-| 2.3 | Staff → cameriere (ruolo WAITER) + PIN | Operatore attivo | ☐ |
-| 2.4 | Staff → manager (CASHIER o USER_ADMIN) + PIN | Manager attivo | ☐ |
-| 2.5 | Stampanti → aggiungi stampante mock + **Test** | File in `tmp/prints/` | ☐ |
-| 2.6 | Routing → assegna categorie ai centri lavoro | Routing salvato | ☐ |
-| 2.7 | Avvia turno cassa (se richiesto dalla UI) | Turno aperto | ☐ |
+| 2.2 | Sala → crea sala + 3–4 tavoli | Tavoli sulla mappa; flag **Applica coperto** | ☐ |
+| 2.3 | Staff → cameriere (ruolo WAITER) + PIN | Operatore attivo | ✓ |
+| 2.4 | Staff → manager (CASHIER o USER_ADMIN) + PIN | Manager attivo | ✓ |
+| 2.5 | Stampanti → aggiungi stampante mock + **Test** | File in `tmp/prints/` | ✓ |
+| 2.6 | Routing → assegna categorie ai centri lavoro | Routing salvato | ✓ |
+| 2.7 | Avvia turno cassa (se richiesto dalla UI) | Turno aperto | ✓ |
 
 ---
 
@@ -84,14 +85,15 @@ Tempo stimato prima esecuzione: **1–2 ore**.
 
 | # | Test | Esito atteso | ✓ |
 |---|------|--------------|---|
-| 3.1 | Login PIN cameriere | Mappa tavoli visibile | ☐ |
+| 3.1 | Login PIN cameriere | Mappa tavoli visibile | ✓ |
 | 3.2 | Tap tavolo → lock | Tavolo bloccato (cambio colore) | ☐ |
 | 3.3 | Comanda 2–3 prodotti dal menu seed | Carrello aggiornato, prezzi corretti | ☐ |
 | 3.4 | Aggiungi varianti su una riga | Varianti applicate | ☐ |
 | 3.5 | **SPEDITO** | Ordine inviato, nessun errore | ☐ |
-| 3.6 | Storno riga con PIN manager | Riga annullata, stampa mock ANNULLO | ☐ |
+| 3.6 | Storno riga inviata (senza PIN) | Riga annullata, stampa mock ANNULLO | ☐ |
 | 3.7 | (Opz.) HOLD su un piatto | Comanda parziale in attesa | ☐ |
-| 3.8 | (Opz.) CHIAMA PORTATA | Stampa / evento portata | ☐ |
+| 3.8 | (Opz.) CHIAMA PORTATA | Stampa sollecito in `tmp/prints/` + highlight KDS | ☐ |
+| 3.11 | Filtro allergeni (es. Pesce) | Prodotti opacizzati 30% + 🚫, non cliccabili | ☐ |
 | 3.9 | (Opz.) X DOLCE | Dessert in coda | ☐ |
 | 3.10 | Secondo cameriere su stesso tavolo bloccato | Lock rifiutato / messaggio chiaro | ☐ |
 
@@ -114,13 +116,15 @@ Tempo stimato prima esecuzione: **1–2 ore**.
 
 | # | Test | Esito atteso | ✓ |
 |---|------|--------------|---|
-| 5.1 | Mappa live → tavolo con ordine | Stato sincronizzato via WebSocket | ☐ |
-| 5.2 | **Preconto** su tavolo con conto | Stampa mock / stato conto richiesto | ☐ |
-| 5.3 | Pagamento **contanti** (importo ≥ totale) | Scontrino mock in `tmp/prints/`, resto visibile | ☐ |
-| 5.4 | Pagamento **POS** su altro tavolo | Tavolo **FREE** dopo pagamento | ☐ |
+| 5.1 | Mappa live → tavolo con ordine | Stato sincronizzato via WebSocket | ✓ |
+| 5.2 | **Preconto** su tavolo con conto | Modale conferma → stampa mock | ☐ |
+| 5.10 | Tavolo sala con coperti | Riga **Coperto x N** nel conto | ☐ |
+| 5.3 | Pagamento **contanti** (importo ≥ totale) | Scontrino mock in `tmp/prints/`, resto visibile | ✓ |
+| 5.3b | Selettore documento: **Scontrino / Fattura / Addestramento** | Tipo passato a edge-api e nel report giornaliero | ☐ |
+| 5.4 | Pagamento **POS** su altro tavolo | Tavolo **FREE** dopo pagamento | ✓ |
 | 5.5 | Sconto riga + PIN manager | Sconto applicato al conto | ☐ |
-| 5.6 | (Opz.) Split **romano** (3 quote) | 3 pagamenti, tavolo libero a fine | ☐ |
-| 5.7 | (Opz.) Split **analitico** drag-and-drop | Conti separati pagabili | ☐ |
+| 5.6 | (Opz.) Split **romano** (3 quote) | 3 pagamenti, tavolo libero a fine | ✓ |
+| 5.7 | (Opz.) Split **analitico** drag-and-drop | Conti separati pagabili | ✓ |
 | 5.8 | (Opz.) Pagamento richiesto da handheld → incasso cassa | Flusso WS completato | ☐ |
 | 5.9 | Chiusura **turno cassiere** (conteggio cieco) | Report JSON in `tmp/prints/` | ☐ |
 
@@ -132,11 +136,12 @@ Tempo stimato prima esecuzione: **1–2 ore**.
 
 | # | Test | Esito atteso | ✓ |
 |---|------|--------------|---|
-| 6.1 | Pre-check con tavolo ancora aperto | **Blocco** con elenco motivi | ☐ |
-| 6.2 | Chiudi tutti i tavoli e turni cassa aperti | Pre-check **OK** | ☐ |
-| 6.3 | Emetti **Z mock** | File Z in `tmp/prints/` | ☐ |
-| 6.4 | Riconciliazione cieca contanti + POS | Scostamento calcolato e mostrato | ☐ |
-| 6.5 | **Chiudi giornata** | Sala resettata, tavoli FREE | ☐ |
+| 6.1 | Pre-check con tavolo ancora aperto | **Blocco** con elenco motivi | ✓ |
+| 6.2 | Chiudi tutti i tavoli e turni cassa aperti | Pre-check **OK** | ✓ |
+| 6.3 | Emetti **Z mock** | File Z in `tmp/prints/` | ✓ |
+| 6.4 | Riconciliazione cieca contanti + POS | Scostamento calcolato e mostrato | ✓ |
+| 6.5 | **Chiudi giornata** | Sala resettata, tavoli FREE | ✓ |
+| 6.5b | Report giornaliero locale (txt/html/json) | Sezioni Tilby: pagamenti, operatori, IVA scontrini/fatture, documenti fiscali | ☐ |
 | 6.6 | Export CSV: `GET /api/closure/export.csv` | File CSV scaricato | ☐ |
 
 ---
@@ -147,7 +152,8 @@ Tempo stimato prima esecuzione: **1–2 ore**.
 |---|------|--------------|---|
 | 7.1 | Heartbeat edge (~60 s dopo chiusura) | Sede ONLINE su cloud | ☐ |
 | 7.2 | Cloud → chiusura in `daily_closures` / audit | Record `DAILY_CLOSURE_SYNC` | ☐ |
-| 7.3 | (Opz.) Report notturno manuale (SuperAdmin) | File HTML in `tmp/emails/` | ☐ |
+| 7.3 | (Opz.) Report notturno manuale (SuperAdmin) | File HTML in `apps/cloud-api/tmp/emails/` con **dettaglio per sede** | ☐ |
+| 7.3b | Cloud → **Chiusure & Report** → storico sede | Click riga → pannello dettaglio `dailyReport` | ☐ |
 | 7.4 | (Opz.) Simula cloud down → chiudi giornata | `syncQueued: true`, retry su heartbeat | ☐ |
 
 ---
@@ -173,8 +179,8 @@ cd e2e && pnpm install && pnpm test
 
 | Percorso | Contenuto |
 |----------|-----------|
-| `tmp/prints/` | Scontrini mock, Z-report, chiusure, comande |
-| `tmp/emails/` | Report notturno HTML (se inviato) |
+| `tmp/prints/` | Scontrini mock, Z-report, chiusure, comande, report giornaliero |
+| `apps/cloud-api/tmp/emails/` | Report notturno HTML (mock email) |
 | `tmp/edge.sqlite` | DB edge locale (provision, staff, audit) |
 
 ---
@@ -216,4 +222,5 @@ Il giro è **superato** se:
 
 | Data | Note |
 |------|------|
+| 2026-06-17 | Fase B: documenti fiscali, IVA separata, dettaglio report cloud/email |
 | 2026-06-10 | Creazione checklist giro test locale MVP |

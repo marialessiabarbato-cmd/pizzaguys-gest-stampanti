@@ -26,7 +26,6 @@ import {
 import {
   clearDayLedger,
   clearShiftLedger,
-  getDayTheoretical,
 } from "../lib/shift-ledger.js";
 import {
   clearTableOrders,
@@ -34,6 +33,13 @@ import {
   getPendingPaymentRequests,
   setTableFree,
 } from "../lib/runtime.js";
+import {
+  buildByChannelFromSnapshot,
+  buildDailyReportSnapshot,
+  clearDayReportLedger,
+  getDayTheoretical,
+} from "../lib/day-report-ledger.js";
+import { formatDailyReportHtml, formatDailyReportText } from "../lib/daily-report-format.js";
 import { broadcastTableStatus } from "../lib/ws-hub.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -41,6 +47,32 @@ const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+async function writeDailyReportFiles(
+  app: FastifyInstance,
+  params: { printedBy: string; zNumber?: number; closureDate?: string },
+) {
+  const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+  const closureDate = params.closureDate ?? todayKey();
+  const snapshot = buildDailyReportSnapshot(app.edgeDb, {
+    locationName: state?.locationName ?? "Pizza Guys",
+    closureDate,
+    printedBy: params.printedBy,
+    zNumber: params.zNumber,
+  });
+
+  await mkdir(PRINT_DIR, { recursive: true });
+  const stamp = Date.now();
+  const base = `${stamp}-daily-report-${closureDate}`;
+  const txtPath = join(PRINT_DIR, `${base}.txt`);
+  const htmlPath = join(PRINT_DIR, `${base}.html`);
+  const jsonPath = join(PRINT_DIR, `${base}.json`);
+  await writeFile(txtPath, formatDailyReportText(snapshot), "utf8");
+  await writeFile(htmlPath, formatDailyReportHtml(snapshot), "utf8");
+  await writeFile(jsonPath, JSON.stringify(snapshot, null, 2));
+
+  return { snapshot, txtPath, htmlPath, jsonPath };
 }
 
 export async function closureRoutes(app: FastifyInstance) {
@@ -77,7 +109,7 @@ export async function closureRoutes(app: FastifyInstance) {
       })),
       openShifts: openShifts.map((s) => ({ id: s.id, staffId: s.staffId })),
       zReportIssued: getZReportToday() != null,
-      theoretical: getDayTheoretical(),
+      theoretical: getDayTheoretical(app.edgeDb),
     };
   });
 
@@ -94,12 +126,22 @@ export async function closureRoutes(app: FastifyInstance) {
     }
 
     setZReportToday(result.zNumber);
-    const theoretical = getDayTheoretical();
+    const theoretical = getDayTheoretical(app.edgeDb);
+    const dailyReport = await writeDailyReportFiles(app, {
+      printedBy: "Cassa",
+      zNumber: result.zNumber,
+      closureDate: todayKey(),
+    });
 
     writeEdgeAudit(app.edgeDb, {
       operation: "Z_REPORT_ISSUED",
       severity: "INFO",
-      nextState: { zNumber: result.zNumber, date: todayKey(), theoretical },
+      nextState: {
+        zNumber: result.zNumber,
+        date: todayKey(),
+        theoretical,
+        dailyReportTxt: dailyReport.txtPath,
+      },
     });
 
     await mkdir(PRINT_DIR, { recursive: true });
@@ -107,13 +149,26 @@ export async function closureRoutes(app: FastifyInstance) {
     await writeFile(
       reportPath,
       JSON.stringify(
-        { mock: true, zNumber: result.zNumber, date: todayKey(), theoretical },
+        {
+          mock: true,
+          zNumber: result.zNumber,
+          date: todayKey(),
+          theoretical,
+          dailyReport: dailyReport.snapshot,
+        },
         null,
         2,
       ),
     );
 
-    return { ok: true, zNumber: result.zNumber, reportPath, theoretical };
+    return {
+      ok: true,
+      zNumber: result.zNumber,
+      reportPath,
+      dailyReportPath: dailyReport.txtPath,
+      dailyReportHtml: dailyReport.htmlPath,
+      theoretical,
+    };
   });
 
   app.post("/api/closure/reconcile", async (req, reply) => {
@@ -125,7 +180,7 @@ export async function closureRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Emetti prima la Chiusura Z" });
     }
 
-    const theoretical = getDayTheoretical();
+    const theoretical = getDayTheoretical(app.edgeDb);
     const cashDiscrepancy =
       Math.round((parsed.data.cashDeclared - theoretical.cash) * 100) / 100;
     const posDiscrepancy =
@@ -146,6 +201,17 @@ export async function closureRoutes(app: FastifyInstance) {
   app.get("/api/closure/last", async () => {
     return { closure: getLastClosure() };
   });
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    "/api/closure/history",
+    async (req) => {
+      const rows = listClosureArchive(app.edgeDb, {
+        from: req.query.from,
+        to: req.query.to,
+      });
+      return { closures: rows };
+    },
+  );
 
   app.get<{ Querystring: { from?: string; to?: string } }>(
     "/api/closure/export.csv",
@@ -175,6 +241,46 @@ export async function closureRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get("/api/closure/daily-report", async () => {
+    const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+    const z = getZReportToday();
+    const snapshot = buildDailyReportSnapshot(app.edgeDb, {
+      locationName: state?.locationName ?? "Pizza Guys",
+      closureDate: todayKey(),
+      printedBy: "Anteprima",
+      zNumber: z?.zNumber,
+    });
+    return { snapshot };
+  });
+
+  app.get("/api/closure/daily-report.txt", async (_req, reply) => {
+    const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+    const z = getZReportToday();
+    const snapshot = buildDailyReportSnapshot(app.edgeDb, {
+      locationName: state?.locationName ?? "Pizza Guys",
+      closureDate: todayKey(),
+      printedBy: "Anteprima",
+      zNumber: z?.zNumber,
+    });
+    return reply
+      .header("Content-Type", "text/plain; charset=utf-8")
+      .send(formatDailyReportText(snapshot));
+  });
+
+  app.get("/api/closure/daily-report.html", async (_req, reply) => {
+    const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+    const z = getZReportToday();
+    const snapshot = buildDailyReportSnapshot(app.edgeDb, {
+      locationName: state?.locationName ?? "Pizza Guys",
+      closureDate: todayKey(),
+      printedBy: "Anteprima",
+      zNumber: z?.zNumber,
+    });
+    return reply
+      .header("Content-Type", "text/html; charset=utf-8")
+      .send(formatDailyReportHtml(snapshot));
+  });
+
   app.post("/api/closure/complete", async (req, reply) => {
     const parsed = closureCompleteSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -192,7 +298,7 @@ export async function closureRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Pre-check fallito", blockers: check.blockers });
     }
 
-    const theoretical = getDayTheoretical();
+    const theoretical = getDayTheoretical(app.edgeDb);
     const cashDiscrepancy =
       Math.round((parsed.data.cashDeclared - theoretical.cash) * 100) / 100;
     const posDiscrepancy =
@@ -215,6 +321,12 @@ export async function closureRoutes(app: FastifyInstance) {
       createdAt: new Date().toISOString(),
     };
 
+    const dailyReport = await writeDailyReportFiles(app, {
+      printedBy: parsed.data.operatorName,
+      zNumber: z.zNumber,
+      closureDate,
+    });
+
     const dbTables = app.edgeDb.select().from(tables).all();
     for (const table of dbTables) {
       clearTableOrders(table.id);
@@ -234,12 +346,16 @@ export async function closureRoutes(app: FastifyInstance) {
     }
 
     clearDayLedger(closureDate);
+    clearDayReportLedger(app.edgeDb, closureDate);
     saveClosure(record);
     persistClosureArchive(app.edgeDb, record, parsed.data.operatorId);
 
     await mkdir(PRINT_DIR, { recursive: true });
     const reportPath = join(PRINT_DIR, `${Date.now()}-daily-closure-${record.id}.json`);
-    await writeFile(reportPath, JSON.stringify(record, null, 2));
+    await writeFile(
+      reportPath,
+      JSON.stringify({ ...record, dailyReport: dailyReport.snapshot }, null, 2),
+    );
 
     const syncJob = {
       closureId: record.id,
@@ -247,8 +363,8 @@ export async function closureRoutes(app: FastifyInstance) {
       closureDate,
       fiscalZNumber: z.zNumber,
       totals: {
-        gross: theoretical.total,
-        byChannel: { TABLE: theoretical.total, TAKEAWAY: 0, DELIVERY: 0 },
+        gross: dailyReport.snapshot.totals.dailyTotal,
+        byChannel: buildByChannelFromSnapshot(dailyReport.snapshot),
         byPaymentMethod: theoretical.byPaymentMethod,
       },
       reconciliation: {
@@ -256,7 +372,17 @@ export async function closureRoutes(app: FastifyInstance) {
         posDeclared: parsed.data.posDeclared,
         discrepancy: record.discrepancy.total,
       },
-      receipts: [] as unknown[],
+      receipts: [
+        {
+          type: "daily_report",
+          snapshot: dailyReport.snapshot,
+          paths: {
+            txt: dailyReport.txtPath,
+            html: dailyReport.htmlPath,
+            json: dailyReport.jsonPath,
+          },
+        },
+      ] as unknown[],
     };
 
     let syncError: string | undefined;
@@ -307,6 +433,8 @@ export async function closureRoutes(app: FastifyInstance) {
       ok: true,
       closure: record,
       reportPath,
+      dailyReportPath: dailyReport.txtPath,
+      dailyReportHtml: dailyReport.htmlPath,
       syncError,
       syncQueued,
       tablesReset: dbTables.length,

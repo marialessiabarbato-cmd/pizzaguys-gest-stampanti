@@ -7,8 +7,95 @@ export interface SeedCategory {
   defaultVatRate: 4 | 10 | 22;
   hold?: boolean;
   dessert?: boolean;
-  products: Array<{ name: string; price: number }>;
+  products: Array<{ name: string; price: number; allergenIds?: string[] }>;
 }
+
+/** Allergeni UE — id allineati a handheld/cloud constants. */
+export const PRODUCT_ALLERGENS: Record<string, string[]> = {
+  Marinara: ["glutine"],
+  "Tonno e Cipolla": ["glutine", "pesce"],
+  "Tonno e Mais": ["pesce"],
+  "Salmone e Phila": ["glutine", "pesce", "latte"],
+  Caesar: ["glutine", "latte", "uova", "senape"],
+  "Polpette al Sugo": ["glutine", "uova", "latte"],
+  "Crocchè Napoletani": ["glutine", "uova", "latte"],
+  "Arancini Ragù": ["glutine", "latte"],
+  Montanarine: ["glutine", "latte"],
+  Tiramisù: ["glutine", "latte", "uova"],
+  Cheesecake: ["glutine", "latte", "uova"],
+  Profiteroles: ["glutine", "latte", "uova"],
+  "Nutella Pizza": ["glutine", "latte"],
+  "Cannolo Siciliano": ["glutine", "latte", "uova"],
+  Babà: ["glutine", "uova", "latte"],
+  "Gelato Artigianale": ["latte"],
+  Sfogliatella: ["glutine", "latte"],
+};
+
+export function allergensForProduct(categoryKey: string, productName: string): string[] {
+  if (PRODUCT_ALLERGENS[productName]) return PRODUCT_ALLERGENS[productName];
+  if (["classiche", "speciali", "focacce"].includes(categoryKey)) {
+    return ["glutine", "latte"];
+  }
+  if (categoryKey === "dolci") return ["glutine", "latte", "uova"];
+  if (categoryKey === "antipasti") return ["glutine"];
+  if (categoryKey === "insalate" && /tonno/i.test(productName)) return ["pesce"];
+  return [];
+}
+
+export interface SeedVariant {
+  name: string;
+  type: "ADD" | "REMOVE";
+  priceDelta: number;
+}
+
+export interface SeedVariantGroup {
+  key: string;
+  name: string;
+  /** Chiavi categorie da MENU_CATALOG (es. classiche, speciali). */
+  categoryKeys: string[];
+  variants: SeedVariant[];
+}
+
+/** Unico gruppo varianti pilota — rimozioni e aggiunte nella stessa lista. */
+export const VARIANT_CATALOG: SeedVariantGroup[] = [
+  {
+    key: "impasto-personalizza",
+    name: "Personalizza",
+    categoryKeys: ["classiche", "speciali", "focacce"],
+    variants: [
+      { name: "Mozzarella", type: "REMOVE", priceDelta: 0 },
+      { name: "Pomodoro", type: "REMOVE", priceDelta: 0 },
+      { name: "Basilico", type: "REMOVE", priceDelta: 0 },
+      { name: "Prosciutto cotto", type: "REMOVE", priceDelta: 0 },
+      { name: "Funghi", type: "REMOVE", priceDelta: 0 },
+      { name: "Olive", type: "REMOVE", priceDelta: 0 },
+      { name: "Würstel", type: "REMOVE", priceDelta: 0 },
+      { name: "Salame piccante", type: "REMOVE", priceDelta: 0 },
+      { name: "Acciughe", type: "REMOVE", priceDelta: 0 },
+      { name: "Cipolla", type: "REMOVE", priceDelta: 0 },
+      { name: "Rosmarino", type: "REMOVE", priceDelta: 0 },
+      { name: "Salsiccia", type: "REMOVE", priceDelta: 0 },
+      { name: "Bufala", type: "ADD", priceDelta: 2 },
+      { name: "Prosciutto crudo", type: "ADD", priceDelta: 2 },
+      { name: "Funghi porcini", type: "ADD", priceDelta: 2.5 },
+      { name: "Rucola", type: "ADD", priceDelta: 1.5 },
+      { name: "Parmigiano", type: "ADD", priceDelta: 1 },
+      { name: "Patatine fritte", type: "ADD", priceDelta: 2 },
+      { name: "Nduja", type: "ADD", priceDelta: 2 },
+      { name: "Uovo", type: "ADD", priceDelta: 1 },
+      { name: "Gorgonzola", type: "ADD", priceDelta: 1.5 },
+      { name: "Mortadella", type: "ADD", priceDelta: 2 },
+      { name: "Pistacchio", type: "ADD", priceDelta: 1.5 },
+      { name: "Tartufo", type: "ADD", priceDelta: 3 },
+      { name: "Speck", type: "ADD", priceDelta: 2 },
+      { name: "Ricotta", type: "ADD", priceDelta: 1.5 },
+      { name: "Olive nere", type: "ADD", priceDelta: 1 },
+      { name: "Stracchino", type: "ADD", priceDelta: 1.5 },
+      { name: "Friarielli", type: "ADD", priceDelta: 2 },
+      { name: "Salsiccia", type: "ADD", priceDelta: 2 },
+    ],
+  },
+];
 
 export const PILOT_LOCATION = {
   name: "Caserta — Via Roma",

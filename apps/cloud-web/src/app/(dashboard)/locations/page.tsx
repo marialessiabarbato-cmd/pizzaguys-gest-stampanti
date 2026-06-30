@@ -10,6 +10,7 @@ interface Location {
   address: string;
   vatNumber: string;
   managerEmail: string;
+  coverChargeAmount: number;
   healthStatus: string;
   schemaVersion: number;
   lastHeartbeatAt: string | null;
@@ -55,6 +56,14 @@ export default function LocationsPage() {
   const revokeToken = async (id: string) => {
     if (!confirm("Revocare il token? L'edge perderà la connessione al cloud.")) return;
     await api(`/api/v2/locations/${id}/token`, { method: "DELETE" });
+    void load();
+  };
+
+  const saveCoverCharge = async (id: string, amount: number) => {
+    await api(`/api/v2/locations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ coverChargeAmount: amount }),
+    });
     void load();
   };
 
@@ -113,6 +122,23 @@ export default function LocationsPage() {
                   Schema v{loc.schemaVersion} · Token: {loc.hasToken ? "attivo" : "revocato"}
                   {loc.lastHeartbeatAt && ` · Ultimo heartbeat: ${new Date(loc.lastHeartbeatAt).toLocaleString("it-IT")}`}
                 </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="text-xs">Coperto (€)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    className="w-20 rounded border border-[hsl(var(--pg-border))] bg-transparent px-2 py-1 text-sm"
+                    defaultValue={loc.coverChargeAmount}
+                    key={`cover-${loc.id}-${loc.coverChargeAmount}`}
+                    onBlur={(e) => {
+                      const v = Number(e.target.value);
+                      if (!Number.isFinite(v) || v < 0) return;
+                      if (v !== loc.coverChargeAmount) void saveCoverCharge(loc.id, v);
+                    }}
+                  />
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs uppercase">{loc.healthStatus}</span>

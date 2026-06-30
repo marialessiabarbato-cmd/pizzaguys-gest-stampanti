@@ -5,5 +5,12 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "exclude": ["src/seed.ts", "src/seed-menu.ts", "src/seed-menu-data.ts"]
+  "exclude": [
+    "src/seed.ts",
+    "src/seed-menu.ts",
+    "src/seed-menu-data.ts",
+    "src/patch-menu-allergens.ts",
+    "src/patch-menu-variants.ts",
+    "src/patch-menu-variants-reset.ts"
+  ]
 }

@@ -147,6 +147,42 @@ export function buildPrebillTicket(params: PrebillTicketParams): Buffer {
   return concatBuffers(...parts);
 }
 
+export interface CallCourseTicketParams {
+  course: number;
+  tableLabel: string;
+  guests: number;
+  lines: OrderLine[];
+}
+
+export function buildCallCourseTicket(params: CallCourseTicketParams): Buffer {
+  const parts: Buffer[] = [
+    CMD_INIT,
+    CMD_ALIGN_CENTER,
+    CMD_DOUBLE_SIZE,
+    textLine(`=== CHIAMA PORTATA ${params.course} ===`),
+    CMD_NORMAL_SIZE,
+    textLine(`TAVOLO ${params.tableLabel}`),
+    CMD_ALIGN_LEFT,
+    textLine("SEGUE ->"),
+  ];
+
+  for (const line of params.lines) {
+    parts.push(textLine(`${line.quantity}x ${line.name}`));
+    for (const v of line.variants ?? []) {
+      parts.push(textLine(`  + ${v}`));
+    }
+  }
+
+  parts.push(
+    textLine("---"),
+    textLine(`Ospiti: ${params.guests}`),
+    textLine(new Date().toLocaleString("it-IT")),
+    CMD_CUT,
+  );
+
+  return concatBuffers(...parts);
+}
+
 /** Preview testuale per UI dev (senza byte binari) */
 export function kitchenTicketPreview(params: KitchenTicketParams): string {
   const buf = buildKitchenTicket(params);

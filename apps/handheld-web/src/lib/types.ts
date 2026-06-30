@@ -92,6 +92,7 @@ export interface CartLine {
   course: number;
   hold: boolean;
   dessertDefer: boolean;
+  notes?: string;
   discountPercent?: number;
   discountToken?: string;
   allergenIds: string[];
@@ -105,4 +106,5 @@ export interface SubmittedLine {
   voidedQuantity?: number;
 }
 
-export type Screen = "pin" | "map" | "order";
+export type Screen = "pin" | "map" | "table";
+export type WorkspaceTab = "comanda" | "menu";

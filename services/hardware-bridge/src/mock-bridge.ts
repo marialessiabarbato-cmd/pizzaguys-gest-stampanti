@@ -40,6 +40,7 @@ export class MockHardwareBridge implements HardwareBridge {
       locationId: order.locationId,
       tableId: order.tableId,
       paymentMethod: order.paymentMethod,
+      documentType: order.documentType,
       lines: order.lines,
       amountReceived: order.amountReceived,
     });

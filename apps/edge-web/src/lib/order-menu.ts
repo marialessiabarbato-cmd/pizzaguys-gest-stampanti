@@ -1,5 +1,5 @@
 import { calculateLinePrice, isLinePriceValid } from "@pizzaguys/fiscal";
-import type { CartLine, MenuSnapshot, Product, VariantGroup, VariantSelection } from "./order-types";
+import type { CartLine, MenuSnapshot, Product, VariantGroup, VariantOption, VariantSelection } from "./order-types";
 
 export function localized(name: Record<string, string>) {
   return name.it ?? name.en ?? Object.values(name)[0] ?? "";
@@ -22,6 +22,22 @@ export function variantGroupsForProduct(
   return groups.filter(
     (g) => g.categoryIds.length === 0 || g.categoryIds.includes(product.categoryId),
   );
+}
+
+export function variantsForProduct(product: Product, groups: VariantGroup[]): VariantOption[] {
+  const seen = new Set<string>();
+  const items: VariantOption[] = [];
+  for (const group of variantGroupsForProduct(product, groups)) {
+    for (const variant of group.variants) {
+      if (seen.has(variant.id)) continue;
+      seen.add(variant.id);
+      items.push(variant);
+    }
+  }
+  return items.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "REMOVE" ? -1 : 1;
+    return localized(a.name).localeCompare(localized(b.name), "it");
+  });
 }
 
 export function lineKey(productId: string, variants: VariantSelection[]): string {

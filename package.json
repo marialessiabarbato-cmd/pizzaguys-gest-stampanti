@@ -10,6 +10,8 @@
     "db:generate": "pnpm --filter @pizzaguys/db generate",
     "db:migrate": "pnpm --filter @pizzaguys/db migrate",
     "db:seed:menu": "pnpm --filter @pizzaguys/db seed:menu",
+    "db:patch:variants": "pnpm --filter @pizzaguys/db patch:variants",
+    "db:patch:variants:reset": "pnpm --filter @pizzaguys/db patch:variants:reset",
     "test:e2e": "pnpm --dir e2e test"
   },
   "devDependencies": {

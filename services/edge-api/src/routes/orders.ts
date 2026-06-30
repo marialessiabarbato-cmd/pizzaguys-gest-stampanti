@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { buildCancelTicket, buildKitchenTicket } from "@pizzaguys/escpos";
 import { isLinePriceValid } from "@pizzaguys/fiscal";
-import { categoryRouting, printers, tables } from "@pizzaguys/edge-db";
+import { categoryRouting, edgeState, printers, tables } from "@pizzaguys/edge-db";
 import {
   authorizeDiscountSchema,
   callCourseSchema,
@@ -9,31 +9,37 @@ import {
   stornoLineSchema,
   upsertOrderSchema,
 } from "@pizzaguys/validators";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
+import { recordDayStorno } from "../lib/day-report-ledger.js";
 import { getMenuSnapshot } from "../lib/provision.js";
 import {
-  addKdsTickets,
-  callCourse,
+  bumpChargedGuests,
   consumeDiscountToken,
   createDiscountToken,
-  getKdsTickets,
+  getKdsSnapshot,
   getOrder,
   getOrderByTable,
   getSubmittedOrdersByTable,
   getTableRuntime,
   markOrderSubmitted,
+  recordKdsCancellation,
+  rebuildKdsTicketsForOrder,
+  releaseLock,
+  requestLock,
   setTableOccupied,
   releaseDessertQueue,
   stornoLine,
-  type KdsTicket,
   type OrderLine,
   type TableOrder,
   upsertOrder,
 } from "../lib/runtime.js";
-import { verifyManagerPin } from "../lib/staff-auth.js";
+import { broadcastKdsUpdate } from "../lib/kds-broadcast.js";
+import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
+import { processCallCourse } from "../lib/call-course.js";
+import { getActiveStaffById, verifyManagerPin } from "../lib/staff-auth.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
@@ -80,41 +86,6 @@ function validateOrderLines(
   return { ok: true };
 }
 
-function buildKdsFromOrder(
-  order: TableOrder,
-  tableLabel: string,
-): KdsTicket[] {
-  const byCourse = new Map<number, OrderLine[]>();
-  for (const line of order.lines) {
-    const course = line.course ?? 1;
-    const group = byCourse.get(course) ?? [];
-    group.push(line);
-    byCourse.set(course, group);
-  }
-
-  const tickets: KdsTicket[] = [];
-  for (const [course, lines] of byCourse) {
-    const hold = lines.some((l) => l.hold);
-    const dessertQueue = lines.some((l) => l.dessertDefer);
-    tickets.push({
-      id: randomUUID(),
-      orderId: order.id,
-      tableId: order.tableId,
-      tableLabel,
-      course,
-      lines: lines.map((l) => ({
-        name: l.name,
-        quantity: l.quantity,
-        variants: variantLabels(l),
-      })),
-      submittedAt: new Date().toISOString(),
-      hold: hold || dessertQueue,
-      dessertQueue,
-    });
-  }
-  return tickets;
-}
-
 export async function orderRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { tableId?: string } }>("/api/orders", async (req) => {
     if (req.query.tableId) {
@@ -125,7 +96,7 @@ export async function orderRoutes(app: FastifyInstance) {
     return { draft: null, submitted: [] };
   });
 
-  app.get("/api/kds/tickets", async () => getKdsTickets());
+  app.get("/api/kds/tickets", async () => getKdsSnapshot());
 
   app.get("/api/tables/live", async () => {
     const dbTables = app.edgeDb.select().from(tables).all();
@@ -139,6 +110,81 @@ export async function orderRoutes(app: FastifyInstance) {
         guests: runtime.guests,
       };
     });
+  });
+
+  app.post<{ Params: { id: string } }>("/api/tables/:id/lock", async (req, reply) => {
+    const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+    if (state?.status !== "ACTIVE") {
+      return reply.status(503).send({ error: "Edge non provisionata" });
+    }
+
+    const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
+    if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
+
+    const body = req.body as {
+      operatorId?: string;
+      operatorName?: string;
+      overridePin?: string;
+      guests?: number;
+    };
+    if (!body.operatorId || !body.operatorName) {
+      return reply.status(400).send({ error: "operatorId e operatorName richiesti" });
+    }
+
+    let force = false;
+    if (body.overridePin) {
+      const manager = await verifyManagerPin(app.edgeDb, body.overridePin);
+      if (!manager) return reply.status(401).send({ error: "PIN sblocco non valido" });
+      force = true;
+    }
+
+    const guests =
+      typeof body.guests === "number"
+        ? Math.min(30, Math.max(1, Math.floor(body.guests)))
+        : undefined;
+
+    const result = requestLock(req.params.id, body.operatorId, body.operatorName, force, guests);
+    if (!result.granted) {
+      return reply.status(409).send({ error: result.reason ?? "Lock negato" });
+    }
+
+    const runtime = getTableRuntime(req.params.id);
+    broadcast({
+      type: "TABLE_LOCKED_BROADCAST",
+      payload: {
+        tableId: req.params.id,
+        operatorId: body.operatorId,
+        operatorName: body.operatorName,
+        status: "LOCKED",
+        guests: runtime.guests,
+      },
+      timestamp: new Date().toISOString(),
+      messageId: randomUUID(),
+    });
+
+    return {
+      tableId: req.params.id,
+      status: runtime.status,
+      lockedBy: runtime.lockedBy,
+      lockedByName: runtime.lockedByName,
+      guests: runtime.guests,
+    };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/tables/:id/unlock", async (req, reply) => {
+    const body = req.body as { operatorId?: string };
+    if (!body.operatorId) {
+      return reply.status(400).send({ error: "operatorId richiesto" });
+    }
+
+    const released = releaseLock(req.params.id, body.operatorId);
+    if (!released) {
+      return reply.status(409).send({ error: "Impossibile sbloccare il tavolo" });
+    }
+
+    const runtime = getTableRuntime(req.params.id);
+    broadcastTableStatus(req.params.id, runtime.status);
+    return { ok: true, status: runtime.status };
   });
 
   app.post("/api/staff/authorize-discount", async (req, reply) => {
@@ -272,15 +318,16 @@ export async function orderRoutes(app: FastifyInstance) {
       printResults.push(result);
     }
 
-    const kdsTickets = buildKdsFromOrder(order, table?.label ?? order.tableId);
-    addKdsTickets(kdsTickets);
     markOrderSubmitted(order.id);
+    rebuildKdsTicketsForOrder(getOrder(order.id)!, table?.label ?? order.tableId);
+    broadcastKdsUpdate();
     setTableOccupied(order.tableId);
+    bumpChargedGuests(order.tableId, guestCount);
 
     return {
       ok: true,
       printResults,
-      kdsTickets,
+      kdsTickets: getKdsSnapshot().tickets,
       orderId: order.id,
       tableId: order.tableId,
       tableLabel: table?.label ?? order.tableId,
@@ -293,8 +340,8 @@ export async function orderRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }
 
-    const manager = await verifyManagerPin(app.edgeDb, parsed.data.managerPin);
-    if (!manager) return reply.status(401).send({ error: "PIN manager non valido" });
+    const operator = getActiveStaffById(app.edgeDb, parsed.data.operatorId);
+    if (!operator) return reply.status(401).send({ error: "Operatore non valido" });
 
     const order = getOrder(req.params.id);
     if (!order) return reply.status(404).send({ error: "Ordine non trovato" });
@@ -307,18 +354,27 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, order.tableId)).get();
     const qty = parsed.data.quantity ?? line.quantity - (line.voidedQuantity ?? 0);
+    const stornoBy = parsed.data.operatorName.trim();
     const payload = buildCancelTicket({
       tableLabel: table?.label ?? order.tableId,
       itemName: line.name,
       quantity: qty,
       operatorName: order.operatorName,
-      authorizedBy: `${manager.firstName} ${manager.lastName}`,
+      authorizedBy: stornoBy,
     });
     const printResult = await hardware.printEscPos("printer-cucina", payload, `storno-${parsed.data.lineId}`);
 
     const value = Math.round(line.unitPrice * qty * 100) / 100;
+    recordDayStorno(app.edgeDb, new Date().toISOString().slice(0, 10), {
+      at: new Date().toISOString(),
+      tableLabel: table?.label ?? order.tableId,
+      itemName: line.name,
+      quantity: qty,
+      amount: value,
+      operatorName: stornoBy,
+    });
     writeEdgeAudit(app.edgeDb, {
-      staffId: manager.id,
+      staffId: operator.id,
       operation: "ORDER_STORNO",
       severity: "WARNING",
       nextState: {
@@ -330,11 +386,23 @@ export async function orderRoutes(app: FastifyInstance) {
         value,
         operatorId: order.operatorId,
         operatorName: order.operatorName,
-        authorizedBy: `${manager.firstName} ${manager.lastName}`,
+        stornoBy,
       },
     });
 
-    return { ok: true, line: result.line, printResult };
+    const tableLabel = table?.label ?? order.tableId;
+    const updatedOrder = getOrder(order.id)!;
+    rebuildKdsTicketsForOrder(updatedOrder, tableLabel);
+    const cancellation = recordKdsCancellation({
+      tableLabel,
+      course: line.course ?? 1,
+      itemName: line.name,
+      quantity: qty,
+      cancelledAt: new Date().toISOString(),
+    });
+    broadcastKdsUpdate({ cancellation });
+
+    return { ok: true, line: result.line, printResult, cancellation };
   });
 
   app.post("/api/orders/call-course", async (req, reply) => {
@@ -342,8 +410,8 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }
-    const released = callCourse(parsed.data.tableId, parsed.data.course);
-    return { ok: true, released };
+    const result = await processCallCourse(app, parsed.data.tableId, parsed.data.course);
+    return result;
   });
 
   app.post("/api/orders/release-dessert", async (req, reply) => {

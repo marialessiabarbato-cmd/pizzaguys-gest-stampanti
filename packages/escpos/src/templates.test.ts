@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildKitchenTicket, kitchenTicketPreview } from "./templates.js";
+import { buildCallCourseTicket, buildKitchenTicket, kitchenTicketPreview } from "./templates.js";
 
 describe("kitchen ticket", () => {
   it("genera buffer non vuoto", () => {
@@ -23,5 +23,19 @@ describe("kitchen ticket", () => {
       reprint: true,
     });
     expect(preview).toContain("RISTAMPA");
+  });
+});
+
+describe("call course ticket", () => {
+  it("include intestazione portata", () => {
+    const buf = buildCallCourseTicket({
+      course: 2,
+      tableLabel: "T5",
+      guests: 4,
+      lines: [{ name: "Carbonara", quantity: 1 }],
+    });
+    const text = buf.toString("utf-8");
+    expect(text).toContain("CHIAMA PORTATA 2");
+    expect(text).toContain("SEGUE");
   });
 });

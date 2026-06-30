@@ -30,6 +30,14 @@ export async function api<T>(
     headers,
   });
 
+  if (res.status === 401 && typeof window !== "undefined") {
+    const onLogin = window.location.pathname.startsWith("/login");
+    if (!onLogin) {
+      clearToken();
+      window.location.replace("/login");
+    }
+  }
+
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error ?? `Errore ${res.status}`);
@@ -41,3 +49,45 @@ export async function api<T>(
 
   return res.json() as Promise<T>;
 }
+
+async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = getToken();
+  const hasBody = options.body != null && options.body !== "";
+  const headers = new Headers(options.headers);
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  if (res.status === 401 && typeof window !== "undefined") {
+    const onLogin = window.location.pathname.startsWith("/login");
+    if (!onLogin) {
+      clearToken();
+      window.location.replace("/login");
+    }
+  }
+
+  return res;
+}
+
+export async function apiText(path: string, options: RequestInit = {}): Promise<string> {
+  const res = await authFetch(path, options);
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Errore ${res.status}`);
+  }
+  return res.text();
+}
+
+export async function apiBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const res = await authFetch(path, options);
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Errore ${res.status}`);
+  }
+  return res.blob();
+}
+
+export { API_URL };

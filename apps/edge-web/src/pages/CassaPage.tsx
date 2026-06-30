@@ -1,4 +1,4 @@
-import type { PaymentMethod, TableStatus } from "@pizzaguys/types";
+import type { FiscalDocumentType, PaymentMethod, TableStatus } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
@@ -10,6 +10,7 @@ import { parsePaymentAmount } from "../components/PaymentPad";
 import { PinModal } from "../components/PinModal";
 import { PinPad } from "../components/PinPad";
 import { ClosureWizard } from "../components/ClosureWizard";
+import { ClosureHistoryModal } from "../components/ClosureHistoryModal";
 import { ShiftCloseModal } from "../components/ShiftCloseModal";
 import { edgeApi } from "../lib/api";
 import { useEdgeWs } from "../lib/ws";
@@ -103,7 +104,7 @@ export function CassaPage({
   locationName?: string;
   onAdmin: () => void;
 }) {
-  const { connected, send, on } = useEdgeWs();
+  const { connected, on } = useEdgeWs();
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
@@ -118,6 +119,7 @@ export function CassaPage({
   const [pinModalError, setPinModalError] = useState("");
   const [showPayment, setShowPayment] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const [documentType, setDocumentType] = useState<FiscalDocumentType>("RECEIPT");
   const [cashAmount, setCashAmount] = useState("");
   const [paymentRequestId, setPaymentRequestId] = useState<string | undefined>();
   const [paymentResult, setPaymentResult] = useState<{
@@ -137,9 +139,16 @@ export function CassaPage({
   const [pendingUnlockAction, setPendingUnlockAction] = useState<"view" | "comanda" | null>(null);
   const [confirmPay, setConfirmPay] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmPrebill, setConfirmPrebill] = useState(false);
+  const [confirmRomanSplit, setConfirmRomanSplit] = useState(false);
+  const [confirmStartShift, setConfirmStartShift] = useState(false);
+  const [confirmClosure, setConfirmClosure] = useState(false);
+  const [confirmShiftClose, setConfirmShiftClose] = useState(false);
+  const [confirmClosePanel, setConfirmClosePanel] = useState(false);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
+  const [showClosureHistory, setShowClosureHistory] = useState(false);
   const [analyticCheckId, setAnalyticCheckId] = useState<string | undefined>();
   const tablesRef = useRef(tables);
   const pendingUnlockTableRef = useRef(pendingUnlockTable);
@@ -149,6 +158,8 @@ export function CassaPage({
   pendingUnlockActionRef.current = pendingUnlockAction;
 
   const canComanda = operator?.role === "USER_ADMIN" || operator?.role === "CASHIER";
+  const isComandaMode =
+    !!selectedTable && panelTab === "comanda" && canComanda && !!operator;
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
@@ -296,16 +307,81 @@ export function CassaPage({
     }
   };
 
-  const requestLock = (table: LiveTable, overridePin?: string) => {
-    if (!operator) return;
-    setLockPending(table.id);
-    send("REQUEST_TABLE_LOCK", {
-      tableId: table.id,
-      operatorId: operator.id,
-      operatorName: `${operator.firstName} ${operator.lastName}`,
-      overridePin,
-      guests: table.guests ?? table.defaultGuests ?? 2,
+  const acquireTableLock = async (table: LiveTable, overridePin?: string) => {
+    if (!operator) throw new Error("Operatore non autenticato");
+    return edgeApi<{
+      tableId: string;
+      status: string;
+      lockedBy?: string;
+      lockedByName?: string;
+      guests?: number;
+    }>(`/api/tables/${table.id}/lock`, {
+      method: "POST",
+      body: JSON.stringify({
+        operatorId: operator.id,
+        operatorName: `${operator.firstName} ${operator.lastName}`,
+        overridePin,
+        guests: table.guests ?? table.defaultGuests ?? 2,
+      }),
     });
+  };
+
+  const enterComanda = async () => {
+    if (!selectedTable || !operator || !canComanda) return;
+    if (selectedTable.status === "LOCKED" && selectedTable.lockedBy !== operator.id) {
+      setPendingUnlockTable(selectedTable);
+      setPendingUnlockAction("comanda");
+      setPinModalError("");
+      return;
+    }
+    if (selectedTable.status === "LOCKED" && selectedTable.lockedBy === operator.id) {
+      setPanelTab("comanda");
+      return;
+    }
+
+    setLockPending(selectedTable.id);
+    setMessage("");
+    try {
+      const lock = await acquireTableLock(selectedTable);
+      setSelectedTable({
+        ...selectedTable,
+        status: "LOCKED",
+        lockedBy: lock.lockedBy ?? operator.id,
+        lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+      });
+      setPanelTab("comanda");
+      loadTables();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Impossibile aprire la comanda");
+    } finally {
+      setLockPending(null);
+    }
+  };
+
+  const handleUnlockPin = async (value: string) => {
+    if (!operator || !pendingUnlockTable) return;
+    setPinModalError("");
+    setLockPending(pendingUnlockTable.id);
+    try {
+      const lock = await acquireTableLock(pendingUnlockTable, value);
+      const table = {
+        ...pendingUnlockTable,
+        status: "LOCKED" as const,
+        lockedBy: lock.lockedBy ?? operator.id,
+        lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+      };
+      const action = pendingUnlockActionRef.current;
+      setSelectedTable(table);
+      setPanelTab(action === "comanda" ? "comanda" : "conto");
+      if (action !== "comanda") void loadBill(table.id);
+      setPendingUnlockTable(null);
+      setPendingUnlockAction(null);
+      loadTables();
+    } catch (err) {
+      setPinModalError(err instanceof Error ? err.message : "Sblocco negato");
+    } finally {
+      setLockPending(null);
+    }
   };
 
   const openTable = (tableId: string, requestId?: string) => {
@@ -339,28 +415,6 @@ export function CassaPage({
     setMessage("");
     setPaymentResult(null);
     void loadBill(table.id);
-  };
-
-  const enterComanda = () => {
-    if (!selectedTable || !operator || !canComanda) return;
-    if (selectedTable.status === "LOCKED" && selectedTable.lockedBy !== operator.id) {
-      setPendingUnlockTable(selectedTable);
-      setPendingUnlockAction("comanda");
-      setPinModalError("");
-      return;
-    }
-    if (selectedTable.status !== "LOCKED" || selectedTable.lockedBy !== operator.id) {
-      setPendingUnlockAction("comanda");
-      requestLock(selectedTable);
-      return;
-    }
-    setPanelTab("comanda");
-  };
-
-  const handleUnlockPin = (value: string) => {
-    if (!operator || !pendingUnlockTable) return;
-    setPinModalError("");
-    requestLock(pendingUnlockTable, value);
   };
 
   const handlePrebill = async () => {
@@ -438,6 +492,7 @@ export function CassaPage({
 
   const openPayment = (requestId?: string, checkId?: string) => {
     setPaymentMethod("CASH");
+    setDocumentType("RECEIPT");
     setCashAmount("");
     setPaymentRequestId(requestId);
     setAnalyticCheckId(checkId);
@@ -477,6 +532,7 @@ export function CassaPage({
           shiftId: activeShift?.id,
           splitMode: isAnalyticPay ? "ANALYTIC" : isRomanPay ? "ROMAN" : "FULL",
           checkId: analyticCheckId,
+          documentType,
         }),
       });
       setPaymentResult({
@@ -552,24 +608,33 @@ export function CassaPage({
             {connected ? "Online" : "Offline"}
           </span>
           {(operator.role === "USER_ADMIN" || operator.role === "CASHIER") && (
-            <Button
-              variant="outline"
-              className="h-9 px-3 text-sm"
-              onClick={() => setShowClosureWizard(true)}
-            >
-              Chiusura giornata
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                className="h-9 px-3 text-sm"
+                onClick={() => setShowClosureHistory(true)}
+              >
+                Storico chiusure
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 px-3 text-sm"
+                onClick={() => setConfirmClosure(true)}
+              >
+                Chiusura giornata
+              </Button>
+            </>
           )}
           {activeShift ? (
             <Button
               variant="outline"
               className="h-9 px-3 text-sm"
-              onClick={() => setShowShiftClose(true)}
+              onClick={() => setConfirmShiftClose(true)}
             >
               Chiusura turno
             </Button>
           ) : (
-            <Button variant="outline" className="h-9 px-3 text-sm" onClick={() => void startShift()}>
+            <Button variant="outline" className="h-9 px-3 text-sm" onClick={() => setConfirmStartShift(true)}>
               Avvia turno
             </Button>
           )}
@@ -609,6 +674,7 @@ export function CassaPage({
       )}
 
       <div className="flex min-h-0 flex-1">
+        {!isComandaMode && (
         <section className="flex min-w-0 flex-1 flex-col p-4">
           <div className="mb-3 flex flex-wrap gap-2">
             {(
@@ -663,8 +729,13 @@ export function CassaPage({
             ))}
           </div>
         </section>
+        )}
 
-        <aside className="flex w-[28rem] shrink-0 flex-col border-l border-[hsl(var(--pg-border))]">
+        <aside
+          className={`flex shrink-0 flex-col border-l border-[hsl(var(--pg-border))] ${
+            isComandaMode ? "min-w-0 flex-1" : "w-full max-w-md lg:w-[28rem]"
+          }`}
+        >
           {selectedTable && panelTab === "comanda" && canComanda && operator ? (
             <ComandaPanel
               table={selectedTable}
@@ -695,8 +766,8 @@ export function CassaPage({
                   {canComanda && (
                     <Button
                       className="h-8 flex-1 text-xs"
-                      variant="outline"
-                      onClick={() => enterComanda()}
+                      variant={panelTab === "comanda" ? "default" : "outline"}
+                      onClick={() => void enterComanda()}
                     >
                       Comanda
                     </Button>
@@ -716,7 +787,20 @@ export function CassaPage({
 
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
                 {bill.lines.length === 0 ? (
-                  <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Nessuna voce in conto</p>
+                  <div className="flex flex-col items-center gap-4 py-8 text-center">
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      Nessuna voce in conto
+                    </p>
+                    {canComanda && (
+                      <Button
+                        className="h-12 w-full max-w-xs text-base"
+                        disabled={lockPending === selectedTable.id}
+                        onClick={() => void enterComanda()}
+                      >
+                        + Aggiungi articoli
+                      </Button>
+                    )}
+                  </div>
                 ) : hasAnalyticSplit ? (
                   <AnalyticSplitPanel
                     bill={bill}
@@ -779,7 +863,7 @@ export function CassaPage({
                         className="flex-1"
                         variant="outline"
                         disabled={loading}
-                        onClick={() => void handleStartRomanSplit()}
+                        onClick={() => setConfirmRomanSplit(true)}
                       >
                         Split romano
                       </Button>
@@ -796,7 +880,7 @@ export function CassaPage({
                   className="h-12 w-full text-base"
                   variant="outline"
                   disabled={loading || bill.lines.length === 0}
-                  onClick={() => void handlePrebill()}
+                  onClick={() => setConfirmPrebill(true)}
                 >
                   STAMPA PRECONTO
                 </Button>
@@ -809,11 +893,24 @@ export function CassaPage({
                     {isRomanPay ? `PAGA QUOTA € ${payAmount.toFixed(2)}` : "PAGA"}
                   </Button>
                 )}
-                <Button variant="ghost" className="w-full" onClick={() => setSelectedTable(null)}>
+                <Button variant="ghost" className="w-full" onClick={() => setConfirmClosePanel(true)}>
                   Chiudi pannello
                 </Button>
               </div>
             </>
+          ) : selectedTable ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+              <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento conto…</p>
+              {canComanda && (
+                <Button
+                  className="h-12 w-full max-w-xs"
+                  disabled={lockPending === selectedTable.id}
+                  onClick={() => void enterComanda()}
+                >
+                  + Aggiungi articoli
+                </Button>
+              )}
+            </div>
           ) : (
             <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
               Seleziona un tavolo per visualizzare il conto
@@ -874,26 +971,82 @@ export function CassaPage({
         />
       )}
 
-      {showClosureWizard && operator && (
-        <ClosureWizard
-          operatorId={operator.id}
-          operatorName={`${operator.firstName} ${operator.lastName}`}
-          onClose={() => {
-            setShowClosureWizard(false);
-            loadTables();
+      {confirmPrebill && (
+        <ConfirmModal
+          title="Stampare il preconto?"
+          message="Verrà emesso un documento non fiscale."
+          confirmLabel="Stampa"
+          onConfirm={() => {
+            setConfirmPrebill(false);
+            void handlePrebill();
           }}
+          onCancel={() => setConfirmPrebill(false)}
         />
       )}
 
-      {showShiftClose && activeShift && (
-        <ShiftCloseModal
-          shiftId={activeShift.id}
-          onClose={() => setShowShiftClose(false)}
-          onComplete={() => {
-            setShowShiftClose(false);
-            setActiveShift(null);
-            setMessage("Turno chiuso");
+      {confirmRomanSplit && (
+        <ConfirmModal
+          title="Avviare split romano?"
+          message={`Dividere il conto in ${romanShares} quote uguali.`}
+          confirmLabel="Conferma"
+          onConfirm={() => {
+            setConfirmRomanSplit(false);
+            void handleStartRomanSplit();
           }}
+          onCancel={() => setConfirmRomanSplit(false)}
+        />
+      )}
+
+      {confirmStartShift && (
+        <ConfirmModal
+          title="Avviare turno cassa?"
+          message="Il turno verrà associato al tuo operatore."
+          confirmLabel="Avvia"
+          onConfirm={() => {
+            setConfirmStartShift(false);
+            void startShift();
+          }}
+          onCancel={() => setConfirmStartShift(false)}
+        />
+      )}
+
+      {confirmClosure && (
+        <ConfirmModal
+          title="Avviare chiusura giornaliera?"
+          message="Procedura irreversibile: verifica tavoli e turni aperti."
+          confirmLabel="Procedi"
+          variant="danger"
+          onConfirm={() => {
+            setConfirmClosure(false);
+            setShowClosureWizard(true);
+          }}
+          onCancel={() => setConfirmClosure(false)}
+        />
+      )}
+
+      {confirmShiftClose && (
+        <ConfirmModal
+          title="Chiudere il turno?"
+          message="Conteggio cieco contanti e POS."
+          confirmLabel="Procedi"
+          onConfirm={() => {
+            setConfirmShiftClose(false);
+            setShowShiftClose(true);
+          }}
+          onCancel={() => setConfirmShiftClose(false)}
+        />
+      )}
+
+      {confirmClosePanel && (
+        <ConfirmModal
+          title="Chiudere il pannello conto?"
+          message="Il tavolo resta nello stato attuale."
+          confirmLabel="Chiudi"
+          onConfirm={() => {
+            setConfirmClosePanel(false);
+            setSelectedTable(null);
+          }}
+          onCancel={() => setConfirmClosePanel(false)}
         />
       )}
 
@@ -909,11 +1062,38 @@ export function CassaPage({
           amount={payAmount}
           method={paymentMethod}
           onMethod={setPaymentMethod}
+          documentType={documentType}
+          onDocumentType={setDocumentType}
           cashAmount={cashAmount}
           onCashAmount={setCashAmount}
           loading={loading}
           onConfirm={() => void handlePay()}
           onCancel={() => setShowPayment(false)}
+        />
+      )}
+
+      {showClosureWizard && operator && (
+        <ClosureWizard
+          operatorId={operator.id}
+          operatorName={`${operator.firstName} ${operator.lastName}`}
+          onClose={() => {
+            setShowClosureWizard(false);
+            loadTables();
+          }}
+        />
+      )}
+
+      {showClosureHistory && <ClosureHistoryModal onClose={() => setShowClosureHistory(false)} />}
+
+      {showShiftClose && activeShift && (
+        <ShiftCloseModal
+          shiftId={activeShift.id}
+          onClose={() => setShowShiftClose(false)}
+          onComplete={() => {
+            setShowShiftClose(false);
+            setActiveShift(null);
+            setMessage("Turno chiuso");
+          }}
         />
       )}
 

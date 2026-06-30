@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { edgeApi } from "../lib/api";
 import { useEdgeWs } from "../lib/ws";
 import { ConfirmModal } from "./ConfirmModal";
+import { ComandaHelp } from "./ComandaHelp";
 import { VariantSheet } from "./VariantSheet";
 import {
   buildCartLine,
@@ -10,7 +11,7 @@ import {
   lineKey,
   localized,
   resolvePrice,
-  variantGroupsForProduct,
+  variantsForProduct,
 } from "../lib/order-menu";
 import type { CartLine, MenuSnapshot, Product, VariantSelection } from "../lib/order-types";
 
@@ -53,12 +54,12 @@ export function ComandaPanel({
   const categories = menu?.categories ?? [];
   const products = menu?.products ?? [];
 
-  const loadMenu = useCallback(() => {
+  const loadMenu = useCallback((resetNavigation = false) => {
     void edgeApi<{ snapshot: MenuSnapshot }>("/api/menu").then((m) => {
       const snap = m.snapshot;
       const cats = [...(snap?.categories ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
       setMenu({ ...snap, categories: cats });
-      if (cats[0]) setSelectedCat(cats[0].id);
+      if (resetNavigation && cats[0]) setSelectedCat(cats[0].id);
     });
   }, []);
 
@@ -101,7 +102,7 @@ export function ComandaPanel({
   }, [table.id]);
 
   useEffect(() => {
-    loadMenu();
+    loadMenu(true);
     void loadDraft();
   }, [loadMenu, loadDraft]);
 
@@ -126,9 +127,9 @@ export function ComandaPanel({
 
   const addProduct = (product: Product) => {
     if (!menu) return;
-    const groups = variantGroupsForProduct(product, menu.variantGroups ?? []);
+    const options = variantsForProduct(product, menu.variantGroups ?? []);
     const channel = getChannel();
-    if (groups.some((g) => g.variants.length > 0)) {
+    if (options.length > 0) {
       setVariantProduct(product);
       return;
     }
@@ -242,13 +243,19 @@ export function ComandaPanel({
       method: "POST",
       body: JSON.stringify({ tableId: table.id, course }),
     });
-    send("CALL_COURSE", { tableId: table.id, course });
     setMessage(`CHIAMA PORTATA ${course}`);
   };
 
   const leave = async () => {
     await persistDraft();
-    send("RELEASE_TABLE_LOCK", { tableId: table.id, operatorId: operator.id });
+    try {
+      await edgeApi(`/api/tables/${table.id}/unlock`, {
+        method: "POST",
+        body: JSON.stringify({ operatorId: operator.id }),
+      });
+    } catch {
+      send("RELEASE_TABLE_LOCK", { tableId: table.id, operatorId: operator.id });
+    }
     setConfirmExit(false);
     onClose();
   };
@@ -256,8 +263,8 @@ export function ComandaPanel({
   const channel = getChannel();
   const total = cartTotal(cart);
   const filteredProducts = products.filter((p) => !selectedCat || p.categoryId === selectedCat);
-  const variantGroups = variantProduct
-    ? variantGroupsForProduct(variantProduct, menu?.variantGroups ?? [])
+  const productVariants = variantProduct
+    ? variantsForProduct(variantProduct, menu?.variantGroups ?? [])
     : [];
   const basePrice = variantProduct
     ? resolvePrice(variantProduct, channel, menu?.prices ?? [])
@@ -269,98 +276,169 @@ export function ComandaPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[hsl(var(--pg-border))] px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-bold">{table.label}</h2>
+          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+            Comanda · {operator.firstName} {operator.lastName}
+          </p>
+        </div>
+        <p className="shrink-0 text-xl font-bold tabular-nums">€ {total.toFixed(2)}</p>
+      </header>
+
       {message && (
-        <p className="shrink-0 border-b border-[hsl(var(--pg-border))] px-3 py-2 text-sm">{message}</p>
+        <p className="shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/40 px-4 py-2 text-sm">
+          {message}
+        </p>
       )}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="w-28 shrink-0 overflow-y-auto border-r border-[hsl(var(--pg-border))] p-2">
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setSelectedCat(c.id)}
-              className={`mb-1 w-full rounded-lg px-2 py-2 text-left text-xs ${
-                selectedCat === c.id
-                  ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
-                  : "bg-[hsl(var(--pg-muted))]"
-              }`}
-            >
-              {localized(c.name)}
-            </button>
-          ))}
-        </aside>
+      <div className="shrink-0 border-b border-[hsl(var(--pg-border))] px-3 py-2">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {categories.map((c) => {
+            const active = selectedCat === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelectedCat(c.id)}
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition active:scale-95 ${
+                  active ? "text-white shadow-sm" : "bg-[hsl(var(--pg-muted))]"
+                }`}
+                style={active ? { backgroundColor: c.colorHex ?? undefined } : undefined}
+              >
+                {localized(c.name)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-        <section className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto p-2 content-start sm:grid-cols-3">
-          {filteredProducts.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => addProduct(p)}
-              className="min-h-[64px] rounded-lg border border-[hsl(var(--pg-border))] p-2 text-left text-sm active:scale-95"
-            >
-              <p className="font-medium">{localized(p.name)}</p>
-              <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                € {resolvePrice(p, channel, menu.prices ?? []).toFixed(2)}
-              </p>
-            </button>
-          ))}
-        </section>
-
-        <aside className="flex w-44 shrink-0 flex-col border-l border-[hsl(var(--pg-border))] p-2">
-          <h3 className="mb-2 text-sm font-semibold">Carrello</h3>
-          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto text-xs">
-            {cart.map((l) => (
-              <li key={l.lineId} className="rounded border border-[hsl(var(--pg-border))] p-2">
-                <div className="flex justify-between gap-1">
-                  <span>{l.quantity}× {l.name}</span>
-                  <button type="button" className="text-red-500" onClick={() => setCart((prev) => prev.filter((x) => x.lineId !== l.lineId))}>✕</button>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {[1, 2, 3, 4].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setCart((prev) => prev.map((x) => x.lineId === l.lineId ? { ...x, course: c } : x))}
-                      className={`rounded px-1 text-[10px] ${l.course === c ? "bg-[hsl(var(--pg-primary))] text-white" : "bg-[hsl(var(--pg-muted))]"}`}
-                    >
-                      P{c}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setCart((prev) => prev.map((x) => x.lineId === l.lineId ? { ...x, hold: !x.hold } : x))}
-                    className={`rounded px-1 text-[10px] ${l.hold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-muted))]"}`}
-                  >
-                    HOLD
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          <div className="mb-2 flex flex-wrap gap-1">
-            {[1, 2, 3, 4].map((c) => (
-              <Button key={c} className="h-8 px-2 text-[10px]" variant="outline" onClick={() => void callCourse(c)}>
-                P{c}
-              </Button>
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <section className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+            {filteredProducts.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => addProduct(p)}
+                className="flex min-h-[72px] flex-col justify-center rounded-xl border border-[hsl(var(--pg-border))] p-3 text-left transition active:scale-[0.98] hover:border-[hsl(var(--pg-primary))]/40"
+              >
+                <p className="text-sm font-medium leading-snug">{localized(p.name)}</p>
+                <p className="mt-1 text-xs tabular-nums text-[hsl(var(--pg-muted-foreground))]">
+                  € {resolvePrice(p, channel, menu.prices ?? []).toFixed(2)}
+                </p>
+              </button>
             ))}
           </div>
+        </section>
 
-          <p className="mb-2 text-sm font-bold">€ {total.toFixed(2)}</p>
-          <Button className="mb-1 w-full" disabled={cart.length === 0 || loading} onClick={() => setConfirmSubmit(true)}>
-            SPEDITO
-          </Button>
-          <Button variant="outline" className="w-full" onClick={() => (cart.length > 0 ? setConfirmExit(true) : void leave())}>
-            ← Indietro
-          </Button>
+        <aside className="flex w-full shrink-0 flex-col border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/10 lg:w-80 lg:border-l lg:border-t-0 xl:w-96">
+          <div className="flex min-h-0 flex-1 flex-col p-3">
+            <h3 className="mb-2 text-sm font-semibold">Carrello ({cart.length})</h3>
+            <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+              {cart.length === 0 ? (
+                <li className="py-8 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
+                  Nessun articolo
+                </li>
+              ) : (
+                cart.map((l) => (
+                  <li
+                    key={l.lineId}
+                    className="rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-3 text-sm"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-medium">
+                        {l.quantity}× {l.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 text-red-500"
+                        onClick={() =>
+                          setCart((prev) => prev.filter((x) => x.lineId !== l.lineId))
+                        }
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {[1, 2, 3, 4].map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() =>
+                            setCart((prev) =>
+                              prev.map((x) =>
+                                x.lineId === l.lineId ? { ...x, course: c } : x,
+                              ),
+                            )
+                          }
+                          className={`min-h-8 min-w-8 rounded px-2 text-xs ${
+                            l.course === c
+                              ? "bg-[hsl(var(--pg-primary))] text-white"
+                              : "bg-[hsl(var(--pg-muted))]"
+                          }`}
+                        >
+                          P{c}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCart((prev) =>
+                            prev.map((x) =>
+                              x.lineId === l.lineId ? { ...x, hold: !x.hold } : x,
+                            ),
+                          )
+                        }
+                        className={`min-h-8 rounded px-2 text-xs ${
+                          l.hold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-muted))]"
+                        }`}
+                      >
+                        HOLD
+                      </button>
+                    </div>
+                  </li>
+                ))
+              )}
+            </ul>
+
+            <div className="mt-3 shrink-0 space-y-3 border-t border-[hsl(var(--pg-border))] pt-3">
+              <ComandaHelp />
+              <div className="flex flex-wrap gap-1">
+                {[1, 2, 3, 4].map((c) => (
+                  <Button
+                    key={c}
+                    className="h-9 flex-1 min-w-[3rem] text-xs"
+                    variant="outline"
+                    onClick={() => void callCourse(c)}
+                  >
+                    Chiama P{c}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                className="h-12 w-full text-base"
+                disabled={cart.length === 0 || loading}
+                onClick={() => setConfirmSubmit(true)}
+              >
+                SPEDITO
+              </Button>
+              <Button
+                variant="outline"
+                className="h-10 w-full"
+                onClick={() => (cart.length > 0 ? setConfirmExit(true) : void leave())}
+              >
+                ← Torna al conto
+              </Button>
+            </div>
+          </div>
         </aside>
       </div>
 
       {variantProduct && (
         <VariantSheet
           product={variantProduct}
-          groups={variantGroups}
+          variants={productVariants}
           basePrice={basePrice}
           onConfirm={confirmVariants}
           onCancel={() => setVariantProduct(null)}

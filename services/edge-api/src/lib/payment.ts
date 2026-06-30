@@ -2,19 +2,24 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MockReceipt } from "@pizzaguys/fiscal";
-import type { PaymentMethod, WsEnvelope } from "@pizzaguys/types";
+import type { FiscalDocumentType, PaymentMethod, WsEnvelope } from "@pizzaguys/types";
+import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
+import { billLinesForCheck, billToReceiptLines, type BillLine } from "./bill.js";
+import { consolidateBillForTable } from "./cover-charge.js";
 import {
-  billLinesForCheck,
-  billToReceiptLines,
-  consolidateTableBill,
-} from "./bill.js";
+  enrichBillLinesForReport,
+  recordDayTransaction,
+  resolveServiceType,
+} from "./day-report-ledger.js";
 import {
   clearRomanSplit,
   clearTableOrders,
   completePaymentRequest,
   getAnalyticSplit,
+  getOrderByTable,
   getRomanSplit,
+  getSubmittedOrdersByTable,
   isAnalyticSplitComplete,
   markAnalyticCheckPaid,
   recordRomanSharePaid,
@@ -34,6 +39,7 @@ async function writeReceiptJson(receipt: MockReceipt) {
 }
 
 export interface ExecutePaymentParams {
+  edgeDb: EdgeDatabase;
   tableId: string;
   locationId: string;
   paymentMethod: PaymentMethod;
@@ -42,6 +48,12 @@ export interface ExecutePaymentParams {
   checkId?: string;
   paymentRequestId?: string;
   shiftId?: string;
+  documentType?: FiscalDocumentType;
+  operatorId: string;
+  operatorName: string;
+  tableLabel: string;
+  isVirtual?: boolean;
+  virtualType?: string | null;
 }
 
 export interface ExecutePaymentResult {
@@ -60,7 +72,7 @@ export interface ExecutePaymentResult {
 export async function executeTablePayment(
   params: ExecutePaymentParams,
 ): Promise<ExecutePaymentResult | { ok: false; error: string; status?: number }> {
-  const bill = consolidateTableBill(params.tableId);
+  const bill = consolidateBillForTable(params.edgeDb, params.tableId);
   if (bill.lines.length === 0) {
     return { ok: false, error: "Nessuna voce da pagare", status: 400 };
   }
@@ -120,6 +132,7 @@ export async function executeTablePayment(
     locationId: params.locationId,
     tableId: params.tableId,
     paymentMethod: params.paymentMethod,
+    documentType: params.documentType ?? "RECEIPT",
     lines: receiptLines,
     amountReceived: params.paymentMethod === "CASH" ? params.amountReceived : undefined,
   });
@@ -144,6 +157,46 @@ export async function executeTablePayment(
   } else {
     recordDayPayment(params.paymentMethod, payAmount, receiptResult.receipt.id);
   }
+
+  let paidBillLines: BillLine[] = bill.lines;
+  if (isAnalytic && params.checkId) {
+    paidBillLines = billLinesForCheck(bill, params.checkId);
+  } else if (isRoman && bill.total > 0) {
+    const ratio = payAmount / bill.total;
+    paidBillLines = bill.lines.map((l) => ({
+      ...l,
+      lineTotal: Math.round(l.lineTotal * ratio * 100) / 100,
+    }));
+  }
+
+  const saleLines = enrichBillLinesForReport(params.edgeDb, params.tableId, {
+    ...bill,
+    lines: paidBillLines,
+  });
+  const submitted = getSubmittedOrdersByTable(params.tableId);
+  const draft = getOrderByTable(params.tableId);
+  const channel = submitted[0]?.channel ?? draft?.channel ?? "TABLE";
+  const closureDate = new Date().toISOString().slice(0, 10);
+
+  recordDayTransaction(params.edgeDb, closureDate, {
+    receiptId: receiptResult.receipt.id,
+    at: receiptResult.receipt.issuedAt,
+    tableLabel: params.tableLabel,
+    serviceType: resolveServiceType({
+      channel,
+      tableLabel: params.tableLabel,
+      isVirtual: params.isVirtual,
+      virtualType: params.virtualType,
+      lines: saleLines,
+    }),
+    paymentMethod: params.paymentMethod,
+    documentType: params.documentType ?? receiptResult.receipt.documentType ?? "RECEIPT",
+    operatorId: params.operatorId,
+    operatorName: params.operatorName,
+    amount: payAmount,
+    lines: saleLines,
+    coverGuests: bill.coverCharge?.guestCount ?? 0,
+  });
 
   let tableFreed = false;
   let romanSplitComplete = false;

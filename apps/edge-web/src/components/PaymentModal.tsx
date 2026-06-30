@@ -1,4 +1,4 @@
-import type { PaymentMethod } from "@pizzaguys/types";
+import type { FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { PaymentPad, parsePaymentAmount } from "./PaymentPad";
 
@@ -10,11 +10,19 @@ const METHODS: { id: PaymentMethod; label: string }[] = [
   { id: "OTHER", label: "Altro" },
 ];
 
+const DOC_TYPES: { id: FiscalDocumentType; label: string }[] = [
+  { id: "RECEIPT", label: "Scontrino" },
+  { id: "INVOICE", label: "Fattura" },
+  { id: "TRAINING", label: "Addestramento" },
+];
+
 export function PaymentModal({
   title,
   amount,
   method,
   onMethod,
+  documentType,
+  onDocumentType,
   cashAmount,
   onCashAmount,
   loading,
@@ -25,6 +33,8 @@ export function PaymentModal({
   amount: number;
   method: PaymentMethod;
   onMethod: (m: PaymentMethod) => void;
+  documentType: FiscalDocumentType;
+  onDocumentType: (d: FiscalDocumentType) => void;
   cashAmount: string;
   onCashAmount: (v: string) => void;
   loading: boolean;
@@ -52,6 +62,21 @@ export function PaymentModal({
               onClick={() => onMethod(m.id)}
             >
               {m.label}
+            </Button>
+          ))}
+        </div>
+
+        <p className="mb-2 text-xs text-[hsl(var(--pg-muted-foreground))]">Documento fiscale</p>
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          {DOC_TYPES.map((d) => (
+            <Button
+              key={d.id}
+              type="button"
+              variant={documentType === d.id ? "default" : "outline"}
+              className="h-10 min-h-[40px] text-xs"
+              onClick={() => onDocumentType(d.id)}
+            >
+              {d.label}
             </Button>
           ))}
         </div>

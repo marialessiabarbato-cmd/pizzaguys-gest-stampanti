@@ -10,6 +10,12 @@ export const createLocationSchema = z.object({
 
 export type CreateLocationInput = z.infer<typeof createLocationSchema>;
 
+export const updateLocationSchema = z.object({
+  coverChargeAmount: z.number().min(0).max(100),
+});
+
+export type UpdateLocationInput = z.infer<typeof updateLocationSchema>;
+
 export const provHandshakeSchema = z.object({
   apiToken: z.string().min(32),
   edgeDeviceId: z.string().uuid(),

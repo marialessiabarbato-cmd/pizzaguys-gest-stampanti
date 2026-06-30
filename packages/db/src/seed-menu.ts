@@ -2,14 +2,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { createDb } from "./client.js";
 import {
-  brandSettings,
   brands,
   categories,
   locations,
   productPrices,
   products,
 } from "./schema/index.js";
-import { MENU_CATALOG, PILOT_LOCATION } from "./seed-menu-data.js";
+import { MENU_CATALOG, PILOT_LOCATION, allergensForProduct } from "./seed-menu-data.js";
+import { bumpBrandSchemaVersion, seedVariantCatalog } from "./seed-menu-variants.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -100,6 +100,7 @@ async function main() {
           name: itName(item.name),
           basePrice: String(item.price),
           dessert: cat.dessert ?? false,
+          allergenIds: item.allergenIds ?? allergensForProduct(cat.key, item.name),
           sortOrder: prodIndex,
         })
         .returning();
@@ -120,17 +121,11 @@ async function main() {
     }
   }
 
-  const settings = await db.query.brandSettings.findFirst({
-    where: eq(brandSettings.brandId, brandId),
-  });
-  if (settings) {
-    await db
-      .update(brandSettings)
-      .set({ schemaVersion: settings.schemaVersion + 1, updatedAt: new Date() })
-      .where(eq(brandSettings.brandId, brandId));
-  }
+  const variantResult = await seedVariantCatalog(db, brandId);
+  await bumpBrandSchemaVersion(db, brandId);
 
   console.log(`✓ ${MENU_CATALOG.length} categorie, ${productCount} prodotti`);
+  console.log(`✓ ${variantResult.groups} gruppi varianti, ${variantResult.variants} varianti`);
   console.log(`✓ Prezzi TABLE/TAKEAWAY/DELIVERY per sede ${location.name}`);
   console.log("  Provisioning edge: incolla il token in Main Station → Provision");
 }

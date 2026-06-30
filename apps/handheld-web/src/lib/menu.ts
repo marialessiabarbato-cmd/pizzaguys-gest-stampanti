@@ -1,5 +1,6 @@
 import { calculateLinePrice, isLinePriceValid } from "@pizzaguys/fiscal";
-import type { CartLine, MenuSnapshot, Product, VariantGroup, VariantSelection } from "./types";
+import { defaultCourseForCategory, defaultHoldForCourse, normalizeCourse } from "./course";
+import type { CartLine, Category, MenuSnapshot, Product, VariantGroup, VariantOption, VariantSelection } from "./types";
 
 export function localized(name: Record<string, string>) {
   return name.it ?? name.en ?? Object.values(name)[0] ?? "";
@@ -37,21 +38,37 @@ export function variantGroupsForProduct(
   );
 }
 
-export function lineKey(productId: string, variants: VariantSelection[]): string {
+export function variantsForProduct(product: Product, groups: VariantGroup[]): VariantOption[] {
+  const seen = new Set<string>();
+  const items: VariantOption[] = [];
+  for (const group of variantGroupsForProduct(product, groups)) {
+    for (const variant of group.variants) {
+      if (seen.has(variant.id)) continue;
+      seen.add(variant.id);
+      items.push(variant);
+    }
+  }
+  return items.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "REMOVE" ? -1 : 1;
+    return localized(a.name).localeCompare(localized(b.name), "it");
+  });
+}
+
+export function lineKey(productId: string, variants: VariantSelection[], course = 1): string {
   const sig = variants
     .map((v) => v.variantId)
     .sort()
     .join(",");
-  return `${productId}:${sig}`;
+  return `${productId}:${normalizeCourse(course)}:${sig}`;
 }
 
 export function buildCartLine(
   product: Product,
-  category: { hold?: boolean; dessert?: boolean },
+  category: Category,
   channel: "TABLE" | "TAKEAWAY" | "DELIVERY",
   prices: MenuSnapshot["prices"],
   variants: VariantSelection[] = [],
-  course = 1,
+  courseOverride?: number,
 ): CartLine | { error: string } {
   const basePrice = resolvePrice(product, channel, prices);
   const unitPrice = calculateLinePrice(
@@ -61,6 +78,7 @@ export function buildCartLine(
   if (!isLinePriceValid(basePrice, variants.map((v) => ({ type: v.type, priceDelta: v.priceDelta })))) {
     return { error: "Prezzo riga non valido (vincolo fiscale)" };
   }
+  const course = normalizeCourse(courseOverride ?? defaultCourseForCategory(category));
   return {
     lineId: crypto.randomUUID(),
     productId: product.id,
@@ -70,7 +88,7 @@ export function buildCartLine(
     quantity: 1,
     variants,
     course,
-    hold: product.hold ?? category.hold ?? false,
+    hold: product.hold ?? defaultHoldForCourse(course, category),
     dessertDefer: product.dessert ?? category.dessert ?? false,
     allergenIds: product.allergenIds ?? [],
   };
