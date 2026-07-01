@@ -100,3 +100,18 @@ export function cartTotal(cart: CartLine[]): number {
     return sum + l.unitPrice * l.quantity * discount;
   }, 0);
 }
+
+export function submittedTotal(lines: Array<{ quantity: number; unitPrice: number; voidedQuantity?: number }>): number {
+  return lines.reduce((sum, l) => {
+    const remaining = l.quantity - (l.voidedQuantity ?? 0);
+    if (remaining <= 0) return sum;
+    return sum + l.unitPrice * remaining;
+  }, 0);
+}
+
+export function tableOrderTotal(
+  cart: CartLine[],
+  submitted: Array<{ quantity: number; unitPrice: number; voidedQuantity?: number }>,
+): number {
+  return Math.round((cartTotal(cart) + submittedTotal(submitted)) * 100) / 100;
+}

@@ -168,3 +168,25 @@ export const counterSaleSchema = z.object({
   operatorName: z.string().min(1),
   lines: z.array(orderLineSchema).min(1),
 });
+
+export const updateTableGuestsSchema = z.object({
+  guests: z.number().int().min(1).max(99),
+  operatorId: z.string().min(1),
+});
+
+export const transferTableSchema = z.object({
+  sourceTableId: z.string().min(1),
+  targetTableId: z.string().min(1),
+  lineIds: z.array(z.string().uuid()).optional(),
+  operatorId: z.string().min(1),
+  operatorName: z.string().min(1),
+  overridePin: z.string().regex(/^[0-9]{4}$/).optional(),
+});
+
+export const mergeTablesSchema = z.object({
+  sourceTableIds: z.array(z.string().min(1)).min(1),
+  targetTableId: z.string().min(1),
+  operatorId: z.string().min(1),
+  operatorName: z.string().min(1),
+  overridePin: z.string().regex(/^[0-9]{4}$/).optional(),
+});

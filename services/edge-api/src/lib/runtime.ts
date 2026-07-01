@@ -77,6 +77,12 @@ export interface TableRuntime {
   guests?: number;
   /** Coperti massimi addebitati (non diminuisce se si riducono i coperti) */
   chargedGuests?: number;
+  /** Capienza effettiva dopo unione di più tavoli fisici */
+  tableCapacity?: number;
+  /** Tavoli fisici uniti su questo (host) */
+  linkedTableIds?: string[];
+  /** Se il tavolo è stato unito in un altro (mostrato libero sulla mappa) */
+  mergedIntoTableId?: string;
 }
 
 export interface RomanSplit {
@@ -135,6 +141,61 @@ export function getTableRuntime(tableId: string): TableRuntime {
   return tableRuntime.get(tableId) ?? { tableId, status: "FREE" };
 }
 
+export function getTableCapacity(tableId: string, defaultGuests: number): number {
+  const runtime = getTableRuntime(tableId);
+  return runtime.tableCapacity ?? defaultGuests;
+}
+
+export function setTableUnionCapacity(tableId: string, capacity: number) {
+  const current = getTableRuntime(tableId);
+  tableRuntime.set(tableId, { ...current, tableCapacity: capacity });
+}
+
+export function registerTableUnion(
+  hostTableId: string,
+  sourceTableIds: string[],
+  combinedCapacity?: number,
+) {
+  const host = getTableRuntime(hostTableId);
+  const linked = new Set(host.linkedTableIds ?? []);
+  for (const id of sourceTableIds) {
+    if (id !== hostTableId) linked.add(id);
+  }
+  tableRuntime.set(hostTableId, {
+    ...getTableRuntime(hostTableId),
+    linkedTableIds: [...linked],
+    ...(combinedCapacity && combinedCapacity > 0
+      ? { tableCapacity: combinedCapacity }
+      : {}),
+  });
+  for (const id of sourceTableIds) {
+    if (id === hostTableId) continue;
+    tableRuntime.set(id, {
+      tableId: id,
+      status: "FREE",
+      mergedIntoTableId: hostTableId,
+    });
+  }
+}
+
+export function clearTableUnion(hostTableId: string) {
+  const host = getTableRuntime(hostTableId);
+  for (const id of host.linkedTableIds ?? []) {
+    tableRuntime.set(id, { tableId: id, status: "FREE" });
+  }
+  tableRuntime.set(hostTableId, { tableId: hostTableId, status: "FREE" });
+}
+
+export function updateTableGuests(tableId: string, guests: number) {
+  const current = getTableRuntime(tableId);
+  const chargedGuests = Math.max(current.chargedGuests ?? 0, guests);
+  tableRuntime.set(tableId, {
+    ...current,
+    guests,
+    chargedGuests: chargedGuests > 0 ? chargedGuests : undefined,
+  });
+}
+
 export function getAllTableRuntime(): TableRuntime[] {
   return [...tableRuntime.values()];
 }
@@ -163,6 +224,7 @@ export function requestLock(
     nextGuests ?? current.chargedGuests ?? 0,
   );
   tableRuntime.set(tableId, {
+    ...current,
     tableId,
     status: "LOCKED",
     lockedBy: operatorId,
@@ -194,7 +256,9 @@ export function releaseLock(tableId: string, operatorId: string): boolean {
   const current = getTableRuntime(tableId);
   if (current.lockedBy && current.lockedBy !== operatorId) return false;
   const hasSubmitted = getSubmittedOrdersByTable(tableId).length > 0;
-  if (hasSubmitted) {
+  const hasDraft = !!getOrderByTable(tableId);
+  const hasGuests = (current.guests ?? 0) > 0 || (current.chargedGuests ?? 0) > 0;
+  if (hasSubmitted || hasDraft || hasGuests) {
     tableRuntime.set(tableId, {
       ...current,
       tableId,
@@ -235,6 +299,11 @@ export function setBillRequested(tableId: string) {
 }
 
 export function setTableFree(tableId: string) {
+  const current = getTableRuntime(tableId);
+  if (current.linkedTableIds?.length) {
+    clearTableUnion(tableId);
+    return;
+  }
   tableRuntime.set(tableId, { tableId, status: "FREE" });
 }
 
@@ -602,4 +671,353 @@ export function releaseDessertQueue(tableId: string): KdsTicket[] {
     }
   }
   return released;
+}
+
+function getOrdersForTable(tableId: string): TableOrder[] {
+  return [...orders.values()].filter((o) => o.tableId === tableId);
+}
+
+export function hasPendingPaymentForTable(tableId: string): boolean {
+  return [...paymentRequests.values()].some(
+    (r) => r.tableId === tableId && r.status === "PENDING",
+  );
+}
+
+function relocateKdsTicketsForOrders(
+  orderIds: Set<string>,
+  toTableId: string,
+  toLabel: string,
+) {
+  for (const [id, ticket] of kdsTickets) {
+    if (orderIds.has(ticket.orderId)) {
+      kdsTickets.set(id, { ...ticket, tableId: toTableId, tableLabel: toLabel });
+    }
+  }
+}
+
+function mergeRuntimeGuests(sourceTableId: string, targetTableId: string) {
+  const src = getTableRuntime(sourceTableId);
+  const tgt = getTableRuntime(targetTableId);
+  const guests = (tgt.guests ?? 0) + (src.guests ?? 0);
+  const chargedGuests =
+    (tgt.chargedGuests ?? tgt.guests ?? 0) + (src.chargedGuests ?? src.guests ?? 0);
+  const status: TableStatus =
+    tgt.status === "FREE" ? "OCCUPIED" : tgt.status === "BILL_REQUESTED" ? tgt.status : "OCCUPIED";
+  tableRuntime.set(targetTableId, {
+    ...tgt,
+    guests: guests > 0 ? guests : tgt.guests,
+    chargedGuests: chargedGuests > 0 ? chargedGuests : tgt.chargedGuests,
+    status,
+    lockedBy: tgt.lockedBy,
+    lockedByName: tgt.lockedByName,
+    lockedAt: tgt.lockedAt,
+  });
+}
+
+function refreshSourceTableStatus(sourceTableId: string) {
+  const hasDraft = !!getOrderByTable(sourceTableId);
+  const hasSubmitted = getSubmittedOrdersByTable(sourceTableId).length > 0;
+  if (!hasDraft && !hasSubmitted) {
+    tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+    return;
+  }
+  const current = getTableRuntime(sourceTableId);
+  if (current.status === "SPLIT_IN_PROGRESS" || current.status === "BILL_REQUESTED") return;
+  tableRuntime.set(sourceTableId, {
+    ...current,
+    tableId: sourceTableId,
+    status: "OCCUPIED",
+    lockedBy: undefined,
+    lockedByName: undefined,
+    lockedAt: undefined,
+    guests: hasDraft || hasSubmitted ? current.guests : undefined,
+    chargedGuests: hasDraft || hasSubmitted ? current.chargedGuests : undefined,
+  });
+}
+
+function appendDraftLines(
+  targetTableId: string,
+  lines: OrderLine[],
+  operatorId: string,
+  operatorName: string,
+) {
+  if (lines.length === 0) return;
+  const draft = getOrderByTable(targetTableId);
+  const now = new Date().toISOString();
+  if (draft) {
+    orders.set(draft.id, {
+      ...draft,
+      lines: [...draft.lines, ...lines],
+      updatedAt: now,
+    });
+    return;
+  }
+  const order: TableOrder = {
+    id: randomUUID(),
+    tableId: targetTableId,
+    operatorId,
+    operatorName,
+    channel: "TABLE",
+    lines,
+    createdAt: now,
+    updatedAt: now,
+  };
+  orders.set(order.id, order);
+}
+
+function appendSubmittedLines(
+  targetTableId: string,
+  lines: OrderLine[],
+  submittedAt: string,
+  operatorId: string,
+  operatorName: string,
+): string {
+  const now = new Date().toISOString();
+  const order: TableOrder = {
+    id: randomUUID(),
+    tableId: targetTableId,
+    operatorId,
+    operatorName,
+    channel: "TABLE",
+    lines,
+    createdAt: submittedAt,
+    updatedAt: now,
+    submittedAt,
+  };
+  orders.set(order.id, order);
+  return order.id;
+}
+
+export type TransferTableResult =
+  | {
+      ok: true;
+      movedLineIds: string[];
+      sourceStatus: TableStatus;
+      targetStatus: TableStatus;
+      affectedOrderIds: string[];
+    }
+  | { ok: false; error: string };
+
+export function transferTableAccount(params: {
+  sourceTableId: string;
+  targetTableId: string;
+  lineIds?: string[];
+  operatorId: string;
+  operatorName: string;
+  sourceTableLabel: string;
+  targetTableLabel: string;
+  allowEmptyLink?: boolean;
+}): TransferTableResult {
+  const { sourceTableId, targetTableId, operatorId, operatorName, targetTableLabel, allowEmptyLink } =
+    params;
+
+  if (sourceTableId === targetTableId) {
+    return { ok: false, error: "Sorgente e destinazione devono essere diversi" };
+  }
+
+  const sourceRuntime = getTableRuntime(sourceTableId);
+  const targetRuntime = getTableRuntime(targetTableId);
+
+  if (sourceRuntime.status === "SPLIT_IN_PROGRESS") {
+    return { ok: false, error: "Split conto in corso sul tavolo sorgente" };
+  }
+  if (targetRuntime.status === "SPLIT_IN_PROGRESS") {
+    return { ok: false, error: "Split conto in corso sul tavolo destinazione" };
+  }
+  if (hasPendingPaymentForTable(sourceTableId)) {
+    return { ok: false, error: "Pagamento in attesa sul tavolo sorgente" };
+  }
+  if (hasPendingPaymentForTable(targetTableId)) {
+    return { ok: false, error: "Pagamento in attesa sul tavolo destinazione" };
+  }
+  if (hasActiveSplit(sourceTableId) || hasActiveSplit(targetTableId)) {
+    return { ok: false, error: "Split attivo — completa o annulla prima dello spostamento" };
+  }
+
+  const sourceOrders = getOrdersForTable(sourceTableId);
+  const sourceHasGuests = (sourceRuntime.guests ?? 0) > 0;
+
+  if (sourceOrders.length === 0) {
+    if (!sourceHasGuests) {
+      if (allowEmptyLink) {
+        tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+        if (targetRuntime.status === "FREE") setTableOccupied(targetTableId);
+        return {
+          ok: true,
+          movedLineIds: [],
+          sourceStatus: getTableRuntime(sourceTableId).status,
+          targetStatus: getTableRuntime(targetTableId).status,
+          affectedOrderIds: [],
+        };
+      }
+      return { ok: false, error: "Nessun conto o coperti da spostare sul tavolo sorgente" };
+    }
+    mergeRuntimeGuests(sourceTableId, targetTableId);
+    tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+    setTableOccupied(targetTableId);
+    return {
+      ok: true,
+      movedLineIds: [],
+      sourceStatus: getTableRuntime(sourceTableId).status,
+      targetStatus: getTableRuntime(targetTableId).status,
+      affectedOrderIds: [],
+    };
+  }
+
+  const allLineIds = sourceOrders.flatMap((o) => o.lines.map((l) => l.id));
+  const lineIdSet = params.lineIds?.length
+    ? new Set(params.lineIds)
+    : new Set(allLineIds);
+
+  for (const id of lineIdSet) {
+    if (!allLineIds.includes(id)) {
+      return { ok: false, error: `Riga ${id} non trovata sul tavolo sorgente` };
+    }
+  }
+
+  const isFullTransfer = lineIdSet.size === allLineIds.length;
+  const movedLineIds: string[] = [];
+  const affectedOrderIds = new Set<string>();
+  const relocatedOrderIds = new Set<string>();
+  const now = new Date().toISOString();
+
+  for (const order of sourceOrders) {
+    const toMove = order.lines.filter((l) => lineIdSet.has(l.id));
+    const toKeep = order.lines.filter((l) => !lineIdSet.has(l.id));
+    if (toMove.length === 0) continue;
+
+    movedLineIds.push(...toMove.map((l) => l.id));
+    affectedOrderIds.add(order.id);
+
+    if (toKeep.length === 0) {
+      if (!order.submittedAt) {
+        const targetDraft = getOrderByTable(targetTableId);
+        if (targetDraft && targetDraft.id !== order.id) {
+          orders.set(targetDraft.id, {
+            ...targetDraft,
+            lines: [...targetDraft.lines, ...order.lines],
+            updatedAt: now,
+          });
+          orders.delete(order.id);
+          relocatedOrderIds.add(targetDraft.id);
+        } else {
+          orders.set(order.id, { ...order, tableId: targetTableId, updatedAt: now });
+          relocatedOrderIds.add(order.id);
+        }
+      } else {
+        orders.set(order.id, { ...order, tableId: targetTableId, updatedAt: now });
+        relocatedOrderIds.add(order.id);
+      }
+      continue;
+    }
+
+    orders.set(order.id, { ...order, lines: toKeep, updatedAt: now });
+
+    if (order.submittedAt) {
+      const newOrderId = appendSubmittedLines(
+        targetTableId,
+        toMove,
+        order.submittedAt,
+        operatorId,
+        operatorName,
+      );
+      affectedOrderIds.add(newOrderId);
+      relocatedOrderIds.add(newOrderId);
+    } else {
+      appendDraftLines(targetTableId, toMove, operatorId, operatorName);
+      const draft = getOrderByTable(targetTableId);
+      if (draft) relocatedOrderIds.add(draft.id);
+    }
+  }
+
+  relocateKdsTicketsForOrders(relocatedOrderIds, targetTableId, targetTableLabel);
+
+  for (const orderId of relocatedOrderIds) {
+    const order = orders.get(orderId);
+    if (order?.submittedAt) {
+      rebuildKdsTicketsForOrder(order, targetTableLabel);
+    }
+  }
+  for (const orderId of affectedOrderIds) {
+    const order = orders.get(orderId);
+    if (order?.submittedAt && order.tableId === sourceTableId) {
+      rebuildKdsTicketsForOrder(order, params.sourceTableLabel);
+    }
+  }
+
+  if (isFullTransfer) {
+    mergeRuntimeGuests(sourceTableId, targetTableId);
+    tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+  } else {
+    refreshSourceTableStatus(sourceTableId);
+    const tgt = getTableRuntime(targetTableId);
+    if (tgt.status === "FREE") {
+      tableRuntime.set(targetTableId, { ...tgt, status: "OCCUPIED" });
+    }
+  }
+
+  setTableOccupied(targetTableId);
+
+  return {
+    ok: true,
+    movedLineIds,
+    sourceStatus: getTableRuntime(sourceTableId).status,
+    targetStatus: getTableRuntime(targetTableId).status,
+    affectedOrderIds: [...affectedOrderIds, ...relocatedOrderIds],
+  };
+}
+
+export function mergeTablesInto(params: {
+  sourceTableIds: string[];
+  targetTableId: string;
+  operatorId: string;
+  operatorName: string;
+  tableLabels: Map<string, string>;
+  combinedCapacity?: number;
+}): TransferTableResult & { mergedSources?: string[] } {
+  const uniqueSources = [...new Set(params.sourceTableIds)].filter(
+    (id) => id !== params.targetTableId,
+  );
+  if (uniqueSources.length === 0) {
+    return { ok: false, error: "Seleziona almeno un tavolo sorgente diverso dalla destinazione" };
+  }
+
+  const targetTableLabel =
+    params.tableLabels.get(params.targetTableId) ?? params.targetTableId;
+  const allMoved: string[] = [];
+  const mergedSources: string[] = [];
+
+  for (const sourceId of uniqueSources) {
+    const result = transferTableAccount({
+      sourceTableId: sourceId,
+      targetTableId: params.targetTableId,
+      operatorId: params.operatorId,
+      operatorName: params.operatorName,
+      sourceTableLabel: params.tableLabels.get(sourceId) ?? sourceId,
+      targetTableLabel,
+      allowEmptyLink: true,
+    });
+    if (!result.ok) return result;
+    allMoved.push(...result.movedLineIds);
+    mergedSources.push(sourceId);
+  }
+
+  if (params.combinedCapacity && params.combinedCapacity > 0) {
+    registerTableUnion(
+      params.targetTableId,
+      mergedSources,
+      params.combinedCapacity,
+    );
+  } else {
+    registerTableUnion(params.targetTableId, mergedSources);
+  }
+
+  return {
+    ok: true,
+    movedLineIds: allMoved,
+    sourceStatus: getTableRuntime(uniqueSources[uniqueSources.length - 1]!).status,
+    targetStatus: getTableRuntime(params.targetTableId).status,
+    affectedOrderIds: [],
+    mergedSources,
+  };
 }

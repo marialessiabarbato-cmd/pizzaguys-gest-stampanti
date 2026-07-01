@@ -1,5 +1,6 @@
 import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { PinPad } from "./components/PinPad";
 import { PinModal } from "./components/PinModal";
@@ -26,8 +27,9 @@ import { useEdgeWs } from "./lib/ws";
 import { MapScreen } from "./screens/MapScreen";
 import { TableWorkspace } from "./screens/TableWorkspace";
 import { VariantSheet } from "./components/VariantSheet";
+import { TableTransferModal } from "./components/TableTransferModal";
 
-type PinModalMode = "unlock" | "discount" | null;
+type PinModalMode = "unlock" | "discount" | "guests-lock" | null;
 
 export default function App() {
   const { connected, send, on } = useEdgeWs();
@@ -60,7 +62,13 @@ export default function App() {
   const [pinModalError, setPinModalError] = useState("");
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
   const [pendingGuestsTable, setPendingGuestsTable] = useState<LiveTable | null>(null);
-  const [guestCount, setGuestCount] = useState(2);
+  const [guestsModalLoading, setGuestsModalLoading] = useState(false);
+  const [guestsModalError, setGuestsModalError] = useState("");
+  const [pendingGuestsAction, setPendingGuestsAction] = useState<{
+    table: LiveTable;
+    payload: GuestsConfirmPayload;
+    mode: "open" | "edit";
+  } | null>(null);
   const [unlockOverridePin, setUnlockOverridePin] = useState<string | undefined>();
   const [pendingDiscountLine, setPendingDiscountLine] = useState<string | null>(null);
   const [exitConfirm, setExitConfirm] = useState(false);
@@ -70,6 +78,9 @@ export default function App() {
   const [confirmReleaseDessert, setConfirmReleaseDessert] = useState(false);
   const [confirmPayment, setConfirmPayment] = useState(false);
   const [confirmStorno, setConfirmStorno] = useState<SubmittedLine | null>(null);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showEditGuestsModal, setShowEditGuestsModal] = useState(false);
+  const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
   const [pendingNoteSave, setPendingNoteSave] = useState<{
     lineId: string;
     note: string;
@@ -96,7 +107,7 @@ export default function App() {
   ) => {
     setActiveTable(table);
     await loadDraftForTable(table.id);
-    loadMenu({ resetNavigation: options?.resetNavigation ?? false });
+    await loadMenu({ resetNavigation: options?.resetNavigation ?? false });
     setWorkspaceTab(tab);
     setActiveCourse(1);
     setSelectedLineId(null);
@@ -116,18 +127,18 @@ export default function App() {
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
+    void edgeApi<Array<{ id: string; name: string }>>("/api/rooms").then(setRooms);
   }, []);
 
-  const loadMenu = useCallback((options?: { resetNavigation?: boolean }) => {
-    void edgeApi<{ snapshot: MenuSnapshot }>("/api/menu").then((m) => {
-      const snap = m.snapshot;
-      const cats = [...(snap?.categories ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
-      setMenu({ ...snap, categories: cats });
-      if (options?.resetNavigation && cats[0]) {
-        setSelectedCat(cats[0].id);
-        setActiveCourse(suggestedCourseForCategory(cats[0]));
-      }
-    });
+  const loadMenu = useCallback(async (options?: { resetNavigation?: boolean }) => {
+    const m = await edgeApi<{ snapshot: MenuSnapshot }>("/api/menu");
+    const snap = m.snapshot;
+    const cats = [...(snap?.categories ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+    setMenu({ ...snap, categories: cats });
+    if (options?.resetNavigation && cats[0]) {
+      setSelectedCat(cats[0].id);
+      setActiveCourse(suggestedCourseForCategory(cats[0]));
+    }
   }, []);
 
   const loadDraftForTable = useCallback(
@@ -163,6 +174,7 @@ export default function App() {
             id: string;
             name: string;
             quantity: number;
+            unitPrice: number;
             voidedQuantity?: number;
           }>;
         }>;
@@ -194,6 +206,7 @@ export default function App() {
             lineId: line.id,
             name: line.name,
             quantity: line.quantity,
+            unitPrice: line.unitPrice,
             voidedQuantity: line.voidedQuantity,
           });
         }
@@ -202,6 +215,73 @@ export default function App() {
       return { cart: cartLines, submitted };
     },
     [isOffline],
+  );
+
+  const applyLockGranted = useCallback(
+    async (table: LiveTable, guests?: number) => {
+      if (!operator) return;
+      setActiveTable({
+        ...table,
+        status: "LOCKED",
+        lockedBy: operator.id,
+        guests: guests ?? table.guests,
+      });
+      const run = pendingAfterLockRef.current;
+      pendingAfterLockRef.current = null;
+      if (run) {
+        await loadDraftForTable(table.id);
+        run();
+      } else {
+        await loadDraftForTable(table.id);
+        await loadMenu({ resetNavigation: true });
+        setWorkspaceTab("menu");
+        setScreen("table");
+      }
+      setLockPending(null);
+      setPendingUnlockTable(null);
+      setPendingGuestsTable(null);
+      setUnlockOverridePin(undefined);
+    },
+    [operator, loadDraftForTable, loadMenu],
+  );
+
+  const requestLock = useCallback(
+    async (table: LiveTable, overridePin?: string, guests?: number) => {
+      if (!operator) return;
+      setLockPending(table.id);
+      try {
+        const lock = await edgeApi<{
+          guests?: number;
+          lockedBy?: string;
+          lockedByName?: string;
+          tableCapacity?: number;
+          linkedTableIds?: string[];
+        }>(`/api/tables/${table.id}/lock`, {
+          method: "POST",
+          body: JSON.stringify({
+            operatorId: operator.id,
+            operatorName: `${operator.firstName} ${operator.lastName}`,
+            overridePin,
+            guests: guests ?? table.guests ?? table.defaultGuests ?? 2,
+          }),
+        });
+        await applyLockGranted(
+          {
+            ...table,
+            lockedBy: lock.lockedBy ?? operator.id,
+            lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+            tableCapacity: lock.tableCapacity ?? table.tableCapacity,
+            linkedTableIds: lock.linkedTableIds ?? table.linkedTableIds,
+          },
+          lock.guests ?? guests,
+        );
+        loadTables();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Lock negato");
+        setLockPending(null);
+      }
+    },
+    [operator, applyLockGranted, loadTables],
   );
 
   useEffect(() => {
@@ -216,8 +296,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (screen === "map") loadTables();
-  }, [screen, loadTables]);
+    if (screen === "map" && operator) {
+      loadTables();
+      void loadMenu();
+    }
+  }, [screen, operator, loadTables, loadMenu]);
+
+  useEffect(() => {
+    if (pendingGuestsTable || showEditGuestsModal) loadTables();
+  }, [pendingGuestsTable, showEditGuestsModal, loadTables]);
 
   useEffect(() => {
     if (!activeTable || cart.length === 0) return;
@@ -234,22 +321,8 @@ export default function App() {
         tables.find((t) => t.id === p.tableId) ??
         (activeTableRef.current?.id === p.tableId ? activeTableRef.current : null);
       if (table && operator) {
-        setActiveTable({ ...table, status: "LOCKED", guests: p.guests ?? table.guests });
-        const run = pendingAfterLockRef.current;
-        pendingAfterLockRef.current = null;
-        if (run) {
-          void loadDraftForTable(p.tableId).then(() => run());
-        } else {
-          void loadDraftForTable(p.tableId);
-          loadMenu({ resetNavigation: true });
-          setWorkspaceTab("menu");
-        }
-        setScreen("table");
+        void applyLockGranted(table, p.guests ?? table.guests);
       }
-      setLockPending(null);
-      setPendingUnlockTable(null);
-      setPendingGuestsTable(null);
-      setUnlockOverridePin(undefined);
     });
     const unsub4 = on("LOCK_DENIED", (payload) => {
       const p = payload as { reason?: string };
@@ -269,18 +342,36 @@ export default function App() {
         loadTables();
       }
     });
+    const unsub6 = on("TABLE_ACCOUNT_MOVED", (payload) => {
+      const p = payload as { sourceTableIds: string[]; targetTableId: string };
+      loadTables();
+      if (activeTable && p.sourceTableIds.includes(activeTable.id)) {
+        void loadDraftForTable(activeTable.id).then((data) => {
+          if (data.cart.length === 0 && data.submitted.length === 0) {
+            setMessage("Conto spostato su altro tavolo");
+            setScreen("map");
+            setActiveTable(null);
+            setCart([]);
+            setSubmittedLines([]);
+          }
+        });
+      } else if (activeTable?.id === p.targetTableId) {
+        void loadDraftForTable(activeTable.id);
+      }
+    });
     return () => {
       unsub1();
       unsub2();
       unsub3();
       unsub4();
       unsub5();
+      unsub6();
     };
-  }, [on, loadTables, tables, operator, loadMenu, loadDraftForTable]);
+  }, [on, loadTables, tables, operator, loadMenu, loadDraftForTable, applyLockGranted]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if ((screen === "table") && cart.length > 0) {
+      if (screen === "table" && cart.length > 0) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -299,34 +390,155 @@ export default function App() {
       setOperator(op);
       setPin("");
       setScreen("map");
+      loadTables();
+      void loadMenu();
     } catch {
       setPinError("PIN errato");
       setPin("");
     }
   };
 
-  const requestLock = (table: LiveTable, overridePin?: string, guests?: number) => {
-    if (!operator) return;
-    setLockPending(table.id);
-    send("REQUEST_TABLE_LOCK", {
-      tableId: table.id,
-      operatorId: operator.id,
-      operatorName: `${operator.firstName} ${operator.lastName}`,
-      overridePin,
-      guests,
-    });
-  };
-
   const openGuestsModal = (table: LiveTable) => {
-    setGuestCount(table.guests ?? table.defaultGuests ?? 2);
+    setGuestsModalError("");
     setPendingGuestsTable(table);
   };
 
-  const confirmGuests = () => {
+  const openTableWithGuests = async (
+    table: LiveTable,
+    payload: GuestsConfirmPayload,
+    overridePin?: string,
+  ) => {
+    if (!operator) return;
+    setGuestsModalLoading(true);
+    setGuestsModalError("");
+    try {
+      let target = table;
+      if (payload.mergeTableIds.length > 0) {
+        await edgeApi("/api/tables/merge", {
+          method: "POST",
+          body: JSON.stringify({
+            operatorId: operator.id,
+            operatorName: `${operator.firstName} ${operator.lastName}`,
+            overridePin,
+            sourceTableIds: payload.mergeTableIds,
+            targetTableId: table.id,
+          }),
+        });
+        const live = await edgeApi<LiveTable[]>("/api/tables/live");
+        if (Array.isArray(live)) {
+          target = live.find((t) => t.id === table.id) ?? target;
+          setTables(live);
+        } else {
+          loadTables();
+        }
+      }
+      setUnlockOverridePin(undefined);
+      await requestLock(target, overridePin, payload.guests);
+      if (payload.mergeTableIds.length > 0) {
+        const labels = payload.mergeTableIds
+          .map((id) => tables.find((t) => t.id === id)?.label)
+          .filter(Boolean)
+          .join("+");
+        setMessage(`Tavoli uniti: ${target.label}${labels ? `+${labels}` : ""}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Errore apertura tavolo";
+      if (msg.includes("bloccato") && !overridePin) {
+        setPendingGuestsAction({ table, payload, mode: "open" });
+        setPinModal("guests-lock");
+      } else {
+        setGuestsModalError(msg);
+      }
+    } finally {
+      setGuestsModalLoading(false);
+    }
+  };
+
+  const confirmGuests = (payload: GuestsConfirmPayload) => {
     if (!pendingGuestsTable) return;
-    requestLock(pendingGuestsTable, unlockOverridePin, guestCount);
-    setPendingGuestsTable(null);
-    setUnlockOverridePin(undefined);
+    void openTableWithGuests(pendingGuestsTable, payload, unlockOverridePin);
+  };
+
+  const saveTableGuests = async (
+    payload: GuestsConfirmPayload,
+    overridePin?: string,
+  ) => {
+    if (!operator || !activeTable) return;
+    setGuestsModalLoading(true);
+    setGuestsModalError("");
+    try {
+      if (payload.mergeTableIds.length > 0) {
+        await edgeApi("/api/tables/merge", {
+          method: "POST",
+          body: JSON.stringify({
+            operatorId: operator.id,
+            operatorName: `${operator.firstName} ${operator.lastName}`,
+            overridePin,
+            sourceTableIds: payload.mergeTableIds,
+            targetTableId: activeTable.id,
+          }),
+        });
+        const live = await edgeApi<LiveTable[]>("/api/tables/live");
+        if (Array.isArray(live)) {
+          setTables(live);
+          const updated = live.find((t) => t.id === activeTable.id);
+          if (updated) {
+            setActiveTable(updated);
+          }
+        } else {
+          loadTables();
+        }
+      }
+      const row = await edgeApi<{ guests: number; tableCapacity: number }>(
+        `/api/tables/${activeTable.id}/guests`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ guests: payload.guests, operatorId: operator.id }),
+        },
+      );
+      setActiveTable({
+        ...activeTable,
+        guests: row.guests,
+        tableCapacity: row.tableCapacity,
+      });
+      setShowEditGuestsModal(false);
+      setGuestsModalError("");
+      setMessage(
+        payload.mergeTableIds.length > 0
+          ? `Tavoli uniti · ${row.guests} coperti su ${row.tableCapacity} posti`
+          : `Coperti aggiornati: ${row.guests}`,
+      );
+      loadTables();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Errore aggiornamento coperti";
+      if (msg.includes("bloccato") && !overridePin) {
+        setPendingGuestsAction({ table: activeTable, payload, mode: "edit" });
+        setPinModal("guests-lock");
+      } else {
+        setGuestsModalError(msg);
+      }
+    } finally {
+      setGuestsModalLoading(false);
+    }
+  };
+
+  const openEditGuests = () => {
+    if (!activeTable) return;
+    setGuestsModalError("");
+    setShowEditGuestsModal(true);
+  };
+
+  const handleGuestsLockPin = (pin: string) => {
+    if (!pendingGuestsAction) return;
+    setPinModal(null);
+    setPinModalError("");
+    const action = pendingGuestsAction;
+    setPendingGuestsAction(null);
+    if (action.mode === "open") {
+      void openTableWithGuests(action.table, action.payload, pin);
+    } else {
+      void saveTableGuests(action.payload, pin);
+    }
   };
 
   const enterTable = (table: LiveTable, overridePin?: string) => {
@@ -348,6 +560,13 @@ export default function App() {
   const selectTable = (table: LiveTable) => {
     if (!operator) return;
     setMessage("");
+    if (table.mergedIntoTableId) {
+      const host = tables.find((t) => t.id === table.mergedIntoTableId);
+      if (host) {
+        selectTable(host);
+        return;
+      }
+    }
     if (table.status === "LOCKED" && table.lockedBy === operator.id) {
       void reenterTable(table);
       return;
@@ -363,6 +582,13 @@ export default function App() {
         table.status === "BILL_REQUESTED" ||
         table.status === "SPLIT_IN_PROGRESS")
     ) {
+      if (!table.lockedBy && operator) {
+        pendingAfterLockRef.current = () => {
+          void openWorkspace(table, "comanda");
+        };
+        void requestLock(table);
+        return;
+      }
       void openWorkspace(table, "comanda");
       return;
     }
@@ -671,16 +897,20 @@ export default function App() {
     setSelectedSubmittedId(null);
   };
 
-  const handleEditLine = (line: CartLine) => {
+  const handleEditVariants = (line: CartLine) => {
     if (!menu) return;
     const product = products.find((p) => p.id === line.productId);
     if (!product) return;
     const options = variantsForProduct(product, menu.variantGroups ?? []);
-    if (options.length > 0) {
-      setEditCartLine(line);
-    } else {
-      setNoteLineId(line.lineId);
+    if (options.length === 0) {
+      setMessage("Questo prodotto non ha varianti da modificare");
+      return;
     }
+    setEditCartLine(line);
+  };
+
+  const handleEditNote = (line: CartLine) => {
+    setNoteLineId(line.lineId);
   };
 
   const stageVariantSave = (variants: VariantSelection[]) => {
@@ -859,6 +1089,17 @@ export default function App() {
           error={pinModalError}
         />
       )}
+      {pinModal === "guests-lock" && (
+        <PinModal
+          title="PIN manager — tavolo bloccato"
+          onComplete={handleGuestsLockPin}
+          onCancel={() => {
+            setPinModal(null);
+            setPendingGuestsAction(null);
+          }}
+          error={pinModalError}
+        />
+      )}
     </>
   );
 
@@ -874,7 +1115,18 @@ export default function App() {
     );
   }
 
-  if (screen === "table" && activeTable && operator && menu) {
+  if (screen === "table" && activeTable && operator) {
+    if (!menu) {
+      return (
+        <>
+          <main className="flex min-h-screen items-center justify-center bg-[hsl(var(--pg-background))] p-6">
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento…</p>
+          </main>
+          {modals}
+        </>
+      );
+    }
+
     const channel = getChannel();
     const editProduct = editCartLine
       ? products.find((p) => p.id === editCartLine.productId) ?? null
@@ -884,6 +1136,7 @@ export default function App() {
       <>
         <TableWorkspace
           table={activeTable}
+          tables={tables}
           operator={operator}
           menu={menu}
           categories={categories}
@@ -923,7 +1176,8 @@ export default function App() {
           onReleaseDessert={() => setConfirmReleaseDessert(true)}
           onDiscountLine={(lineId) => setConfirmDiscountLine(lineId)}
           onStorno={(l) => setConfirmStorno(l)}
-          onEditLine={handleEditLine}
+          onEditVariants={handleEditVariants}
+          onEditNote={handleEditNote}
           noteLineId={noteLineId}
           onSaveNote={(lineId, note) => {
             const line = cart.find((l) => l.lineId === lineId);
@@ -932,7 +1186,49 @@ export default function App() {
           }}
           onCancelNote={() => setNoteLineId(null)}
           onAcquireLock={() => activeTable && ensureLock(() => setMessage("Tavolo acquisito"))}
+          onOpenTransfer={() => setShowTransferModal(true)}
+          onEditGuests={openEditGuests}
         />
+        {showEditGuestsModal && activeTable && (
+          <GuestsModal
+            key={activeTable.id}
+            primaryTable={activeTable}
+            tables={tables}
+            initialGuests={activeTable.guests ?? activeTable.defaultGuests}
+            confirmLabel="Salva"
+            loading={guestsModalLoading}
+            error={guestsModalError}
+            onConfirm={(payload) => void saveTableGuests(payload)}
+            onCancel={() => {
+              setShowEditGuestsModal(false);
+              setGuestsModalError("");
+            }}
+          />
+        )}
+        {showTransferModal && activeTable && operator && (
+          <TableTransferModal
+            sourceTable={activeTable}
+            operator={operator}
+            cart={cart}
+            submittedLines={submittedLines}
+            tables={tables}
+            rooms={rooms}
+            isOffline={isOffline}
+            onRefresh={loadTables}
+            onClose={() => setShowTransferModal(false)}
+            onSuccess={(msg) => {
+              setMessage(msg);
+              setShowTransferModal(false);
+              void loadDraftForTable(activeTable.id).then((data) => {
+                if (data.cart.length === 0 && data.submitted.length === 0) {
+                  setScreen("map");
+                  setActiveTable(null);
+                }
+              });
+              loadTables();
+            }}
+          />
+        )}
         {editProduct && editCartLine && (
           <VariantSheet
             product={editProduct}
@@ -960,7 +1256,8 @@ export default function App() {
           lockPending={lockPending}
           logoutConfirm={logoutConfirm}
           pendingGuestsTable={pendingGuestsTable}
-          guestCount={guestCount}
+          guestsModalLoading={guestsModalLoading}
+          guestsModalError={guestsModalError}
           onSelectTable={selectTable}
           onLogout={() => setLogoutConfirm(true)}
           onConfirmLogout={() => {
@@ -968,10 +1265,10 @@ export default function App() {
             logout();
           }}
           onCancelLogout={() => setLogoutConfirm(false)}
-          onGuestsChange={setGuestCount}
           onConfirmGuests={confirmGuests}
           onCancelGuests={() => {
             setPendingGuestsTable(null);
+            setGuestsModalError("");
             setUnlockOverridePin(undefined);
           }}
         />

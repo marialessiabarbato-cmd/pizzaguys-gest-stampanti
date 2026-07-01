@@ -27,7 +27,8 @@ export type WsMessageType =
   | "PAYMENT_PENDING"
   | "CONFIRM_PAYMENT"
   | "PAYMENT_COMPLETE"
-  | "PAYMENT_REJECTED";
+  | "PAYMENT_REJECTED"
+  | "TABLE_ACCOUNT_MOVED";
 
 export interface WsEnvelope<T extends WsMessageType = WsMessageType, P = unknown> {
   type: T;
@@ -111,4 +112,11 @@ export interface PaymentCompletePayload {
   romanSplitComplete?: boolean;
   paidShares?: number;
   totalShares?: number;
+}
+
+export interface TableAccountMovedPayload {
+  sourceTableIds: string[];
+  targetTableId: string;
+  operatorId: string;
+  movedLineIds: string[];
 }

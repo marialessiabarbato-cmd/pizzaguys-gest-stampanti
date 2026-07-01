@@ -36,6 +36,14 @@ export function ComandaHelp({ context = "cart" }: { context?: "cart" | "table" }
           ) : (
             <>
               <li>
+                <strong className="text-[hsl(var(--pg-foreground))]">Modifica</strong> — seleziona
+                una riga in bozza e usa il pulsante in basso per cambiare ingredienti/varianti.
+              </li>
+              <li>
+                <strong className="text-[hsl(var(--pg-foreground))]">Nota</strong> — aggiungi una
+                nota libera sulla riga (es. allergie, richieste speciali).
+              </li>
+              <li>
                 <strong className="text-[hsl(var(--pg-foreground))]">CHIAMA PORTATA</strong> — dalla
                 gestione tavolo sblocca in cucina gli step in HOLD.
               </li>

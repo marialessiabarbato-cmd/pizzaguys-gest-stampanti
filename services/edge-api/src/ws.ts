@@ -20,6 +20,7 @@ import {
   setTableOccupied,
 } from "./lib/runtime.js";
 import { verifyManagerPin } from "./lib/staff-auth.js";
+import { parseGuestCount, effectiveCapacityForTable } from "./lib/table-capacity.js";
 import { addWsClient, broadcast, broadcastTableStatus, removeWsClient } from "./lib/ws-hub.js";
 
 type WsClient = { send: (data: string) => void; readyState: number };
@@ -79,10 +80,21 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               force = true;
             }
 
-            const guests =
-              typeof payload.guests === "number"
-                ? Math.min(30, Math.max(1, Math.floor(payload.guests)))
-                : undefined;
+            const table = app.edgeDb
+              .select()
+              .from(tables)
+              .where(eq(tables.id, payload.tableId))
+              .get();
+
+            const guestsParsed = parseGuestCount(
+              typeof payload.guests === "number" ? payload.guests : undefined,
+              table ? effectiveCapacityForTable(app.edgeDb, payload.tableId) : 0,
+            );
+            if (!guestsParsed.ok) {
+              reply("LOCK_DENIED", { tableId: payload.tableId, reason: guestsParsed.error });
+              break;
+            }
+            const guests = guestsParsed.guests;
 
             const result = requestLock(
               payload.tableId,

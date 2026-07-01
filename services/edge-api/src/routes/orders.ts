@@ -7,6 +7,7 @@ import {
   callCourseSchema,
   releaseDessertSchema,
   stornoLineSchema,
+  updateTableGuestsSchema,
   upsertOrderSchema,
 } from "@pizzaguys/validators";
 import { eq, sql } from "drizzle-orm";
@@ -32,6 +33,7 @@ import {
   setTableOccupied,
   releaseDessertQueue,
   stornoLine,
+  updateTableGuests,
   type OrderLine,
   type TableOrder,
   upsertOrder,
@@ -40,6 +42,7 @@ import { broadcastKdsUpdate } from "../lib/kds-broadcast.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 import { processCallCourse } from "../lib/call-course.js";
 import { getActiveStaffById, verifyManagerPin } from "../lib/staff-auth.js";
+import { parseGuestCount, effectiveCapacityForTable } from "../lib/table-capacity.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
@@ -108,8 +111,49 @@ export async function orderRoutes(app: FastifyInstance) {
         lockedBy: runtime.lockedBy,
         lockedByName: runtime.lockedByName,
         guests: runtime.guests,
+        tableCapacity: runtime.tableCapacity,
+        linkedTableIds: runtime.linkedTableIds,
+        mergedIntoTableId: runtime.mergedIntoTableId,
+        roomId: t.roomId,
       };
     });
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/tables/:id/guests", async (req, reply) => {
+    const parsed = updateTableGuestsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+
+    const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
+    if (!table || table.isVirtual) {
+      return reply.status(404).send({ error: "Tavolo non trovato" });
+    }
+
+    const operator = getActiveStaffById(app.edgeDb, parsed.data.operatorId);
+    if (!operator) return reply.status(401).send({ error: "Operatore non valido" });
+
+    const runtime = getTableRuntime(req.params.id);
+    if (runtime.status === "FREE") {
+      return reply.status(409).send({ error: "Tavolo non aperto" });
+    }
+
+    const capacity = effectiveCapacityForTable(app.edgeDb, req.params.id);
+    const guestsParsed = parseGuestCount(parsed.data.guests, capacity);
+    if (!guestsParsed.ok) {
+      return reply.status(400).send({ error: guestsParsed.error });
+    }
+
+    updateTableGuests(req.params.id, guestsParsed.guests!);
+    const updated = getTableRuntime(req.params.id);
+    broadcastTableStatus(req.params.id, updated.status);
+
+    return {
+      ok: true,
+      tableId: req.params.id,
+      guests: updated.guests,
+      tableCapacity: updated.tableCapacity ?? table.defaultGuests,
+    };
   });
 
   app.post<{ Params: { id: string } }>("/api/tables/:id/lock", async (req, reply) => {
@@ -138,10 +182,14 @@ export async function orderRoutes(app: FastifyInstance) {
       force = true;
     }
 
-    const guests =
-      typeof body.guests === "number"
-        ? Math.min(30, Math.max(1, Math.floor(body.guests)))
-        : undefined;
+    const guestsParsed = parseGuestCount(
+      typeof body.guests === "number" ? body.guests : undefined,
+      effectiveCapacityForTable(app.edgeDb, req.params.id),
+    );
+    if (!guestsParsed.ok) {
+      return reply.status(400).send({ error: guestsParsed.error });
+    }
+    const guests = guestsParsed.guests;
 
     const result = requestLock(req.params.id, body.operatorId, body.operatorName, force, guests);
     if (!result.granted) {
@@ -168,6 +216,8 @@ export async function orderRoutes(app: FastifyInstance) {
       lockedBy: runtime.lockedBy,
       lockedByName: runtime.lockedByName,
       guests: runtime.guests,
+      tableCapacity: runtime.tableCapacity ?? table?.defaultGuests,
+      linkedTableIds: runtime.linkedTableIds,
     };
   });
 

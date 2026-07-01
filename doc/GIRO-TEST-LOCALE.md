@@ -209,6 +209,32 @@ Il giro è **superato** se:
 
 ---
 
+## 9. Spostamento e unione tavoli
+
+Funzionalità su **Handheld** (≡ → Sposta / unisci tavoli) e **Cassa** (pannello conto → SPOSTA / UNISCI TAVOLI).
+
+**Setup consigliato:** in Admin → Sala crea **due sale** con almeno 2 tavoli ciascuna; una con **Applica coperto** attivo e l’altra disattivato.
+
+| # | Test | Esito atteso | ✓ |
+|---|------|--------------|---|
+| 9.1 | Handheld: tavolo A — 2 piatti, **SPEDITO** | A **OCCUPIED**, ticket KDS visibile | ☐ |
+| 9.2 | Handheld: A — sposta conto totale su tavolo B (stessa sala) | Conto su B, A **FREE** | ☐ |
+| 9.3 | KDS dopo spostamento | Ticket con etichetta tavolo **B** | ☐ |
+| 9.4 | Cassa: apri tavolo B | Righe spostate + coperto se previsto | ☐ |
+| 9.5 | A con bozza non inviata — sposta totale su B libero | Bozza su B, A libero | ☐ |
+| 9.6 | Spostamento **parziale** (1 riga su 3) | Sorgente e destinazione con totali corretti | ☐ |
+| 9.7 | Spostamento **tra sale** (coperto diverso) | Coperto ricalcolato sulla sala destinazione | ☐ |
+| 9.8 | **Unione**: seleziona **3+ tavoli** occupati, destinazione su uno di essi o tavolo libero | Conti uniti, sorgenti **FREE** | ☐ |
+| 9.8b | Blocco **capienza**: 4+4 coperti → tavolo max 6 posti | UI rossa + errore API, operazione bloccata | ☐ |
+| 9.9 | Cassa: unione da pannello conto | Mappa e conto aggiornati via WS | ☐ |
+| 9.10 | Blocco: split romano attivo | Errore, spostamento rifiutato | ☐ |
+| 9.11 | Blocco: pagamento richiesto pendente | Errore, spostamento rifiutato | ☐ |
+| 9.12 | Tavolo locked da altro operatore | Errore; con PIN manager → OK | ☐ |
+| 9.13 | Dopo spostamento: incassa destinazione | Pagamento OK, tavolo **FREE** | ☐ |
+| 9.14 | Audit edge | Eventi `TABLE_TRANSFER` / `TABLE_MERGE` | ☐ |
+
+---
+
 ## Documenti correlati
 
 | File | Contenuto |
@@ -222,5 +248,6 @@ Il giro è **superato** se:
 
 | Data | Note |
 |------|------|
+| 2026-06-17 | §9: spostamento/unione tavoli (transfer, merge, parziale, cross-sala) |
 | 2026-06-17 | Fase B: documenti fiscali, IVA separata, dettaglio report cloud/email |
 | 2026-06-10 | Creazione checklist giro test locale MVP |

@@ -1,3 +1,4 @@
+import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
 import { edgeApi } from "../lib/api";
@@ -48,6 +49,7 @@ export function ComandaPanel({
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
+  const [editCartLine, setEditCartLine] = useState<CartLine | null>(null);
   const [confirmExit, setConfirmExit] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
 
@@ -153,6 +155,37 @@ export function ComandaPanel({
       mergeCartLine(line);
     }
     setVariantProduct(null);
+  };
+
+  const editLineVariants = (line: CartLine) => {
+    if (!menu) return;
+    const product = products.find((p) => p.id === line.productId);
+    if (!product) return;
+    const options = variantsForProduct(product, menu.variantGroups ?? []);
+    if (options.length === 0) {
+      setMessage("Questo prodotto non ha varianti da modificare");
+      return;
+    }
+    setEditCartLine(line);
+  };
+
+  const saveLineVariants = (variants: VariantSelection[]) => {
+    if (!editCartLine) return;
+    const unitPrice = calculateLinePrice(
+      editCartLine.basePrice,
+      variants.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
+    );
+    if (unitPrice <= 0) {
+      setMessage("Prezzo riga non valido (vincolo fiscale)");
+      return;
+    }
+    setCart((prev) =>
+      prev.map((l) =>
+        l.lineId === editCartLine.lineId ? { ...l, variants, unitPrice } : l,
+      ),
+    );
+    setEditCartLine(null);
+    setMessage("");
   };
 
   const persistDraft = async () => {
@@ -266,6 +299,12 @@ export function ComandaPanel({
   const productVariants = variantProduct
     ? variantsForProduct(variantProduct, menu?.variantGroups ?? [])
     : [];
+  const editProduct = editCartLine
+    ? products.find((p) => p.id === editCartLine.productId) ?? null
+    : null;
+  const editProductVariants = editProduct
+    ? variantsForProduct(editProduct, menu?.variantGroups ?? [])
+    : [];
   const basePrice = variantProduct
     ? resolvePrice(variantProduct, channel, menu?.prices ?? [])
     : 0;
@@ -347,9 +386,20 @@ export function ComandaPanel({
                     className="rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-3 text-sm"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium">
-                        {l.quantity}× {l.name}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium">
+                          {l.quantity}× {l.name}
+                        </span>
+                        {l.variants.length > 0 && (
+                          <ul className="mt-1 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                            {l.variants.map((v) => (
+                              <li key={v.variantId} className={v.type === "REMOVE" ? "text-red-600" : ""}>
+                                {v.type === "REMOVE" ? `− ${v.name}` : `+ ${v.name}`}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="shrink-0 text-red-500"
@@ -361,6 +411,21 @@ export function ComandaPanel({
                       </button>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1">
+                      {(() => {
+                        const product = products.find((p) => p.id === l.productId);
+                        if (!product || variantsForProduct(product, menu.variantGroups ?? []).length === 0) {
+                          return null;
+                        }
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => editLineVariants(l)}
+                            className="min-h-8 rounded bg-[hsl(var(--pg-muted))] px-2 text-xs font-medium"
+                          >
+                            Modifica
+                          </button>
+                        );
+                      })()}
                       {[1, 2, 3, 4].map((c) => (
                         <button
                           key={c}
@@ -442,6 +507,18 @@ export function ComandaPanel({
           basePrice={basePrice}
           onConfirm={confirmVariants}
           onCancel={() => setVariantProduct(null)}
+        />
+      )}
+
+      {editProduct && editCartLine && (
+        <VariantSheet
+          product={editProduct}
+          variants={editProductVariants}
+          basePrice={editCartLine.basePrice}
+          initialVariants={editCartLine.variants}
+          confirmLabel="Salva"
+          onConfirm={saveLineVariants}
+          onCancel={() => setEditCartLine(null)}
         />
       )}
 

@@ -8,12 +8,22 @@ interface Props {
   product: Product;
   variants: VariantOption[];
   basePrice: number;
+  initialVariants?: VariantSelection[];
+  confirmLabel?: string;
   onConfirm: (variants: VariantSelection[]) => void;
   onCancel: () => void;
 }
 
-export function VariantSheet({ product, variants, basePrice, onConfirm, onCancel }: Props) {
-  const [selected, setSelected] = useState<VariantSelection[]>([]);
+export function VariantSheet({
+  product,
+  variants,
+  basePrice,
+  initialVariants = [],
+  confirmLabel = "Aggiungi",
+  onConfirm,
+  onCancel,
+}: Props) {
+  const [selected, setSelected] = useState<VariantSelection[]>(initialVariants);
 
   const toggle = (variant: VariantOption) => {
     const name = localized(variant.name);
@@ -79,7 +89,7 @@ export function VariantSheet({ product, variants, basePrice, onConfirm, onCancel
 
         <div className="flex items-center justify-between border-t border-[hsl(var(--pg-border))] px-4 py-3">
           <span className="text-lg font-bold">€ {unitPrice.toFixed(2)}</span>
-          <Button onClick={() => onConfirm(selected)}>Aggiungi</Button>
+          <Button onClick={() => onConfirm(selected)}>{confirmLabel}</Button>
         </div>
       </div>
     </div>

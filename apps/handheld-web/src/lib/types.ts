@@ -19,6 +19,13 @@ export interface LiveTable {
   lockedBy?: string;
   lockedByName?: string;
   guests?: number;
+  roomId?: string | null;
+  /** Capienza effettiva dopo unione tavoli */
+  tableCapacity?: number;
+  /** Tavoli uniti su questo (host) */
+  linkedTableIds?: string[];
+  /** Unito in un altro tavolo */
+  mergedIntoTableId?: string;
 }
 
 export interface VariantOption {
@@ -103,6 +110,7 @@ export interface SubmittedLine {
   lineId: string;
   name: string;
   quantity: number;
+  unitPrice: number;
   voidedQuantity?: number;
 }
 

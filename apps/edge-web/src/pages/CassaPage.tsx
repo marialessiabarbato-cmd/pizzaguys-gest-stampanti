@@ -12,6 +12,7 @@ import { PinPad } from "../components/PinPad";
 import { ClosureWizard } from "../components/ClosureWizard";
 import { ClosureHistoryModal } from "../components/ClosureHistoryModal";
 import { ShiftCloseModal } from "../components/ShiftCloseModal";
+import { TableTransferModal } from "../components/TableTransferModal";
 import { edgeApi } from "../lib/api";
 import { useEdgeWs } from "../lib/ws";
 
@@ -39,6 +40,7 @@ interface LiveTable {
   defaultGuests?: number;
   isVirtual: boolean;
   virtualType: string | null;
+  roomId?: string | null;
 }
 
 interface Operator {
@@ -145,6 +147,8 @@ export function CassaPage({
   const [confirmClosure, setConfirmClosure] = useState(false);
   const [confirmShiftClose, setConfirmShiftClose] = useState(false);
   const [confirmClosePanel, setConfirmClosePanel] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
@@ -163,6 +167,7 @@ export function CassaPage({
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
+    void edgeApi<Array<{ id: string; name: string }>>("/api/rooms").then(setRooms);
   }, []);
 
   const loadPendingPayments = useCallback(() => {
@@ -278,6 +283,18 @@ export function CassaPage({
       setLockPending(null);
       setPinModalError(p.reason ?? "Sblocco negato");
     });
+    const offMoved = on("TABLE_ACCOUNT_MOVED", (payload) => {
+      const p = payload as { sourceTableIds: string[]; targetTableId: string };
+      loadTables();
+      if (selectedTable && p.sourceTableIds.includes(selectedTable.id)) {
+        void loadBill(selectedTable.id).then(() => {
+          setBill((b) => (b && b.lines.length === 0 ? null : b));
+        });
+      }
+      if (selectedTable?.id === p.targetTableId) {
+        void loadBill(p.targetTableId);
+      }
+    });
     return () => {
       offLocked();
       offStatus();
@@ -285,6 +302,7 @@ export function CassaPage({
       offComplete();
       offGranted();
       offDenied();
+      offMoved();
     };
   }, [operator, on, loadTables, loadPendingPayments, loadBill]);
 
@@ -879,6 +897,14 @@ export function CassaPage({
                 <Button
                   className="h-12 w-full text-base"
                   variant="outline"
+                  disabled={loading || bill.lines.length === 0 || selectedTable.status === "SPLIT_IN_PROGRESS"}
+                  onClick={() => setShowTransferModal(true)}
+                >
+                  SPOSTA / UNISCI TAVOLI
+                </Button>
+                <Button
+                  className="h-12 w-full text-base"
+                  variant="outline"
                   disabled={loading || bill.lines.length === 0}
                   onClick={() => setConfirmPrebill(true)}
                 >
@@ -1093,6 +1119,24 @@ export function CassaPage({
             setShowShiftClose(false);
             setActiveShift(null);
             setMessage("Turno chiuso");
+          }}
+        />
+      )}
+
+      {showTransferModal && selectedTable && operator && bill && (
+        <TableTransferModal
+          sourceTable={selectedTable}
+          operator={operator}
+          billLines={bill.lines.filter((l) => l.id !== "__cover_charge__")}
+          tables={tables}
+          rooms={rooms}
+          connected={connected}
+          onClose={() => setShowTransferModal(false)}
+          onSuccess={(msg) => {
+            setMessage(msg);
+            setShowTransferModal(false);
+            loadTables();
+            void loadBill(selectedTable.id);
           }}
         />
       )}

@@ -1,5 +1,8 @@
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
+import { TableUnionChips } from "../components/TableUnionChips";
+import { isUnionHost, mergedTableLabel } from "../lib/table-display";
+import { tableSeats } from "../lib/table-seats";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { CourseOptionsModal } from "../components/CourseOptionsModal";
 import { CourseStepBar } from "../components/CourseStepBar";
@@ -13,7 +16,7 @@ import {
   stepLabel,
   suggestMarciaCourse,
 } from "../lib/course";
-import { cartTotal, resolvePrice, variantsForProduct } from "../lib/menu";
+import { cartTotal, resolvePrice, tableOrderTotal, variantsForProduct } from "../lib/menu";
 import type {
   CartLine,
   Category,
@@ -40,6 +43,7 @@ function lineTotal(l: CartLine): number {
 
 export function TableWorkspace({
   table,
+  tables,
   operator,
   menu,
   categories,
@@ -76,12 +80,16 @@ export function TableWorkspace({
   onReleaseDessert,
   onDiscountLine,
   onStorno,
-  onEditLine,
+  onEditVariants,
+  onEditNote,
   onSaveNote,
   onCancelNote,
   onAcquireLock,
+  onOpenTransfer,
+  onEditGuests,
 }: {
   table: LiveTable;
+  tables: LiveTable[];
   operator: Operator;
   menu: MenuSnapshot;
   categories: Category[];
@@ -118,10 +126,13 @@ export function TableWorkspace({
   onReleaseDessert: () => void;
   onDiscountLine: (lineId: string) => void;
   onStorno: (line: SubmittedLine) => void;
-  onEditLine: (line: CartLine) => void;
+  onEditVariants: (line: CartLine) => void;
+  onEditNote: (line: CartLine) => void;
   onSaveNote: (lineId: string, note: string) => void;
   onCancelNote: () => void;
   onAcquireLock: () => void;
+  onOpenTransfer?: () => void;
+  onEditGuests?: () => void;
 }) {
   const [courseModalLineId, setCourseModalLineId] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -133,11 +144,24 @@ export function TableWorkspace({
     submittedLines.find((l) => l.lineId === selectedSubmittedId) ?? null;
   const noteLine = cart.find((l) => l.lineId === noteLineId) ?? null;
   const draftTotal = cartTotal(cart);
+  const tableTotal = tableOrderTotal(cart, submittedLines);
   const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
   const groups = groupCartByCourse(cart);
   const suggestedMarcia = suggestMarciaCourse(cart);
   const needsLock = !hasLock && table.status !== "FREE";
+  const canOpenTransfer =
+    !isOffline &&
+    table.status !== "FREE" &&
+    table.status !== "SPLIT_IN_PROGRESS" &&
+    (cart.length > 0 || submittedLines.length > 0);
   const hasSelection = !!selectedLine || !!selectedSubmitted;
+  const products = menu.products ?? [];
+  const selectedProduct = selectedLine
+    ? products.find((p) => p.id === selectedLine.productId)
+    : undefined;
+  const selectedLineHasVariants = selectedProduct
+    ? variantsForProduct(selectedProduct, menu.variantGroups ?? []).length > 0
+    : false;
 
   const productVariants = variantProduct
     ? variantsForProduct(variantProduct, menu.variantGroups ?? [])
@@ -296,19 +320,62 @@ export function TableWorkspace({
             ← Tavoli
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-bold">{table.label}</h1>
+            <h1 className="truncate text-lg font-bold">
+              {mergedTableLabel(table, tables)}
+            </h1>
             <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-              {operator.firstName} · {table.guests ?? table.defaultGuests} coperti
+              {operator.firstName} ·{" "}
+              <button
+                type="button"
+                className="font-medium text-[hsl(var(--pg-primary))] underline-offset-2 hover:underline"
+                onClick={onEditGuests}
+              >
+                {table.guests ?? table.defaultGuests} coperti
+              </button>
+              {isUnionHost(table) && (
+                <span className="font-medium text-amber-700">
+                  {" "}
+                  · {tableSeats(table)} posti totali
+                </span>
+              )}
               {cartCount > 0 && ` · ${cartCount} in bozza`}
             </p>
           </div>
-          <p className="shrink-0 text-right text-lg font-bold tabular-nums">€{draftTotal.toFixed(2)}</p>
+          <p className="shrink-0 text-right text-lg font-bold tabular-nums">€{tableTotal.toFixed(2)}</p>
         </div>
       </header>
 
+      {isUnionHost(table) && (
+        <div className="shrink-0 border-b border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100/80 px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-400 text-lg font-bold text-amber-950 shadow-sm">
+              ⊕
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
+                Tavoli uniti — un solo conto
+              </p>
+              <div className="mt-1.5">
+                <TableUnionChips host={table} allTables={tables} size="md" />
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-lg font-bold tabular-nums text-amber-950">
+                {tableSeats(table)}
+              </p>
+              <p className="text-[10px] font-medium text-amber-800">posti</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {needsLock && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-amber-200 bg-amber-500/10 px-3 py-2 text-sm">
-          <span className="text-amber-900">Acquisisci il tavolo per modificare</span>
+          <span className="text-amber-900">
+            {table.lockedBy && table.lockedBy !== operator.id
+              ? `In uso da ${table.lockedByName ?? "altro operatore"} — serve PIN manager`
+              : "Premi Prendi per prendere in carico il tavolo"}
+          </span>
           <Button className="min-h-9 shrink-0" onClick={onAcquireLock}>
             Prendi
           </Button>
@@ -376,14 +443,19 @@ export function TableWorkspace({
                             onSelectSubmitted(active ? null : l.lineId);
                             onSelectLine(null);
                           }}
-                          className={`flex min-h-14 w-full items-center rounded-xl border px-4 text-left text-sm ${
+                          className={`flex min-h-14 w-full items-center gap-2 rounded-xl border px-4 text-left text-sm ${
                             active
                               ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
                               : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30"
                           }`}
                         >
                           <span className="mr-2 opacity-50">🔒</span>
-                          {remaining}× {l.name}
+                          <span className="flex-1">
+                            {remaining}× {l.name}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-[hsl(var(--pg-muted-foreground))]">
+                            € {(l.unitPrice * remaining).toFixed(2)}
+                          </span>
                         </button>
                       </li>
                     );
@@ -483,10 +555,17 @@ export function TableWorkspace({
               <>
                 <ActionChip label="−" disabled={needsLock} onClick={() => requestQtyChange(-1)} />
                 <ActionChip label="+" disabled={needsLock} onClick={() => requestQtyChange(1)} />
+                {selectedLineHasVariants && (
+                  <ActionChip
+                    label="Modifica"
+                    disabled={needsLock}
+                    onClick={() => onEditVariants(selectedLine)}
+                  />
+                )}
                 <ActionChip
                   label="Nota"
                   disabled={needsLock}
-                  onClick={() => onEditLine(selectedLine)}
+                  onClick={() => onEditNote(selectedLine)}
                 />
                 <ActionChip
                   label="Portata"
@@ -540,6 +619,17 @@ export function TableWorkspace({
           <div className="w-full rounded-t-2xl bg-[hsl(var(--pg-background))] p-4 shadow-xl">
             <h3 className="mb-3 font-semibold">Altre opzioni</h3>
             <div className="space-y-2">
+              <Button
+                variant="outline"
+                className="min-h-12 w-full justify-start"
+                disabled={!canOpenTransfer || !onOpenTransfer}
+                onClick={() => {
+                  setMoreOpen(false);
+                  onOpenTransfer?.();
+                }}
+              >
+                Sposta conto su altro tavolo
+              </Button>
               <Button
                 variant="outline"
                 className="min-h-12 w-full justify-start"

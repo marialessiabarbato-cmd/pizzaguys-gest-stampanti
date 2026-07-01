@@ -15,6 +15,10 @@ export function ComandaHelp() {
       {open && (
         <ul className="space-y-1.5 border-t border-[hsl(var(--pg-border))] px-3 py-2 text-[hsl(var(--pg-muted-foreground))]">
           <li>
+            <strong className="text-[hsl(var(--pg-foreground))]">Modifica</strong> — cambia
+            ingredienti/varianti su una riga già nel carrello (prima di SPEDITO).
+          </li>
+          <li>
             <strong className="text-[hsl(var(--pg-foreground))]">P1–P4 nel carrello</strong> — assegna
             la portata alla singola riga.
           </li>
