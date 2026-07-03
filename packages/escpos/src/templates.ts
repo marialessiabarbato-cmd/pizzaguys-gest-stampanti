@@ -147,6 +147,70 @@ export function buildPrebillTicket(params: PrebillTicketParams): Buffer {
   return concatBuffers(...parts);
 }
 
+export interface ReservationPrintRow {
+  seqNumber: number;
+  reservationDate: string;
+  reservationTime: string;
+  customerName: string;
+  guests: number;
+  tableLabel?: string | null;
+  shiftLabel: string;
+  statusLabel: string;
+  notes?: string | null;
+}
+
+export interface ReservationsListTicketParams {
+  locationName?: string;
+  from: string;
+  to: string;
+  printedAt: string;
+  operatorName?: string;
+  rows: ReservationPrintRow[];
+  summaryGuests: number;
+}
+
+export function buildReservationsListTicket(params: ReservationsListTicketParams): Buffer {
+  const parts: Buffer[] = [
+    CMD_INIT,
+    CMD_ALIGN_CENTER,
+    CMD_DOUBLE_SIZE,
+    textLine("PRENOTAZIONI"),
+    CMD_NORMAL_SIZE,
+    textLine(params.locationName ?? "Pizza Guys"),
+    textLine(`${params.from} — ${params.to}`),
+    CMD_ALIGN_LEFT,
+    textLine("---"),
+  ];
+
+  for (const row of params.rows) {
+    parts.push(
+      textLine(
+        `${row.reservationDate} ${row.reservationTime} · #${row.seqNumber} · ${row.shiftLabel}`,
+      ),
+    );
+    parts.push(
+      textLine(
+        `${row.customerName} (${row.guests} p.) · Tav. ${row.tableLabel ?? "—"} · ${row.statusLabel}`,
+      ),
+    );
+    if (row.notes?.trim()) {
+      parts.push(textLine(`Note: ${row.notes.trim().slice(0, 60)}`));
+    }
+    parts.push(textLine(""));
+  }
+
+  parts.push(
+    textLine("---"),
+    textLine(`Prenotazioni: ${params.rows.length} · Coperti: ${params.summaryGuests}`),
+    textLine(`Stampato: ${params.printedAt}`),
+  );
+  if (params.operatorName) {
+    parts.push(textLine(`Operatore: ${params.operatorName}`));
+  }
+  parts.push(CMD_ALIGN_CENTER, textLine("*** NON FISCALE ***"), CMD_CUT);
+  return concatBuffers(...parts);
+}
+
 export interface CallCourseTicketParams {
   course: number;
   tableLabel: string;

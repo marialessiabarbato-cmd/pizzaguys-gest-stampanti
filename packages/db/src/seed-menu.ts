@@ -122,6 +122,35 @@ async function main() {
   }
 
   const variantResult = await seedVariantCatalog(db, brandId);
+
+  const { invoiceCustomerProfiles } = await import("./schema/invoice-customers.js");
+  const existingCustomers = await db.select().from(invoiceCustomerProfiles).limit(1);
+  if (existingCustomers.length === 0) {
+    await db.insert(invoiceCustomerProfiles).values([
+      {
+        brandId,
+        businessName: "542 GLOBAL SECURITY OPERATION S.R.L.",
+        city: "Udine",
+        province: "UD",
+        country: "IT",
+        vatNumber: "12345678901",
+        sdiCode: "ABCDEFG",
+        phone: "0432123456",
+      },
+      {
+        brandId,
+        businessName: "A&F TELECOMUNICAZIONI S.R.L.",
+        city: "San Nicola la Strada",
+        province: "CE",
+        country: "IT",
+        vatNumber: "10987654321",
+        sdiCode: "XYZAB12",
+        pec: "af.telecom@pec.it",
+      },
+    ]);
+    console.log("✓ 2 clienti fiscali di esempio in rubrica");
+  }
+
   await bumpBrandSchemaVersion(db, brandId);
 
   console.log(`✓ ${MENU_CATALOG.length} categorie, ${productCount} prodotti`);

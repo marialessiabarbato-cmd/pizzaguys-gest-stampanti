@@ -23,6 +23,7 @@ export interface OrderLine {
   dessertDefer?: boolean;
   discountPercent?: number;
   discountToken?: string;
+  discountPresetLabel?: string;
   voidedQuantity?: number;
 }
 
@@ -83,6 +84,8 @@ export interface TableRuntime {
   linkedTableIds?: string[];
   /** Se il tavolo è stato unito in un altro (mostrato libero sulla mappa) */
   mergedIntoTableId?: string;
+  /** Prima apertura conto del servizio corrente */
+  openedAt?: string;
 }
 
 export interface RomanSplit {
@@ -223,6 +226,11 @@ export function requestLock(
     current.chargedGuests ?? 0,
     nextGuests ?? current.chargedGuests ?? 0,
   );
+  const openedAt =
+    current.openedAt ??
+    (nextGuests || getSubmittedOrdersByTable(tableId).length > 0
+      ? new Date().toISOString()
+      : undefined);
   tableRuntime.set(tableId, {
     ...current,
     tableId,
@@ -232,6 +240,7 @@ export function requestLock(
     lockedAt: new Date().toISOString(),
     guests: nextGuests,
     chargedGuests: chargedGuests > 0 ? chargedGuests : undefined,
+    openedAt,
   });
   return { granted: true };
 }
@@ -276,6 +285,7 @@ export function releaseLock(tableId: string, operatorId: string): boolean {
 export function setTableOccupied(tableId: string) {
   const current = getTableRuntime(tableId);
   if (current.status === "BILL_REQUESTED" || current.status === "SPLIT_IN_PROGRESS") return;
+  const openedAt = current.openedAt ?? new Date().toISOString();
   tableRuntime.set(tableId, {
     ...current,
     tableId,
@@ -283,6 +293,7 @@ export function setTableOccupied(tableId: string) {
     lockedBy: undefined,
     lockedByName: undefined,
     lockedAt: undefined,
+    openedAt,
   });
 }
 
@@ -305,6 +316,23 @@ export function setTableFree(tableId: string) {
     return;
   }
   tableRuntime.set(tableId, { tableId, status: "FREE" });
+}
+
+/** Apre un tavolo con coperti (es. da prenotazione) senza lock operatore. */
+export function openTableWithGuests(tableId: string, guests: number) {
+  const current = getTableRuntime(tableId);
+  if (current.status !== "FREE") {
+    return { ok: false as const, error: "Tavolo non libero" };
+  }
+  const openedAt = new Date().toISOString();
+  tableRuntime.set(tableId, {
+    tableId,
+    status: "OCCUPIED",
+    guests,
+    chargedGuests: guests,
+    openedAt,
+  });
+  return { ok: true as const };
 }
 
 export function setSplitInProgress(tableId: string) {
@@ -486,6 +514,51 @@ export function applyLineDiscount(
     return { ok: true };
   }
   return { ok: false, error: "Riga non trovata" };
+}
+
+export function applyTableDiscount(
+  tableId: string,
+  discountPercent: number,
+  discountToken?: string,
+  discountPresetLabel?: string,
+): { ok: boolean; updatedLines: number; error?: string } {
+  let updatedLines = 0;
+  for (const [orderId, order] of orders) {
+    if (order.tableId !== tableId) continue;
+    const lines = order.lines.map((l) => {
+      const effectiveQty = l.quantity - (l.voidedQuantity ?? 0);
+      if (effectiveQty <= 0) return l;
+      updatedLines += 1;
+      return { ...l, discountPercent, discountToken, discountPresetLabel };
+    });
+    orders.set(orderId, {
+      ...order,
+      lines,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  if (updatedLines === 0) return { ok: false, updatedLines: 0, error: "Nessuna riga da scontare" };
+  return { ok: true, updatedLines };
+}
+
+export function clearTableDiscounts(tableId: string): { ok: boolean; error?: string } {
+  let found = false;
+  for (const [orderId, order] of orders) {
+    if (order.tableId !== tableId) continue;
+    found = true;
+    orders.set(orderId, {
+      ...order,
+      lines: order.lines.map((l) => ({
+        ...l,
+        discountPercent: undefined,
+        discountToken: undefined,
+        discountPresetLabel: undefined,
+      })),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  if (!found) return { ok: false, error: "Nessun ordine trovato" };
+  return { ok: true };
 }
 
 export function clearTableOrders(tableId: string) {

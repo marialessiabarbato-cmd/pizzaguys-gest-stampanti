@@ -20,6 +20,9 @@ export interface MenuSnapshot {
   variantGroups: SnapshotVariantGroup[];
   prices: SnapshotPrice[];
   settings: Record<string, unknown>;
+  invoiceCustomers?: import("./domain.js").InvoiceCustomerProfile[];
+  discountPresets?: import("./domain.js").LocationDiscountPreset[];
+  mealVoucherPresets?: import("./domain.js").LocationMealVoucherPreset[];
 }
 
 export interface SnapshotCategory {

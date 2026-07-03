@@ -57,6 +57,9 @@ export interface CoverChargeParams {
 
 const COVER_LINE_ID = "__cover_charge__";
 
+/** Etichetta riga unica scontrino riassuntivo (somministrazione) */
+export const FULL_MEAL_RECEIPT_LABEL = "PASTO COMPLETO";
+
 function variantLabels(line: OrderLine): string[] {
   return (line.variants ?? []).map((v) => (v.type === "REMOVE" ? `NO ${v.name}` : v.name));
 }
@@ -163,11 +166,29 @@ export function billLinesForCheck(bill: TableBill, checkId: string): BillLine[] 
   );
 }
 
-export function billToReceiptLines(bill: TableBill, amount?: number, lines?: BillLine[]) {
+export function billToReceiptLines(
+  bill: TableBill,
+  amount?: number,
+  lines?: BillLine[],
+  options?: { fullMeal?: boolean; fullMealLabel?: string },
+) {
   const source = lines ?? bill.lines;
   const sourceTotal = source.reduce((s, l) => s + l.lineTotal, 0);
   const target = amount ?? sourceTotal;
   if (sourceTotal <= 0) return [];
+
+  if (options?.fullMeal) {
+    const label = options.fullMealLabel ?? FULL_MEAL_RECEIPT_LABEL;
+    return [
+      {
+        name: label,
+        quantity: 1,
+        unitPrice: Math.round(target * 100) / 100,
+        vatRate: 10 as const,
+      },
+    ];
+  }
+
   const ratio = target / sourceTotal;
   return source.map((l) => ({
     name: l.name,

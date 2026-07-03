@@ -127,6 +127,87 @@ export function createEdgeDb(dbPath: string) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_day_report_storno_date ON day_report_stornos(closure_date);
+    CREATE TABLE IF NOT EXISTS invoice_customer_profiles (
+      id TEXT PRIMARY KEY,
+      business_name TEXT NOT NULL,
+      address TEXT,
+      postal_code TEXT,
+      province TEXT,
+      city TEXT,
+      country TEXT NOT NULL DEFAULT 'IT',
+      vat_number TEXT,
+      tax_code TEXT,
+      sdi_code TEXT,
+      pec TEXT,
+      phone TEXT,
+      email TEXT,
+      notes TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT 'CLOUD',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_invoice_customers_name ON invoice_customer_profiles(business_name);
+    CREATE INDEX IF NOT EXISTS idx_invoice_customers_city ON invoice_customer_profiles(city);
+    CREATE TABLE IF NOT EXISTS fiscal_documents (
+      id TEXT PRIMARY KEY,
+      document_number INTEGER NOT NULL,
+      document_type TEXT NOT NULL,
+      issued_at TEXT NOT NULL,
+      closure_date TEXT NOT NULL,
+      location_id TEXT NOT NULL,
+      table_id TEXT,
+      table_label TEXT,
+      payment_method TEXT NOT NULL,
+      service_type TEXT,
+      total REAL NOT NULL,
+      change_amount REAL,
+      operator_staff_id TEXT,
+      operator_name TEXT,
+      shift_id TEXT,
+      status TEXT NOT NULL DEFAULT 'ISSUED',
+      voided_at TEXT,
+      voided_by_staff_id TEXT,
+      void_reason TEXT,
+      invoice_id TEXT,
+      invoice_number TEXT,
+      customer_business_name TEXT,
+      receipt_json TEXT NOT NULL,
+      meta_json TEXT,
+      file_json_path TEXT,
+      file_txt_path TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_fiscal_docs_date ON fiscal_documents(closure_date);
+    CREATE INDEX IF NOT EXISTS idx_fiscal_docs_issued ON fiscal_documents(issued_at);
+    CREATE INDEX IF NOT EXISTS idx_fiscal_docs_type ON fiscal_documents(document_type);
+    CREATE INDEX IF NOT EXISTS idx_fiscal_docs_status ON fiscal_documents(status);
+    CREATE TABLE IF NOT EXISTS reservations (
+      id TEXT PRIMARY KEY,
+      seq_number INTEGER NOT NULL,
+      reservation_date TEXT NOT NULL,
+      reservation_time TEXT NOT NULL,
+      shift TEXT NOT NULL DEFAULT 'DINNER_1',
+      customer_name TEXT NOT NULL,
+      phone TEXT,
+      guests INTEGER NOT NULL,
+      table_id TEXT,
+      table_label TEXT,
+      room_id TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'CONFIRMED',
+      is_waiting_list INTEGER NOT NULL DEFAULT 0,
+      created_by_staff_id TEXT,
+      created_by_name TEXT,
+      confirmed_at TEXT,
+      arrived_at TEXT,
+      seated_at TEXT,
+      cancelled_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reservations_date ON reservations(reservation_date);
+    CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
   `);
 
   try {

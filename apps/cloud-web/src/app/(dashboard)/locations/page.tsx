@@ -3,6 +3,8 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { LocationDiscountPresetsPanel } from "@/components/LocationDiscountPresetsPanel";
+import { LocationMealVoucherPresetsPanel } from "@/components/LocationMealVoucherPresetsPanel";
 
 interface Location {
   id: string;
@@ -151,6 +153,12 @@ export default function LocationsPage() {
                   </Button>
                 )}
               </div>
+            </CardContent>
+            <CardContent className="border-t border-[hsl(var(--pg-border))] pt-0">
+              <LocationDiscountPresetsPanel locationId={loc.id} />
+            </CardContent>
+            <CardContent className="border-t border-[hsl(var(--pg-border))] pt-0">
+              <LocationMealVoucherPresetsPanel locationId={loc.id} />
             </CardContent>
           </Card>
         ))}

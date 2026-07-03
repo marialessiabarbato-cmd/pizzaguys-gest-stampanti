@@ -53,6 +53,7 @@ export interface DailyReportSnapshot {
     amount: number;
     operatorName: string;
   }>;
+  discountDetails?: Array<{ label: string; quantity: number; total: number }>;
   transactionCount: number;
 }
 

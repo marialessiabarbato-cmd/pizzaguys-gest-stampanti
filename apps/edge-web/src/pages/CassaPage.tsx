@@ -1,16 +1,22 @@
-import type { FiscalDocumentType, PaymentMethod, TableStatus } from "@pizzaguys/types";
+import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
 import { ComandaPanel } from "../components/ComandaPanel";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
 import { DiscountModal } from "../components/DiscountModal";
+import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
 import { PaymentModal } from "../components/PaymentModal";
+import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
 import { parsePaymentAmount } from "../components/PaymentPad";
 import { PinModal } from "../components/PinModal";
 import { PinPad } from "../components/PinPad";
 import { ClosureWizard } from "../components/ClosureWizard";
 import { ClosureHistoryModal } from "../components/ClosureHistoryModal";
+import { DocumentListModal } from "../components/DocumentListModal";
+import { OpenTablesModal } from "../components/OpenTablesModal";
+import { ReservationsModal } from "../components/ReservationsModal";
 import { ShiftCloseModal } from "../components/ShiftCloseModal";
 import { TableTransferModal } from "../components/TableTransferModal";
 import { edgeApi } from "../lib/api";
@@ -83,6 +89,28 @@ interface TableBill {
   virtualType: string | null;
   romanSplit?: RomanSplitInfo;
   analyticSplit?: AnalyticSplitInfo;
+  counterOrder?: {
+    displayNumber: string;
+    customerName?: string;
+    phone?: string;
+    address?: string;
+    notes?: string;
+    broker?: string;
+    asap: boolean;
+    scheduledLabel?: string;
+  };
+}
+
+interface CounterOrderRow {
+  id: string;
+  displayNumber: string;
+  channel: CounterChannel;
+  customerName?: string;
+  phone?: string;
+  scheduledLabel: string;
+  status: TableStatus;
+  total: number;
+  lineCount: number;
 }
 
 interface Shift {
@@ -122,6 +150,8 @@ export function CassaPage({
   const [showPayment, setShowPayment] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [documentType, setDocumentType] = useState<FiscalDocumentType>("RECEIPT");
+  const [invoiceCustomer, setInvoiceCustomer] = useState<InvoiceCustomer>(EMPTY_INVOICE_CUSTOMER);
+  const [fullMealReceipt, setFullMealReceipt] = useState(false);
   const [cashAmount, setCashAmount] = useState("");
   const [paymentRequestId, setPaymentRequestId] = useState<string | undefined>();
   const [paymentResult, setPaymentResult] = useState<{
@@ -130,6 +160,9 @@ export function CassaPage({
     romanSplitComplete?: boolean;
     paidShares?: number;
     totalShares?: number;
+    documentType?: FiscalDocumentType;
+    invoiceNumber?: string;
+    invoiceId?: string;
   } | null>(null);
   const [pendingPayments, setPendingPayments] = useState<PaymentRequest[]>([]);
   const [romanShares, setRomanShares] = useState("2");
@@ -137,6 +170,13 @@ export function CassaPage({
   const [discountError, setDiscountError] = useState("");
   const [maxDiscount, setMaxDiscount] = useState(20);
   const [pinDiscountThreshold, setPinDiscountThreshold] = useState(10);
+  const [discountPresets, setDiscountPresets] = useState<LocationDiscountPreset[]>([]);
+  const [mealVoucherPresets, setMealVoucherPresets] = useState<LocationMealVoucherPreset[]>([]);
+  const [mealVoucherAmount, setMealVoucherAmount] = useState("");
+  const [remainderMethod, setRemainderMethod] = useState<"CASH" | "POS">("CASH");
+  const [remainderCashAmount, setRemainderCashAmount] = useState("");
+  const [pendingPreset, setPendingPreset] = useState<LocationDiscountPreset | null>(null);
+  const [presetPinError, setPresetPinError] = useState("");
   const [panelTab, setPanelTab] = useState<"conto" | "comanda">("conto");
   const [pendingUnlockAction, setPendingUnlockAction] = useState<"view" | "comanda" | null>(null);
   const [confirmPay, setConfirmPay] = useState(false);
@@ -153,7 +193,13 @@ export function CassaPage({
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [showClosureHistory, setShowClosureHistory] = useState(false);
+  const [showDocumentList, setShowDocumentList] = useState(false);
+  const [showOpenTables, setShowOpenTables] = useState(false);
+  const [showReservations, setShowReservations] = useState(false);
   const [analyticCheckId, setAnalyticCheckId] = useState<string | undefined>();
+  const [counterOrders, setCounterOrders] = useState<CounterOrderRow[]>([]);
+  const [showCounterModal, setShowCounterModal] = useState(false);
+  const [counterModalChannel, setCounterModalChannel] = useState<CounterChannel>("TAKEAWAY");
   const tablesRef = useRef(tables);
   const pendingUnlockTableRef = useRef(pendingUnlockTable);
   const pendingUnlockActionRef = useRef(pendingUnlockAction);
@@ -164,6 +210,14 @@ export function CassaPage({
   const canComanda = operator?.role === "USER_ADMIN" || operator?.role === "CASHIER";
   const isComandaMode =
     !!selectedTable && panelTab === "comanda" && canComanda && !!operator;
+  const isCounterChannelView = channelFilter === "ASPORTO" || channelFilter === "DELIVERY";
+  const isCounterOrderSelected = Boolean(bill?.counterOrder);
+
+  const loadCounterOrders = useCallback(() => {
+    const channel = channelFilter === "ASPORTO" ? "TAKEAWAY" : channelFilter === "DELIVERY" ? "DELIVERY" : undefined;
+    const query = channel ? `?channel=${channel}` : "";
+    void edgeApi<CounterOrderRow[]>(`/api/pos/counter-orders${query}`).then(setCounterOrders);
+  }, [channelFilter]);
 
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
@@ -220,22 +274,38 @@ export function CassaPage({
     if (!operator) return;
     loadTables();
     loadPendingPayments();
+    loadCounterOrders();
     void loadActiveShift(operator.id);
     void edgeApi<{
       snapshot?: {
         settings?: { maxDiscountPercent?: number; pinDiscountThresholdPercent?: number };
+        discountPresets?: LocationDiscountPreset[];
+        mealVoucherPresets?: LocationMealVoucherPreset[];
       };
     }>("/api/menu").then((m) => {
       setMaxDiscount(m.snapshot?.settings?.maxDiscountPercent ?? 20);
       setPinDiscountThreshold(m.snapshot?.settings?.pinDiscountThresholdPercent ?? 10);
+      setDiscountPresets(
+        [...(m.snapshot?.discountPresets ?? [])].sort(
+          (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, "it"),
+        ),
+      );
+      setMealVoucherPresets(
+        [...(m.snapshot?.mealVoucherPresets ?? [])].sort(
+          (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, "it"),
+        ),
+      );
     });
-  }, [operator, loadTables, loadPendingPayments, loadActiveShift]);
+  }, [operator, loadTables, loadPendingPayments, loadCounterOrders, loadActiveShift]);
 
   useEffect(() => {
     if (!operator) return;
     loadTables();
     const offLocked = on("TABLE_LOCKED_BROADCAST", () => loadTables());
-    const offStatus = on("TABLE_STATUS_UPDATE", () => loadTables());
+    const offStatus = on("TABLE_STATUS_UPDATE", () => {
+      loadTables();
+      loadCounterOrders();
+    });
     const offPending = on("PAYMENT_PENDING", (payload) => {
       const p = payload as {
         requestId: string;
@@ -304,7 +374,7 @@ export function CassaPage({
       offDenied();
       offMoved();
     };
-  }, [operator, on, loadTables, loadPendingPayments, loadBill]);
+  }, [operator, on, loadTables, loadPendingPayments, loadCounterOrders, loadBill]);
 
   useEffect(() => {
     if (selectedTable) void loadBill(selectedTable.id);
@@ -411,6 +481,19 @@ export function CassaPage({
     }
   };
 
+  const openTableById = async (tableId: string) => {
+    let table = tables.find((t) => t.id === tableId);
+    if (!table) {
+      const live = await edgeApi<LiveTable[]>("/api/tables/live");
+      setTables(live);
+      table = live.find((t) => t.id === tableId);
+    }
+    if (table) {
+      setChannelFilter("SALA");
+      selectTable(table);
+    }
+  };
+
   const selectTable = (table: LiveTable) => {
     if (table.status === "LOCKED" && table.lockedBy === operator?.id) {
       setPaymentRequestId(undefined);
@@ -433,6 +516,91 @@ export function CassaPage({
     setMessage("");
     setPaymentResult(null);
     void loadBill(table.id);
+  };
+
+  const selectCounterOrder = (order: CounterOrderRow) => {
+    const table: LiveTable = {
+      id: order.id,
+      label: order.displayNumber,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      status: order.status,
+      isVirtual: true,
+      virtualType: order.channel === "TAKEAWAY" ? "ASPORTO" : "DELIVERY",
+    };
+    selectTable(table);
+  };
+
+  const openCounterModal = (channel: CounterChannel) => {
+    setCounterModalChannel(channel);
+    setShowCounterModal(true);
+  };
+
+  const handleCreateCounterOrder = async (payload: {
+    channel: CounterChannel;
+    customerName?: string;
+    phone?: string;
+    address?: string;
+    notes?: string;
+    broker?: string;
+    asap: boolean;
+    scheduledAt?: string;
+  }) => {
+    if (!operator) return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const result = await edgeApi<{
+        order: {
+          id: string;
+          displayNumber: string;
+          virtualType: string;
+        };
+      }>("/api/pos/counter-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          ...payload,
+          operatorId: operator.id,
+          operatorName: `${operator.firstName} ${operator.lastName}`,
+        }),
+      });
+      const table: LiveTable = {
+        id: result.order.id,
+        label: result.order.displayNumber,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        status: "OCCUPIED",
+        isVirtual: true,
+        virtualType: result.order.virtualType,
+      };
+      setShowCounterModal(false);
+      setSelectedTable(table);
+      setPanelTab("comanda");
+      loadCounterOrders();
+      loadTables();
+      setLockPending(table.id);
+      try {
+        const lock = await acquireTableLock(table);
+        setSelectedTable({
+          ...table,
+          status: "LOCKED",
+          lockedBy: lock.lockedBy ?? operator.id,
+          lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+        });
+        loadTables();
+      } finally {
+        setLockPending(null);
+      }
+      setMessage(`Ordine ${result.order.displayNumber} aperto`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore apertura ordine");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePrebill = async () => {
@@ -501,6 +669,69 @@ export function CassaPage({
     }
   };
 
+  const applyDiscountPreset = async (preset: LocationDiscountPreset, managerPin?: string) => {
+    if (!selectedTable) return;
+    setPresetPinError("");
+    setLoading(true);
+    setMessage("");
+    try {
+      const result = await edgeApi<{ bill: TableBill }>(
+        `/api/pos/tables/${selectedTable.id}/discount-preset`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            percent: preset.percent,
+            presetId: preset.id,
+            presetLabel: preset.label,
+            ...(managerPin ? { managerPin } : {}),
+          }),
+        },
+      );
+      setBill(result.bill);
+      setPendingPreset(null);
+      setMessage(`Sconto "${preset.label}" applicato a tutte le righe`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Sconto non applicato";
+      if (msg.includes("PIN manager") && !managerPin) {
+        setPendingPreset(preset);
+        setPresetPinError("");
+      } else {
+        setPresetPinError(msg);
+        setMessage(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePresetClick = (preset: LocationDiscountPreset) => {
+    if (preset.percent > pinDiscountThreshold) {
+      setPendingPreset(preset);
+      setPresetPinError("");
+      return;
+    }
+    void applyDiscountPreset(preset);
+  };
+
+  const clearDiscountPresets = async () => {
+    if (!selectedTable) return;
+    setLoading(true);
+    try {
+      const result = await edgeApi<{ bill: TableBill }>(
+        `/api/pos/tables/${selectedTable.id}/discount-clear`,
+        { method: "POST" },
+      );
+      setBill(result.bill);
+      setMessage("Sconti rimossi dal conto");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore rimozione sconti");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const hasBillDiscounts = Boolean(bill?.lines.some((l) => l.discountPercent && l.discountPercent > 0));
+
   const analyticCheck = bill?.analyticSplit?.checks.find((c) => c.id === analyticCheckId);
   const payAmount =
     analyticCheck?.total ?? bill?.romanSplit?.nextShareAmount ?? bill?.total ?? 0;
@@ -511,47 +742,103 @@ export function CassaPage({
   const openPayment = (requestId?: string, checkId?: string) => {
     setPaymentMethod("CASH");
     setDocumentType("RECEIPT");
+    setInvoiceCustomer(EMPTY_INVOICE_CUSTOMER);
+    setFullMealReceipt(false);
     setCashAmount("");
+    setMealVoucherAmount("");
+    setRemainderMethod("CASH");
+    setRemainderCashAmount("");
     setPaymentRequestId(requestId);
     setAnalyticCheckId(checkId);
     setConfirmPay(true);
   };
 
+  const handlePaymentMethod = (method: PaymentMethod) => {
+    setPaymentMethod(method);
+    if (method === "MEAL_VOUCHER") {
+      setDocumentType("RECEIPT");
+      setInvoiceCustomer(EMPTY_INVOICE_CUSTOMER);
+      setFullMealReceipt(false);
+    }
+  };
+
   const handlePay = async () => {
     if (!selectedTable || !bill || !operator) return;
     const amount = payAmount;
-    if (paymentMethod === "CASH") {
+
+    let paymentBody: Record<string, unknown> = {
+      operatorId: operator.id,
+      operatorName: `${operator.firstName} ${operator.lastName}`,
+      paymentRequestId,
+      shiftId: activeShift?.id,
+      splitMode: isAnalyticPay ? "ANALYTIC" : isRomanPay ? "ROMAN" : "FULL",
+      checkId: analyticCheckId,
+      documentType,
+      invoiceCustomer: documentType === "INVOICE" ? invoiceCustomer : undefined,
+      fullMealReceipt: documentType === "RECEIPT" && fullMealReceipt,
+    };
+
+    if (paymentMethod === "MEAL_VOUCHER") {
+      const voucher = parsePaymentAmount(mealVoucherAmount);
+      if (voucher <= 0 || voucher > amount + 0.001) {
+        setMessage("Importo buono non valido");
+        return;
+      }
+      const remainder = Math.round((amount - voucher) * 100) / 100;
+      if (remainder > 0.009) {
+        if (remainderMethod === "CASH") {
+          const received = parsePaymentAmount(remainderCashAmount);
+          if (received < remainder) {
+            setMessage("Importo contanti insufficiente per il saldo");
+            return;
+          }
+          paymentBody.paymentSplits = [
+            { paymentMethod: "MEAL_VOUCHER", amount: voucher },
+            { paymentMethod: "CASH", amount: remainder, amountReceived: received },
+          ];
+        } else {
+          paymentBody.paymentSplits = [
+            { paymentMethod: "MEAL_VOUCHER", amount: voucher },
+            { paymentMethod: "POS", amount: remainder },
+          ];
+        }
+      } else {
+        paymentBody.paymentMethod = "MEAL_VOUCHER";
+        paymentBody.paymentSplits = [{ paymentMethod: "MEAL_VOUCHER", amount: voucher }];
+      }
+    } else if (paymentMethod === "CASH") {
       const received = parsePaymentAmount(cashAmount);
       if (received < amount) {
         setMessage("Importo insufficiente");
         return;
       }
+      paymentBody.paymentMethod = paymentMethod;
+      paymentBody.amountReceived = received;
+    } else {
+      paymentBody.paymentMethod = paymentMethod;
     }
+
     setLoading(true);
     setMessage("");
     try {
       const result = await edgeApi<{
         change?: number;
-        receipt: { id: string };
+        receipt: { id: string; fiscalNote?: string };
         status: string;
         romanSplitComplete?: boolean;
         paidShares?: number;
         totalShares?: number;
+        invoice?: {
+          id: string;
+          invoiceNumber: string;
+          jsonPath: string;
+          xmlPath: string;
+          syncQueued: boolean;
+        };
         bill: TableBill | null;
       }>(`/api/pos/tables/${selectedTable.id}/pay`, {
         method: "POST",
-        body: JSON.stringify({
-          paymentMethod,
-          amountReceived:
-            paymentMethod === "CASH" ? parsePaymentAmount(cashAmount) : undefined,
-          operatorId: operator.id,
-          operatorName: `${operator.firstName} ${operator.lastName}`,
-          paymentRequestId,
-          shiftId: activeShift?.id,
-          splitMode: isAnalyticPay ? "ANALYTIC" : isRomanPay ? "ROMAN" : "FULL",
-          checkId: analyticCheckId,
-          documentType,
-        }),
+        body: JSON.stringify(paymentBody),
       });
       setPaymentResult({
         change: result.change,
@@ -559,16 +846,29 @@ export function CassaPage({
         romanSplitComplete: result.romanSplitComplete,
         paidShares: result.paidShares,
         totalShares: result.totalShares,
+        documentType,
+        invoiceNumber: result.invoice?.invoiceNumber,
+        invoiceId: result.invoice?.id,
       });
       setShowPayment(false);
       setCashAmount("");
+      setMealVoucherAmount("");
+      setRemainderCashAmount("");
+      setInvoiceCustomer(EMPTY_INVOICE_CUSTOMER);
+      setFullMealReceipt(false);
+      setDocumentType("RECEIPT");
       setPaymentRequestId(undefined);
       setAnalyticCheckId(undefined);
       setPendingPayments((prev) => prev.filter((p) => p.requestId !== paymentRequestId));
       loadPendingPayments();
+      loadCounterOrders();
 
       if (result.status === "FREE") {
-        setMessage(`Pagamento completato — scontrino ${result.receipt.id}`);
+        setMessage(
+          result.invoice
+            ? `Fattura n. ${result.invoice.invoiceNumber} emessa — sync cloud in coda`
+            : `Pagamento completato — scontrino ${result.receipt.id}`,
+        );
         setSelectedTable(null);
         setBill(null);
       } else {
@@ -586,11 +886,10 @@ export function CassaPage({
   };
 
   const filteredTables = tables.filter((t) => {
+    if (t.isVirtual) return false;
     if (channelFilter === "ALL") return true;
-    if (channelFilter === "SALA") return !t.isVirtual;
-    if (channelFilter === "ASPORTO") return t.virtualType === "ASPORTO";
-    if (channelFilter === "DELIVERY") return t.virtualType === "DELIVERY";
-    return true;
+    if (channelFilter === "SALA") return true;
+    return false;
   });
 
   if (!operator) {
@@ -627,6 +926,27 @@ export function CassaPage({
           </span>
           {(operator.role === "USER_ADMIN" || operator.role === "CASHIER") && (
             <>
+              <Button
+                variant="outline"
+                className="h-9 px-3 text-sm"
+                onClick={() => setShowOpenTables(true)}
+              >
+                Tavoli aperti
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 px-3 text-sm"
+                onClick={() => setShowReservations(true)}
+              >
+                Prenotazioni
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 px-3 text-sm"
+                onClick={() => setShowDocumentList(true)}
+              >
+                Lista documenti
+              </Button>
               <Button
                 variant="outline"
                 className="h-9 px-3 text-sm"
@@ -712,8 +1032,77 @@ export function CassaPage({
                 {label}
               </Button>
             ))}
+            {canComanda && (
+              <>
+                <Button
+                  className="h-9 px-3 text-sm"
+                  variant="outline"
+                  onClick={() => openCounterModal("TAKEAWAY")}
+                >
+                  + Asporto
+                </Button>
+                <Button
+                  className="h-9 px-3 text-sm"
+                  variant="outline"
+                  onClick={() => openCounterModal("DELIVERY")}
+                >
+                  + Delivery
+                </Button>
+              </>
+            )}
           </div>
 
+          {isCounterChannelView ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              {canComanda && (
+                <Button
+                  className="h-12 w-full text-base"
+                  onClick={() =>
+                    openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
+                  }
+                >
+                  + Nuovo ordine {channelFilter === "ASPORTO" ? "asporto" : "delivery"}
+                </Button>
+              )}
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border border-[hsl(var(--pg-border))] p-3">
+                {counterOrders.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
+                    Nessun ordine attivo
+                  </p>
+                ) : (
+                  counterOrders.map((order) => (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => selectCounterOrder(order)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition active:scale-[0.99] ${
+                        selectedTable?.id === order.id
+                          ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
+                          : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20"
+                      }`}
+                    >
+                      <div>
+                        <p className="font-bold">{order.displayNumber}</p>
+                        <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                          {order.customerName || "Cliente da banco"}
+                          {order.phone ? ` · ${order.phone}` : ""}
+                        </p>
+                        <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                          {order.scheduledLabel} · {order.lineCount} articoli
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold tabular-nums">€ {order.total.toFixed(2)}</p>
+                        <p className="text-xs uppercase text-[hsl(var(--pg-muted-foreground))]">
+                          {order.status}
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
           <div className="relative min-h-0 flex-1 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20">
             {filteredTables.map((t) => (
               <button
@@ -737,7 +1126,9 @@ export function CassaPage({
               </button>
             ))}
           </div>
+          )}
 
+          {!isCounterChannelView && (
           <div className="mt-3 flex flex-wrap gap-3 text-xs">
             {Object.entries(STATUS_COLORS).map(([status, color]) => (
               <span key={status} className="flex items-center gap-1">
@@ -746,6 +1137,7 @@ export function CassaPage({
               </span>
             ))}
           </div>
+          )}
         </section>
         )}
 
@@ -791,9 +1183,12 @@ export function CassaPage({
                     </Button>
                   )}
                 </div>
-                <h2 className="text-lg font-bold">Tavolo {bill.tableLabel}</h2>
+                <h2 className="text-lg font-bold">{bill.tableLabel}</h2>
                 <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                   {selectedTable.status}
+                  {bill.counterOrder?.scheduledLabel && (
+                    <span> · {bill.counterOrder.scheduledLabel}</span>
+                  )}
                   {bill.romanSplit && (
                     <span>
                       {" "}
@@ -801,6 +1196,15 @@ export function CassaPage({
                     </span>
                   )}
                 </p>
+                {bill.counterOrder && (
+                  <div className="mt-2 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    {bill.counterOrder.customerName && <p>Cliente: {bill.counterOrder.customerName}</p>}
+                    {bill.counterOrder.phone && <p>Tel: {bill.counterOrder.phone}</p>}
+                    {bill.counterOrder.address && <p>Indirizzo: {bill.counterOrder.address}</p>}
+                    {bill.counterOrder.broker && <p>Broker: {bill.counterOrder.broker}</p>}
+                    {bill.counterOrder.notes && <p>Nota: {bill.counterOrder.notes}</p>}
+                  </div>
+                )}
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -868,6 +1272,13 @@ export function CassaPage({
 
                 {!bill.romanSplit && !hasAnalyticSplit && bill.lines.length > 0 && (
                   <>
+                    <DiscountPresetsBar
+                      presets={discountPresets}
+                      hasDiscounts={hasBillDiscounts}
+                      loading={loading}
+                      onApply={handlePresetClick}
+                      onClear={() => void clearDiscountPresets()}
+                    />
                     <div className="flex gap-2">
                       <input
                         type="number"
@@ -897,7 +1308,12 @@ export function CassaPage({
                 <Button
                   className="h-12 w-full text-base"
                   variant="outline"
-                  disabled={loading || bill.lines.length === 0 || selectedTable.status === "SPLIT_IN_PROGRESS"}
+                  disabled={
+                    loading ||
+                    bill.lines.length === 0 ||
+                    selectedTable.status === "SPLIT_IN_PROGRESS" ||
+                    isCounterOrderSelected
+                  }
                   onClick={() => setShowTransferModal(true)}
                 >
                   SPOSTA / UNISCI TAVOLI
@@ -962,12 +1378,25 @@ export function CassaPage({
           lineName={discountLine.name}
           maxPercent={maxDiscount}
           pinThreshold={pinDiscountThreshold}
+          presets={discountPresets}
           onApply={(percent, pin) => void handleDiscountApply(percent, pin)}
           onCancel={() => {
             setDiscountLine(null);
             setDiscountError("");
           }}
           error={discountError}
+        />
+      )}
+
+      {pendingPreset && (
+        <PinModal
+          title={`PIN manager — ${pendingPreset.label} (${pendingPreset.percent}%)`}
+          onComplete={(pin) => void applyDiscountPreset(pendingPreset, pin)}
+          onCancel={() => {
+            setPendingPreset(null);
+            setPresetPinError("");
+          }}
+          error={presetPinError}
         />
       )}
 
@@ -1087,11 +1516,23 @@ export function CassaPage({
           }
           amount={payAmount}
           method={paymentMethod}
-          onMethod={setPaymentMethod}
+          onMethod={handlePaymentMethod}
           documentType={documentType}
           onDocumentType={setDocumentType}
+          invoiceCustomer={invoiceCustomer}
+          onInvoiceCustomer={setInvoiceCustomer}
+          fullMealReceipt={fullMealReceipt}
+          onFullMealReceipt={setFullMealReceipt}
+          fullMealAvailable={!isRomanPay && !isAnalyticPay}
           cashAmount={cashAmount}
           onCashAmount={setCashAmount}
+          mealVoucherPresets={mealVoucherPresets}
+          mealVoucherAmount={mealVoucherAmount}
+          onMealVoucherAmount={setMealVoucherAmount}
+          remainderMethod={remainderMethod}
+          onRemainderMethod={setRemainderMethod}
+          remainderCashAmount={remainderCashAmount}
+          onRemainderCashAmount={setRemainderCashAmount}
           loading={loading}
           onConfirm={() => void handlePay()}
           onCancel={() => setShowPayment(false)}
@@ -1110,6 +1551,36 @@ export function CassaPage({
       )}
 
       {showClosureHistory && <ClosureHistoryModal onClose={() => setShowClosureHistory(false)} />}
+
+      {showDocumentList && operator && (
+        <DocumentListModal operatorId={operator.id} onClose={() => setShowDocumentList(false)} />
+      )}
+
+      {showOpenTables && (
+        <OpenTablesModal
+          shiftId={activeShift?.id}
+          rooms={rooms}
+          onClose={() => setShowOpenTables(false)}
+          onSelectTable={(tableId) => {
+            void openTableById(tableId);
+          }}
+        />
+      )}
+
+      {showReservations && operator && (
+        <ReservationsModal
+          operatorId={operator.id}
+          operatorName={`${operator.firstName} ${operator.lastName}`}
+          rooms={rooms}
+          tables={tables}
+          onClose={() => setShowReservations(false)}
+          onOpenTable={(tableId) => {
+            void openTableById(tableId);
+            setShowReservations(false);
+            loadTables();
+          }}
+        />
+      )}
 
       {showShiftClose && activeShift && (
         <ShiftCloseModal
@@ -1156,10 +1627,24 @@ export function CassaPage({
             )}
             {paymentResult.receiptId && (
               <p className="mb-4 text-xs text-[hsl(var(--pg-muted-foreground))]">
-                Scontrino {paymentResult.receiptId}
+                {paymentResult.documentType === "INVOICE" ? (
+                  <>
+                    FATTURA ALLEGATA · Scontrino {paymentResult.receiptId}
+                    {paymentResult.invoiceNumber && (
+                      <> · Fattura mock n. {paymentResult.invoiceNumber}</>
+                    )}
+                  </>
+                ) : (
+                  <>Scontrino {paymentResult.receiptId}</>
+                )}
                 {paymentResult.paidShares != null && paymentResult.totalShares != null && (
                   <> · Quota {paymentResult.paidShares}/{paymentResult.totalShares}</>
                 )}
+              </p>
+            )}
+            {paymentResult.documentType === "INVOICE" && (
+              <p className="mb-4 text-xs text-amber-700">
+                Verifica file in <code>tmp/prints/</code> (JSON + XML) e Cloud Admin → Fatture.
               </p>
             )}
             <Button className="w-full" onClick={() => setPaymentResult(null)}>
@@ -1167,6 +1652,15 @@ export function CassaPage({
             </Button>
           </div>
         </div>
+      )}
+
+      {showCounterModal && (
+        <CounterOrderModal
+          initialChannel={counterModalChannel}
+          loading={loading}
+          onClose={() => setShowCounterModal(false)}
+          onConfirm={(payload) => void handleCreateCounterOrder(payload)}
+        />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import type { FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
+import type { PaymentSplit } from "@pizzaguys/types";
 
 export interface MockReceiptLine {
   name: string;
@@ -17,6 +18,9 @@ export interface MockReceipt {
   lines: MockReceiptLine[];
   total: number;
   change?: number;
+  paymentSplits?: PaymentSplit[];
+  /** Dicitura RT (es. FATTURA ALLEGATA per corrispettivi azzerati) */
+  fiscalNote?: string;
   mock: true;
 }
 
@@ -27,16 +31,21 @@ export function createMockReceipt(params: {
   documentType?: FiscalDocumentType;
   lines: MockReceiptLine[];
   amountReceived?: number;
+  paymentSplits?: PaymentSplit[];
 }): MockReceipt {
   const total = params.lines.reduce(
     (sum, l) => sum + l.quantity * l.unitPrice,
     0,
   );
   const rounded = Math.round(total * 100) / 100;
+  const cashSplit = params.paymentSplits?.find((s) => s.paymentMethod === "CASH");
+  const amountReceived = cashSplit?.amountReceived ?? params.amountReceived;
   const change =
-    params.paymentMethod === "CASH" && params.amountReceived != null
-      ? Math.round((params.amountReceived - rounded) * 100) / 100
+    amountReceived != null
+      ? Math.round((amountReceived - (cashSplit?.amount ?? rounded)) * 100) / 100
       : undefined;
+
+  const documentType = params.documentType ?? "RECEIPT";
 
   return {
     id: `MOCK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
@@ -44,10 +53,12 @@ export function createMockReceipt(params: {
     locationId: params.locationId,
     tableId: params.tableId,
     paymentMethod: params.paymentMethod,
-    documentType: params.documentType ?? "RECEIPT",
+    documentType,
     lines: params.lines,
     total: rounded,
-    change,
+    change: change != null && change > 0 ? change : undefined,
+    paymentSplits: params.paymentSplits,
+    fiscalNote: documentType === "INVOICE" ? "FATTURA ALLEGATA" : undefined,
     mock: true,
   };
 }

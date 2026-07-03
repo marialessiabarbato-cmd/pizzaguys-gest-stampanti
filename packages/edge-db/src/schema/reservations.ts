@@ -1,0 +1,26 @@
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const reservations = sqliteTable("reservations", {
+  id: text("id").primaryKey(),
+  seqNumber: integer("seq_number").notNull(),
+  reservationDate: text("reservation_date").notNull(),
+  reservationTime: text("reservation_time").notNull(),
+  shift: text("shift").notNull().default("DINNER_1"),
+  customerName: text("customer_name").notNull(),
+  phone: text("phone"),
+  guests: integer("guests").notNull(),
+  tableId: text("table_id"),
+  tableLabel: text("table_label"),
+  roomId: text("room_id"),
+  notes: text("notes"),
+  status: text("status").notNull().default("CONFIRMED"),
+  isWaitingList: integer("is_waiting_list", { mode: "boolean" }).notNull().default(false),
+  createdByStaffId: text("created_by_staff_id"),
+  createdByName: text("created_by_name"),
+  confirmedAt: text("confirmed_at"),
+  arrivedAt: text("arrived_at"),
+  seatedAt: text("seated_at"),
+  cancelledAt: text("cancelled_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

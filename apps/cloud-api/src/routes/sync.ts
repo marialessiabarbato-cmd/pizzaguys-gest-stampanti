@@ -2,17 +2,26 @@ import {
   brandSettings,
   categories,
   dailyClosures,
+  electronicInvoices,
+  invoiceCustomerProfiles,
+  locationDiscountPresets,
+  locationMealVoucherPresets,
   locations,
   productPrices,
   products,
   variantGroups,
   variants,
 } from "@pizzaguys/db/schema";
-import { provHandshakeSchema } from "@pizzaguys/validators";
+import {
+  provHandshakeSchema,
+  invoiceCustomerSchema,
+  invoiceCustomerProfileSyncSchema,
+} from "@pizzaguys/validators";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { writeAudit } from "../lib/audit.js";
+import { bumpSchemaVersion } from "../lib/schema-version.js";
 import { hashApiToken } from "../lib/tokens.js";
 
 const heartbeatSchema = z.object({
@@ -45,6 +54,15 @@ async function buildCatalogSnapshot(
   const location = await app.db.query.locations.findFirst({
     where: eq(locations.id, locationId),
   });
+  const customers = await app.db.query.invoiceCustomerProfiles.findMany({
+    where: eq(invoiceCustomerProfiles.brandId, brandId),
+  });
+  const discountPresets = await app.db.query.locationDiscountPresets.findMany({
+    where: eq(locationDiscountPresets.locationId, locationId),
+  });
+  const mealVoucherPresets = await app.db.query.locationMealVoucherPresets.findMany({
+    where: eq(locationMealVoucherPresets.locationId, locationId),
+  });
 
   return {
     schemaVersion,
@@ -55,6 +73,44 @@ async function buildCatalogSnapshot(
       variants: vars.filter((v) => v.groupId === g.id),
     })),
     prices,
+    invoiceCustomers: customers
+      .filter((c) => c.isActive)
+      .map((c) => ({
+        id: c.id,
+        businessName: c.businessName,
+        address: c.address ?? undefined,
+        postalCode: c.postalCode ?? undefined,
+        province: c.province ?? undefined,
+        city: c.city ?? undefined,
+        country: c.country,
+        vatNumber: c.vatNumber ?? undefined,
+        taxCode: c.taxCode ?? undefined,
+        sdiCode: c.sdiCode ?? undefined,
+        pec: c.pec ?? undefined,
+        phone: c.phone ?? undefined,
+        email: c.email ?? undefined,
+        notes: c.notes ?? undefined,
+        isActive: c.isActive,
+        updatedAt: c.updatedAt?.toISOString(),
+      })),
+    discountPresets: discountPresets
+      .filter((p) => p.isActive)
+      .map((p) => ({
+        id: p.id,
+        label: p.label,
+        percent: p.percent,
+        sortOrder: p.sortOrder,
+        isActive: p.isActive,
+      })),
+    mealVoucherPresets: mealVoucherPresets
+      .filter((p) => p.isActive)
+      .map((p) => ({
+        id: p.id,
+        label: p.label,
+        amount: Number(p.amount),
+        sortOrder: p.sortOrder,
+        isActive: p.isActive,
+      })),
     settings: {
       maxDiscountPercent: settings?.maxDiscountPercent ?? 20,
       tableLockTimeoutMinutes: settings?.tableLockTimeoutMinutes ?? 15,
@@ -292,5 +348,164 @@ export async function syncRoutes(app: FastifyInstance) {
     );
 
     return reply.status(200).send({ ok: true, receivedAt: receivedAtIso });
+  });
+
+  const invoiceSyncSchema = z.object({
+    locationId: z.string().uuid(),
+    edgeInvoiceId: z.string().min(1),
+    invoice: z.object({
+      id: z.string().min(1),
+      invoiceNumber: z.string().min(1),
+      issuedAt: z.string().datetime(),
+      locationId: z.string().uuid(),
+      receiptId: z.string().min(1),
+      tableLabel: z.string().optional(),
+      customer: invoiceCustomerSchema,
+      lines: z.array(
+        z.object({
+          name: z.string(),
+          quantity: z.number(),
+          unitPrice: z.number(),
+          vatRate: z.number(),
+        }),
+      ),
+      total: z.number(),
+      paymentMethod: z.string(),
+      status: z.literal("PENDING_SEND"),
+      mock: z.literal(true),
+      fiscalNote: z.literal("FATTURA ALLEGATA"),
+    }),
+  });
+
+  app.post("/api/v2/sync/invoice", async (req, reply) => {
+    const auth = req.headers.authorization;
+    const apiToken = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!apiToken) {
+      return reply.status(401).send({ error: "Token mancante" });
+    }
+
+    const parsed = invoiceSyncSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Payload non valido", details: parsed.error.flatten() });
+    }
+
+    const hash = hashApiToken(apiToken);
+    const location = await app.db.query.locations.findFirst({
+      where: eq(locations.id, parsed.data.locationId),
+    });
+    if (!location || location.apiTokenHash !== hash) {
+      return reply.status(401).send({ error: "Token non valido o sede non corrispondente" });
+    }
+
+    const settings = await app.db.query.brandSettings.findFirst({
+      where: eq(brandSettings.brandId, location.brandId),
+    });
+
+    const receivedAt = new Date();
+    const invoice = parsed.data.invoice;
+    const cloudStatus = settings?.sdiEnabled ? "PENDING_SEND" : "PENDING_SEND";
+
+    await app.db
+      .insert(electronicInvoices)
+      .values({
+        locationId: location.id,
+        edgeInvoiceId: parsed.data.edgeInvoiceId,
+        receiptId: invoice.receiptId,
+        invoiceNumber: invoice.invoiceNumber,
+        businessName: invoice.customer.businessName,
+        customerVatNumber: invoice.customer.vatNumber ?? null,
+        customerTaxCode: invoice.customer.taxCode ?? null,
+        customerSdiCode: invoice.customer.sdiCode ?? null,
+        customerPec: invoice.customer.pec ?? null,
+        total: String(invoice.total),
+        paymentMethod: invoice.paymentMethod,
+        tableLabel: invoice.tableLabel ?? null,
+        status: cloudStatus,
+        payload: invoice,
+        issuedAt: new Date(invoice.issuedAt),
+        receivedAt,
+        updatedAt: receivedAt,
+      })
+      .onConflictDoUpdate({
+        target: electronicInvoices.edgeInvoiceId,
+        set: {
+          total: String(invoice.total),
+          payload: invoice,
+          receivedAt,
+          updatedAt: receivedAt,
+        },
+      });
+
+    const receivedAtIso = receivedAt.toISOString();
+    await writeAudit(app, {
+      locationId: location.id,
+      operation: "ELECTRONIC_INVOICE_SYNC",
+      severity: "INFO",
+      nextState: {
+        edgeInvoiceId: parsed.data.edgeInvoiceId,
+        invoiceNumber: invoice.invoiceNumber,
+        businessName: invoice.customer.businessName,
+        total: invoice.total,
+        receivedAt: receivedAtIso,
+      },
+    });
+
+    app.log.info(
+      { locationId: location.id, edgeInvoiceId: parsed.data.edgeInvoiceId },
+      "Electronic invoice persisted",
+    );
+
+    return reply.status(200).send({
+      ok: true,
+      receivedAt: receivedAtIso,
+      cloudStatus,
+    });
+  });
+
+  app.post("/api/v2/sync/invoice-customer", async (req, reply) => {
+    const auth = req.headers.authorization;
+    const apiToken = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!apiToken) {
+      return reply.status(401).send({ error: "Token mancante" });
+    }
+
+    const parsed = invoiceCustomerProfileSyncSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Payload non valido", details: parsed.error.flatten() });
+    }
+
+    const hash = hashApiToken(apiToken);
+    const location = await app.db.query.locations.findFirst({
+      where: eq(locations.apiTokenHash, hash),
+    });
+    if (!location) {
+      return reply.status(401).send({ error: "Token non valido" });
+    }
+
+    const receivedAt = new Date();
+    const { id, updatedAt: _updatedAt, ...data } = parsed.data;
+
+    await app.db
+      .insert(invoiceCustomerProfiles)
+      .values({
+        id,
+        brandId: location.brandId,
+        ...data,
+        updatedAt: receivedAt,
+      })
+      .onConflictDoUpdate({
+        target: invoiceCustomerProfiles.id,
+        set: {
+          ...data,
+          updatedAt: receivedAt,
+        },
+      });
+
+    await bumpSchemaVersion(app, location.brandId);
+
+    return reply.status(200).send({
+      ok: true,
+      receivedAt: receivedAt.toISOString(),
+    });
   });
 }

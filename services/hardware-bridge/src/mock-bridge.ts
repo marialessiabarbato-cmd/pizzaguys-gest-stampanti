@@ -43,6 +43,7 @@ export class MockHardwareBridge implements HardwareBridge {
       documentType: order.documentType,
       lines: order.lines,
       amountReceived: order.amountReceived,
+      paymentSplits: order.paymentSplits,
     });
     return { success: true, receipt };
   }

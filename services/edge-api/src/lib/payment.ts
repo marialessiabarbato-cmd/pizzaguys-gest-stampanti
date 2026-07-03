@@ -2,16 +2,22 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MockReceipt } from "@pizzaguys/fiscal";
-import type { FiscalDocumentType, PaymentMethod, WsEnvelope } from "@pizzaguys/types";
+import { formatMockReceiptText } from "@pizzaguys/fiscal";
+import type { FiscalDocumentType, InvoiceCustomer, PaymentMethod, PaymentSplit, WsEnvelope } from "@pizzaguys/types";
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
-import { billLinesForCheck, billToReceiptLines, type BillLine } from "./bill.js";
+import { billLinesForCheck, billToReceiptLines, FULL_MEAL_RECEIPT_LABEL, type BillLine } from "./bill.js";
+import { getCounterOrder, markCounterOrderPaid } from "./counter-order.js";
 import { consolidateBillForTable } from "./cover-charge.js";
 import {
   enrichBillLinesForReport,
   recordDayTransaction,
   resolveServiceType,
 } from "./day-report-ledger.js";
+import {
+  persistFiscalDocument,
+  serviceTypeLabel,
+} from "./fiscal-document-archive.js";
 import {
   clearRomanSplit,
   clearTableOrders,
@@ -27,28 +33,45 @@ import {
 } from "./runtime.js";
 import { recordDayPayment, recordShiftPayment } from "./shift-ledger.js";
 import { broadcast } from "./ws-hub.js";
+import { issueElectronicInvoice } from "./invoice.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
-async function writeReceiptJson(receipt: MockReceipt) {
+async function writeReceiptFiles(
+  receipt: MockReceipt,
+  meta?: {
+    tableLabel?: string;
+    guests?: number;
+    operatorName?: string;
+    amountReceived?: number;
+    paymentSplits?: PaymentSplit[];
+  },
+) {
   await mkdir(PRINT_DIR, { recursive: true });
-  const filePath = join(PRINT_DIR, `${Date.now()}-receipt-${receipt.id}.json`);
-  await writeFile(filePath, JSON.stringify(receipt, null, 2));
-  return filePath;
+  const stamp = Date.now();
+  const jsonPath = join(PRINT_DIR, `${stamp}-receipt-${receipt.id}.json`);
+  const txtPath = join(PRINT_DIR, `${stamp}-receipt-${receipt.id}.txt`);
+  await writeFile(jsonPath, JSON.stringify(receipt, null, 2));
+  await writeFile(txtPath, formatMockReceiptText(receipt, meta));
+  return { jsonPath, txtPath };
 }
 
 export interface ExecutePaymentParams {
   edgeDb: EdgeDatabase;
   tableId: string;
   locationId: string;
-  paymentMethod: PaymentMethod;
+  paymentMethod?: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   amountReceived?: number;
   splitMode?: "FULL" | "ROMAN" | "ANALYTIC";
   checkId?: string;
   paymentRequestId?: string;
   shiftId?: string;
   documentType?: FiscalDocumentType;
+  invoiceCustomer?: InvoiceCustomer;
+  fullMealReceipt?: boolean;
+  guests?: number;
   operatorId: string;
   operatorName: string;
   tableLabel: string;
@@ -67,6 +90,61 @@ export interface ExecutePaymentResult {
   paidShares?: number;
   totalShares?: number;
   paidCheckId?: string;
+  invoice?: {
+    id: string;
+    invoiceNumber: string;
+    jsonPath: string;
+    xmlPath: string;
+    syncQueued: boolean;
+  };
+}
+
+function primaryPaymentMethod(splits: PaymentSplit[]): PaymentMethod {
+  if (splits.some((s) => s.paymentMethod === "MEAL_VOUCHER")) return "MEAL_VOUCHER";
+  if (splits.length === 1) return splits[0]!.paymentMethod;
+  return splits[0]!.paymentMethod;
+}
+
+function normalizePaymentSplits(
+  payAmount: number,
+  params: Pick<ExecutePaymentParams, "paymentMethod" | "paymentSplits" | "amountReceived">,
+): { ok: true; splits: PaymentSplit[]; primary: PaymentMethod } | { ok: false; error: string } {
+  if (params.paymentSplits?.length) {
+    const total = Math.round(params.paymentSplits.reduce((s, p) => s + p.amount, 0) * 100) / 100;
+    if (Math.abs(total - payAmount) > 0.01) {
+      return { ok: false, error: "La somma dei pagamenti non coincide con il totale" };
+    }
+    for (const split of params.paymentSplits) {
+      if (split.paymentMethod === "CASH") {
+        if (split.amountReceived == null) {
+          return { ok: false, error: "Importo contanti obbligatorio per la quota in contanti" };
+        }
+        if (split.amountReceived < split.amount) {
+          return { ok: false, error: "Importo contanti insufficiente" };
+        }
+      }
+    }
+    return {
+      ok: true,
+      splits: params.paymentSplits,
+      primary: primaryPaymentMethod(params.paymentSplits),
+    };
+  }
+  if (!params.paymentMethod) {
+    return { ok: false, error: "Metodo di pagamento richiesto" };
+  }
+  return {
+    ok: true,
+    splits: [
+      {
+        paymentMethod: params.paymentMethod,
+        amount: payAmount,
+        amountReceived:
+          params.paymentMethod === "CASH" ? params.amountReceived : undefined,
+      },
+    ],
+    primary: params.paymentMethod,
+  };
 }
 
 export async function executeTablePayment(
@@ -82,8 +160,23 @@ export async function executeTablePayment(
   const isRoman = params.splitMode === "ROMAN" && roman != null;
   const isAnalytic = params.splitMode === "ANALYTIC" && analytic != null;
 
+  if (params.fullMealReceipt && (isRoman || isAnalytic)) {
+    return {
+      ok: false,
+      error: "Pasto completo disponibile solo su pagamento intero del tavolo",
+      status: 400,
+    };
+  }
+  if (params.paymentSplits?.length && (isRoman || isAnalytic)) {
+    return {
+      ok: false,
+      error: "Pagamento misto non disponibile con split conto",
+      status: 400,
+    };
+  }
+
   let payAmount = bill.total;
-  let receiptLines = billToReceiptLines(bill);
+  let receiptLines: ReturnType<typeof billToReceiptLines>;
 
   if (isRoman && roman) {
     if (roman.paidShares >= roman.shares) {
@@ -117,45 +210,70 @@ export async function executeTablePayment(
       error: "Split analitico attivo — paga i singoli conti",
       status: 400,
     };
+  } else {
+    receiptLines = billToReceiptLines(
+      bill,
+      payAmount,
+      undefined,
+      params.fullMealReceipt ? { fullMeal: true, fullMealLabel: FULL_MEAL_RECEIPT_LABEL } : undefined,
+    );
   }
 
-  if (params.paymentMethod === "CASH") {
-    if (params.amountReceived == null) {
-      return { ok: false, error: "Importo ricevuto obbligatorio per contanti", status: 400 };
-    }
-    if (params.amountReceived < payAmount) {
-      return { ok: false, error: "Importo insufficiente", status: 400 };
-    }
+  const docType = params.documentType ?? "RECEIPT";
+  if (docType === "INVOICE" && (isRoman || isAnalytic)) {
+    return {
+      ok: false,
+      error: "La fattura è disponibile solo su pagamento intero del tavolo",
+      status: 400,
+    };
   }
+  if (docType === "INVOICE" && !params.invoiceCustomer) {
+    return { ok: false, error: "Dati cliente obbligatori per fattura", status: 400 };
+  }
+
+  const normalized = normalizePaymentSplits(payAmount, params);
+  if (!normalized.ok) {
+    return { ok: false, error: normalized.error, status: 400 };
+  }
+  const paymentSplits = normalized.splits;
+  const paymentMethod = normalized.primary;
+  const cashSplit = paymentSplits.find((s) => s.paymentMethod === "CASH");
 
   const receiptResult = await hardware.emitReceipt({
     locationId: params.locationId,
     tableId: params.tableId,
-    paymentMethod: params.paymentMethod,
+    paymentMethod,
     documentType: params.documentType ?? "RECEIPT",
     lines: receiptLines,
-    amountReceived: params.paymentMethod === "CASH" ? params.amountReceived : undefined,
+    amountReceived: cashSplit?.amountReceived,
+    paymentSplits,
   });
 
   if (!receiptResult.success || !receiptResult.receipt) {
     return { ok: false, error: receiptResult.error ?? "Errore emissione scontrino", status: 500 };
   }
 
-  if (params.paymentMethod === "CASH") {
+  if (cashSplit) {
     await hardware.openCashDrawer();
   }
 
-  const receiptPath = await writeReceiptJson(receiptResult.receipt);
+  const { jsonPath: receiptPath, txtPath: receiptTxtPath } = await writeReceiptFiles(
+    receiptResult.receipt,
+    {
+      tableLabel: params.tableLabel,
+      guests: params.guests,
+      operatorName: params.operatorName,
+      amountReceived: cashSplit?.amountReceived,
+      paymentSplits,
+    },
+  );
 
-  if (params.shiftId) {
-    recordShiftPayment(
-      params.shiftId,
-      params.paymentMethod,
-      payAmount,
-      receiptResult.receipt.id,
-    );
-  } else {
-    recordDayPayment(params.paymentMethod, payAmount, receiptResult.receipt.id);
+  for (const split of paymentSplits) {
+    if (params.shiftId) {
+      recordShiftPayment(params.shiftId, split.paymentMethod, split.amount, receiptResult.receipt.id);
+    } else {
+      recordDayPayment(split.paymentMethod, split.amount, receiptResult.receipt.id);
+    }
   }
 
   let paidBillLines: BillLine[] = bill.lines;
@@ -178,18 +296,21 @@ export async function executeTablePayment(
   const channel = submitted[0]?.channel ?? draft?.channel ?? "TABLE";
   const closureDate = new Date().toISOString().slice(0, 10);
 
+  const serviceType = resolveServiceType({
+    channel,
+    tableLabel: params.tableLabel,
+    isVirtual: params.isVirtual,
+    virtualType: params.virtualType,
+    lines: saleLines,
+  });
+
   recordDayTransaction(params.edgeDb, closureDate, {
     receiptId: receiptResult.receipt.id,
     at: receiptResult.receipt.issuedAt,
     tableLabel: params.tableLabel,
-    serviceType: resolveServiceType({
-      channel,
-      tableLabel: params.tableLabel,
-      isVirtual: params.isVirtual,
-      virtualType: params.virtualType,
-      lines: saleLines,
-    }),
-    paymentMethod: params.paymentMethod,
+    serviceType,
+    paymentMethod,
+    paymentSplits: paymentSplits.length > 1 ? paymentSplits : undefined,
     documentType: params.documentType ?? receiptResult.receipt.documentType ?? "RECEIPT",
     operatorId: params.operatorId,
     operatorName: params.operatorName,
@@ -234,6 +355,9 @@ export async function executeTablePayment(
   }
 
   if (tableFreed) {
+    if (getCounterOrder(params.tableId)) {
+      markCounterOrderPaid(params.tableId);
+    }
     broadcast({
       type: "TABLE_STATUS_UPDATE",
       payload: { tableId: params.tableId, status: "FREE" },
@@ -257,6 +381,58 @@ export async function executeTablePayment(
     messageId: randomUUID(),
   } satisfies WsEnvelope);
 
+  let invoiceInfo: ExecutePaymentResult["invoice"];
+  if (docType === "INVOICE" && params.invoiceCustomer) {
+    const issued = await issueElectronicInvoice({
+      edgeDb: params.edgeDb,
+      locationId: params.locationId,
+      receiptId: receiptResult.receipt.id,
+      tableId: params.tableId,
+      tableLabel: params.tableLabel,
+      customer: params.invoiceCustomer,
+      lines: receiptLines,
+      paymentMethod,
+      operatorId: params.operatorId,
+      operatorName: params.operatorName,
+    });
+    invoiceInfo = {
+      id: issued.invoice.id,
+      invoiceNumber: issued.invoice.invoiceNumber,
+      jsonPath: issued.jsonPath,
+      xmlPath: issued.xmlPath,
+      syncQueued: true,
+    };
+  }
+
+  persistFiscalDocument(params.edgeDb, {
+    receipt: receiptResult.receipt,
+    meta: {
+      tableLabel: params.tableLabel,
+      guests: params.guests,
+      operatorName: params.operatorName,
+      amountReceived: cashSplit?.amountReceived,
+      paymentSplits: paymentSplits.length > 1 ? paymentSplits : undefined,
+      serviceTypeLabel: serviceTypeLabel(serviceType),
+      orderLines: receiptLines.map((l) => ({
+        name: l.name,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        vatRate: l.vatRate,
+      })),
+      invoiceCustomer: params.invoiceCustomer,
+    },
+    operatorStaffId: params.operatorId,
+    operatorName: params.operatorName,
+    shiftId: params.shiftId,
+    serviceType,
+    fileJsonPath: receiptPath,
+    fileTxtPath: receiptTxtPath,
+    tableLabel: params.tableLabel,
+    customerBusinessName: params.invoiceCustomer?.businessName,
+    invoiceId: invoiceInfo?.id,
+    invoiceNumber: invoiceInfo?.invoiceNumber,
+  });
+
   return {
     ok: true,
     receipt: receiptResult.receipt,
@@ -268,5 +444,6 @@ export async function executeTablePayment(
     paidShares,
     totalShares,
     paidCheckId: params.checkId,
+    invoice: invoiceInfo,
   };
 }

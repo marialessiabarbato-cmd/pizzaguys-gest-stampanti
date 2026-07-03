@@ -1,3 +1,5 @@
 export * from "./vat.js";
 export * from "./line-price.js";
 export * from "./mock-receipt.js";
+export * from "./mock-invoice.js";
+export * from "./receipt-text.js";

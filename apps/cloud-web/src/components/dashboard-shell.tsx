@@ -9,6 +9,8 @@ const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/locations", label: "Sedi" },
   { href: "/closures", label: "Chiusure & Report" },
+  { href: "/invoices", label: "Fatture" },
+  { href: "/invoice-customers", label: "Clienti fiscali" },
   { href: "/menu", label: "Menu" },
   { href: "/users", label: "Utenti" },
   { href: "/settings", label: "Impostazioni" },

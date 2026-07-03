@@ -65,6 +65,14 @@ export function buildLocationReportDetailHtml(snapshot: DailyReportSnapshot): st
   ${rowTable("Tipi di servizio", snapshot.serviceTypes.map((s) => ({ label: s.label, qty: s.quantity, total: s.total })))}
   ${rowTable("Pagamenti", snapshot.payments.map((p) => ({ label: p.label, qty: p.quantity, total: p.total })))}
   ${rowTable("Gruppi di vendita", snapshot.salesGroups.map((g) => ({ label: g.name, qty: g.quantity, total: g.total })))}
+  ${rowTable(
+    "Dettaglio sconti",
+    (snapshot.discountDetails ?? []).map((d) => ({
+      label: d.label,
+      qty: d.quantity,
+      total: d.total,
+    })),
+  )}
   ${rowTable("Centri di produzione", snapshot.productionCenters.map((c) => ({ label: c.name, qty: c.quantity, total: c.total })))}
   <h3 style="margin:20px 0 8px;font-size:15px;">Documenti fiscali</h3>
   <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6;">

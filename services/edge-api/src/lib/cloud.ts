@@ -64,3 +64,49 @@ export async function cloudDailyClosure(apiToken: string, payload: unknown) {
 
   return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
+
+export async function cloudInvoiceSync(
+  apiToken: string,
+  payload: {
+    locationId: string;
+    edgeInvoiceId: string;
+    invoice: unknown;
+  },
+) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/invoice`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Sync fattura fallita (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; receivedAt: string; cloudStatus: string }>;
+}
+
+export async function cloudCustomerProfileSync(
+  apiToken: string,
+  payload: Record<string, unknown>,
+) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/invoice-customer`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Sync cliente fallita (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
+}

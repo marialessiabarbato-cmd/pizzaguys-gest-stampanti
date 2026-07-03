@@ -14,6 +14,10 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
+import {
+  getCounterOrder,
+  resolveTableContext,
+} from "../lib/counter-order.js";
 import { recordDayStorno } from "../lib/day-report-ledger.js";
 import { getMenuSnapshot } from "../lib/provision.js";
 import {
@@ -64,6 +68,10 @@ type MenuSnapshot = {
 
 function variantLabels(line: OrderLine): string[] {
   return (line.variants ?? []).map((v) => (v.type === "REMOVE" ? `NO ${v.name}` : v.name));
+}
+
+function resolveOrderTableLabel(edgeDb: FastifyInstance["edgeDb"], tableId: string): string {
+  return resolveTableContext(tableId, edgeDb)?.label ?? tableId;
 }
 
 function validateOrderLines(
@@ -163,7 +171,8 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, req.params.id)).get();
-    if (!table) return reply.status(404).send({ error: "Tavolo non trovato" });
+    const counter = getCounterOrder(req.params.id);
+    if (!table && !counter) return reply.status(404).send({ error: "Tavolo non trovato" });
 
     const body = req.body as {
       operatorId?: string;
@@ -182,10 +191,12 @@ export async function orderRoutes(app: FastifyInstance) {
       force = true;
     }
 
-    const guestsParsed = parseGuestCount(
-      typeof body.guests === "number" ? body.guests : undefined,
-      effectiveCapacityForTable(app.edgeDb, req.params.id),
-    );
+    const guestsParsed = counter
+      ? ({ ok: true as const, guests: undefined })
+      : parseGuestCount(
+          typeof body.guests === "number" ? body.guests : undefined,
+          effectiveCapacityForTable(app.edgeDb, req.params.id),
+        );
     if (!guestsParsed.ok) {
       return reply.status(400).send({ error: guestsParsed.error });
     }
@@ -330,8 +341,9 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, order.tableId)).get();
+    const counter = getCounterOrder(order.tableId);
     const runtime = getTableRuntime(order.tableId);
-    const guestCount = runtime.guests ?? table?.defaultGuests ?? 2;
+    const guestCount = counter ? 1 : runtime.guests ?? table?.defaultGuests ?? 2;
     const routing = app.edgeDb.select().from(categoryRouting).all();
     const printerList = app.edgeDb.select().from(printers).all();
 
@@ -354,7 +366,7 @@ export async function orderRoutes(app: FastifyInstance) {
       const hold = activeLines.some((l) => l.hold);
       const payload = buildKitchenTicket({
         workCenter: center,
-        tableLabel: table?.label ?? order.tableId,
+        tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
         guests: guestCount,
         operatorName: order.operatorName,
         hold,
@@ -369,7 +381,10 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     markOrderSubmitted(order.id);
-    rebuildKdsTicketsForOrder(getOrder(order.id)!, table?.label ?? order.tableId);
+    rebuildKdsTicketsForOrder(
+      getOrder(order.id)!,
+      resolveOrderTableLabel(app.edgeDb, order.tableId),
+    );
     broadcastKdsUpdate();
     setTableOccupied(order.tableId);
     bumpChargedGuests(order.tableId, guestCount);
@@ -380,7 +395,7 @@ export async function orderRoutes(app: FastifyInstance) {
       kdsTickets: getKdsSnapshot().tickets,
       orderId: order.id,
       tableId: order.tableId,
-      tableLabel: table?.label ?? order.tableId,
+      tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
     };
   });
 
@@ -406,7 +421,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const qty = parsed.data.quantity ?? line.quantity - (line.voidedQuantity ?? 0);
     const stornoBy = parsed.data.operatorName.trim();
     const payload = buildCancelTicket({
-      tableLabel: table?.label ?? order.tableId,
+      tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
       itemName: line.name,
       quantity: qty,
       operatorName: order.operatorName,
@@ -417,7 +432,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const value = Math.round(line.unitPrice * qty * 100) / 100;
     recordDayStorno(app.edgeDb, new Date().toISOString().slice(0, 10), {
       at: new Date().toISOString(),
-      tableLabel: table?.label ?? order.tableId,
+      tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
       itemName: line.name,
       quantity: qty,
       amount: value,
@@ -440,7 +455,7 @@ export async function orderRoutes(app: FastifyInstance) {
       },
     });
 
-    const tableLabel = table?.label ?? order.tableId;
+    const tableLabel = resolveOrderTableLabel(app.edgeDb, order.tableId);
     const updatedOrder = getOrder(order.id)!;
     rebuildKdsTicketsForOrder(updatedOrder, tableLabel);
     const cancellation = recordKdsCancellation({
@@ -489,7 +504,7 @@ export async function orderRoutes(app: FastifyInstance) {
         const printer = printerList.find((p) => p.workCenter === center && p.enabled);
         const payload = buildKitchenTicket({
           workCenter: center,
-          tableLabel: table?.label ?? parsed.data.tableId,
+          tableLabel: resolveOrderTableLabel(app.edgeDb, parsed.data.tableId),
           guests: guestCount,
           operatorName: "X DOLCE",
           lines,

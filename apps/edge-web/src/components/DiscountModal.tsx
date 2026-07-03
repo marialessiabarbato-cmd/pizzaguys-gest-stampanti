@@ -1,13 +1,15 @@
+import type { LocationDiscountPreset } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
 import { PinModal } from "./PinModal";
 
-const PRESETS = [5, 10, 15, 20, 25, 30];
+const FALLBACK_PRESETS = [5, 10, 15, 20, 25, 30];
 
 export function DiscountModal({
   lineName,
   maxPercent,
   pinThreshold,
+  presets = [],
   onApply,
   onCancel,
   error,
@@ -15,6 +17,7 @@ export function DiscountModal({
   lineName: string;
   maxPercent: number;
   pinThreshold: number;
+  presets?: LocationDiscountPreset[];
   onApply: (percent: number, managerPin?: string) => void;
   onCancel: () => void;
   error?: string;
@@ -22,7 +25,7 @@ export function DiscountModal({
   const [percent, setPercent] = useState(10);
   const [needsPin, setNeedsPin] = useState(false);
 
-  const presets = PRESETS.filter((p) => p <= maxPercent);
+  const fallbackPresets = FALLBACK_PRESETS.filter((p) => p <= maxPercent);
 
   const handleApply = () => {
     if (percent < 1 || percent > maxPercent) return;
@@ -51,20 +54,35 @@ export function DiscountModal({
         <p className="mb-4 text-sm text-[hsl(var(--pg-muted-foreground))]">{lineName}</p>
 
         <div className="mb-4 flex flex-wrap gap-2">
-          {presets.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPercent(p)}
-              className={`rounded-lg border px-3 py-2 text-sm ${
-                percent === p
-                  ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
-                  : "border-[hsl(var(--pg-border))]"
-              }`}
-            >
-              {p}%
-            </button>
-          ))}
+          {presets.length > 0
+            ? presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPercent(p.percent)}
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    percent === p.percent
+                      ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                      : "border-[hsl(var(--pg-border))]"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))
+            : fallbackPresets.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPercent(p)}
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    percent === p
+                      ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                      : "border-[hsl(var(--pg-border))]"
+                  }`}
+                >
+                  {p}%
+                </button>
+              ))}
         </div>
 
         <label className="mb-4 block text-sm">

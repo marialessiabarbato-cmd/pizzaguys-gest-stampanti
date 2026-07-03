@@ -22,6 +22,7 @@ export interface FiscalOrderInput {
   documentType?: FiscalDocumentType;
   lines: ReceiptLineInput[];
   amountReceived?: number;
+  paymentSplits?: import("@pizzaguys/types").PaymentSplit[];
 }
 
 export interface ReceiptResult {

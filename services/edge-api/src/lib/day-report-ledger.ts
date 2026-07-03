@@ -1,4 +1,4 @@
-import type { DailyReportSnapshot, FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
+import type { DailyReportSnapshot, FiscalDocumentType, PaymentMethod, PaymentSplit } from "@pizzaguys/types";
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { categoryRouting, dayReportStornos, dayReportTransactions, tables } from "@pizzaguys/edge-db";
 import { eq } from "drizzle-orm";
@@ -29,6 +29,7 @@ export interface DaySaleLine {
   discountAmount: number;
   promotionAmount: number;
   supplementAmount: number;
+  discountPresetLabel?: string;
 }
 
 export interface DayTransaction {
@@ -37,12 +38,25 @@ export interface DayTransaction {
   tableLabel: string;
   serviceType: ServiceType;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   documentType: FiscalDocumentType;
   operatorId: string;
   operatorName: string;
   amount: number;
   lines: DaySaleLine[];
   coverGuests: number;
+}
+
+function transactionPaymentParts(
+  tx: DayTransaction,
+): Array<{ paymentMethod: PaymentMethod; amount: number }> {
+  if (tx.paymentSplits?.length) {
+    return tx.paymentSplits.map((s) => ({
+      paymentMethod: s.paymentMethod,
+      amount: s.amount,
+    }));
+  }
+  return [{ paymentMethod: tx.paymentMethod, amount: tx.amount }];
 }
 
 export interface DayStorno {
@@ -245,8 +259,30 @@ export function enrichBillLinesForReport(
       discountAmount,
       promotionAmount,
       supplementAmount,
+      discountPresetLabel: orderLine?.discountPresetLabel,
     };
   });
+}
+
+function aggregateDiscountDetails(
+  lines: DaySaleLine[],
+): Array<{ label: string; quantity: number; total: number }> {
+  const map = new Map<string, { quantity: number; total: number }>();
+  for (const line of lines) {
+    const discount = line.discountAmount + line.promotionAmount;
+    if (discount <= 0) continue;
+    const label =
+      line.discountPresetLabel ??
+      (line.promotionAmount > 0 ? "Sconto autorizzato (manager)" : "Sconto manuale");
+    const prev = map.get(label) ?? { quantity: 0, total: 0 };
+    map.set(label, {
+      quantity: prev.quantity + line.quantity,
+      total: Math.round((prev.total + discount) * 100) / 100,
+    });
+  }
+  return [...map.entries()]
+    .map(([label, v]) => ({ label, quantity: v.quantity, total: -v.total }))
+    .sort((a, b) => a.total - b.total);
 }
 
 export function recordDayTransaction(db: EdgeDatabase, date: string, tx: DayTransaction) {
@@ -299,8 +335,10 @@ export function getDayTheoretical(db: EdgeDatabase, date = todayKey()) {
   const transactions = readTransactions(db, date).filter((t) => t.documentType !== "TRAINING");
   const byPaymentMethod: Record<string, number> = {};
   for (const tx of transactions) {
-    byPaymentMethod[tx.paymentMethod] =
-      Math.round(((byPaymentMethod[tx.paymentMethod] ?? 0) + tx.amount) * 100) / 100;
+    for (const part of transactionPaymentParts(tx)) {
+      byPaymentMethod[part.paymentMethod] =
+        Math.round(((byPaymentMethod[part.paymentMethod] ?? 0) + part.amount) * 100) / 100;
+    }
   }
   const cash = byPaymentMethod.CASH ?? 0;
   const pos = byPaymentMethod.POS ?? 0;
@@ -426,12 +464,14 @@ export function buildDailyReportSnapshot(
 
   const paymentMap = new Map<string, { quantity: number; total: number }>();
   for (const tx of transactions.filter((t) => t.documentType !== "TRAINING")) {
-    const label = paymentLabel(tx.paymentMethod);
-    const prev = paymentMap.get(label) ?? { quantity: 0, total: 0 };
-    paymentMap.set(label, {
-      quantity: prev.quantity + 1,
-      total: Math.round((prev.total + tx.amount) * 100) / 100,
-    });
+    for (const part of transactionPaymentParts(tx)) {
+      const label = paymentLabel(part.paymentMethod);
+      const prev = paymentMap.get(label) ?? { quantity: 0, total: 0 };
+      paymentMap.set(label, {
+        quantity: prev.quantity + 1,
+        total: Math.round((prev.total + part.amount) * 100) / 100,
+      });
+    }
   }
   const payments = [...paymentMap.entries()]
     .map(([label, v]) => ({ label, ...v }))
@@ -440,14 +480,14 @@ export function buildDailyReportSnapshot(
   const operatorMap = new Map<string, { cash: number; pos: number; card: number; total: number }>();
   for (const tx of transactions.filter((t) => t.documentType !== "TRAINING")) {
     const prev = operatorMap.get(tx.operatorName) ?? { cash: 0, pos: 0, card: 0, total: 0 };
-    const addCash = tx.paymentMethod === "CASH" ? tx.amount : 0;
-    const addPos = tx.paymentMethod === "POS" ? tx.amount : 0;
-    const addCard =
-      tx.paymentMethod === "MEAL_VOUCHER" ||
-      tx.paymentMethod === "SATISPAY" ||
-      tx.paymentMethod === "OTHER"
-        ? tx.amount
-        : 0;
+    let addCash = 0;
+    let addPos = 0;
+    let addCard = 0;
+    for (const part of transactionPaymentParts(tx)) {
+      if (part.paymentMethod === "CASH") addCash += part.amount;
+      else if (part.paymentMethod === "POS") addPos += part.amount;
+      else addCard += part.amount;
+    }
     operatorMap.set(tx.operatorName, {
       cash: Math.round((prev.cash + addCash) * 100) / 100,
       pos: Math.round((prev.pos + addPos) * 100) / 100,
@@ -460,18 +500,24 @@ export function buildDailyReportSnapshot(
     .sort((a, b) => b.total - a.total);
 
   const fiscalTx = transactions.filter((t) => t.documentType !== "TRAINING");
-  const cashTotal = fiscalTx
-    .filter((t) => t.paymentMethod === "CASH")
-    .reduce((s, t) => s + t.amount, 0);
-  const posTotal = fiscalTx
-    .filter((t) => t.paymentMethod === "POS")
-    .reduce((s, t) => s + t.amount, 0);
-  const mealTotal = fiscalTx
-    .filter((t) => t.paymentMethod === "MEAL_VOUCHER")
-    .reduce((s, t) => s + t.amount, 0);
-  const otherTotal = fiscalTx
-    .filter((t) => t.paymentMethod === "SATISPAY" || t.paymentMethod === "OTHER")
-    .reduce((s, t) => s + t.amount, 0);
+  let cashTotal = 0;
+  let posTotal = 0;
+  let mealTotal = 0;
+  let otherTotal = 0;
+  for (const tx of fiscalTx) {
+    for (const part of transactionPaymentParts(tx)) {
+      if (part.paymentMethod === "CASH") cashTotal += part.amount;
+      else if (part.paymentMethod === "POS") posTotal += part.amount;
+      else if (part.paymentMethod === "MEAL_VOUCHER") mealTotal += part.amount;
+      else if (part.paymentMethod === "SATISPAY" || part.paymentMethod === "OTHER") {
+        otherTotal += part.amount;
+      }
+    }
+  }
+  cashTotal = Math.round(cashTotal * 100) / 100;
+  posTotal = Math.round(posTotal * 100) / 100;
+  mealTotal = Math.round(mealTotal * 100) / 100;
+  otherTotal = Math.round(otherTotal * 100) / 100;
   const trainingTotal = transactions
     .filter((t) => t.documentType === "TRAINING")
     .reduce((s, t) => s + t.amount, 0);
@@ -494,6 +540,8 @@ export function buildDailyReportSnapshot(
     openTablesTotal += bill.total;
   }
   openTablesTotal = Math.round(openTablesTotal * 100) / 100;
+
+  const discountDetails = aggregateDiscountDetails(allLines);
 
   return {
     header: {
@@ -546,6 +594,7 @@ export function buildDailyReportSnapshot(
     },
     stornos,
     transactionCount: transactions.length,
+    discountDetails,
   };
 }
 

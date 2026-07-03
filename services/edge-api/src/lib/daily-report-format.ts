@@ -120,6 +120,22 @@ export function formatDailyReportText(snapshot: DailyReportSnapshot): string {
   lines.push(padLine("Correzioni", money(snapshot.adjustments.corrections)));
   lines.push(padLine("Tavoli aperti", money(snapshot.adjustments.openTables)));
 
+  if (snapshot.discountDetails && snapshot.discountDetails.length > 0) {
+    lines.push(sectionTitle("DETTAGLIO SCONTI"));
+    lines.push(
+      table3(
+        snapshot.discountDetails.map((d) => ({
+          desc: d.label,
+          qty: `Quantità: ${d.quantity}`,
+          total: money(d.total),
+        })),
+        ["Descrizione", "Quantità", "Importo"],
+      ),
+    );
+    const discountDetailTotal = snapshot.discountDetails.reduce((s, d) => s + d.total, 0);
+    lines.push(padLine("Totale", money(discountDetailTotal)));
+  }
+
   if (snapshot.stornos.length > 0) {
     lines.push(sectionTitle("STORNI"));
     for (const s of snapshot.stornos) {

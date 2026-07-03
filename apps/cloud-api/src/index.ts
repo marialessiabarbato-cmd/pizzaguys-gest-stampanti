@@ -11,6 +11,10 @@ import { priceRoutes } from "./routes/prices.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { startNightlyReportWorker } from "./lib/nightly-worker.js";
 import { reportRoutes } from "./routes/reports.js";
+import { invoiceRoutes } from "./routes/invoices.js";
+import { invoiceCustomerProfileRoutes } from "./routes/invoice-customers.js";
+import { locationDiscountPresetRoutes } from "./routes/discount-presets.js";
+import { locationMealVoucherPresetRoutes } from "./routes/meal-voucher-presets.js";
 import { syncRoutes } from "./routes/sync.js";
 import { userRoutes } from "./routes/users.js";
 import { variantRoutes } from "./routes/variants.js";
@@ -43,6 +47,10 @@ await dashboardRoutes(app);
 await auditRoutes(app);
 await syncRoutes(app);
 await reportRoutes(app);
+await invoiceRoutes(app);
+await invoiceCustomerProfileRoutes(app);
+await locationDiscountPresetRoutes(app);
+await locationMealVoucherPresetRoutes(app);
 
 startNightlyReportWorker(app);
 

@@ -9,6 +9,7 @@ import {
 } from "@pizzaguys/edge-db";
 import { eq, sql } from "drizzle-orm";
 import { cloudHandshake } from "./cloud.js";
+import { applyInvoiceCustomersFromSnapshot } from "./invoice-customers.js";
 import { setLockTimeoutMinutes } from "./runtime.js";
 
 const DEFAULT_PRINTERS = [
@@ -102,6 +103,8 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
   if (settings?.tableLockTimeoutMinutes) {
     setLockTimeoutMinutes(settings.tableLockTimeoutMinutes);
   }
+
+  applyInvoiceCustomersFromSnapshot(db, handshake.snapshot.invoiceCustomers);
 
   const categories = handshake.snapshot.categories ?? [];
   for (const cat of categories) {

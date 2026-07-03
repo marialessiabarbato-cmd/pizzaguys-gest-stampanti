@@ -2,7 +2,9 @@ import { edgeState, menuCache } from "@pizzaguys/edge-db";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { cloudDelta, cloudHeartbeat } from "./cloud.js";
+import { applyInvoiceCustomersFromSnapshot } from "./invoice-customers.js";
 import { processSyncQueue } from "./sync-queue.js";
+import type { MenuSnapshot } from "@pizzaguys/types";
 
 const INTERVAL_MS = 60_000;
 
@@ -38,6 +40,10 @@ export function startHeartbeatLoop(app: FastifyInstance) {
             .set({ schemaVersion: delta.schemaVersion, updatedAt: now })
             .where(eq(edgeState.id, 1))
             .run();
+          applyInvoiceCustomersFromSnapshot(
+            app.edgeDb,
+            (delta.delta as MenuSnapshot).invoiceCustomers,
+          );
           app.log.info({ schemaVersion: delta.schemaVersion }, "Menu delta applicato");
         }
       }

@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { paymentSplitSchema } from "./meal-voucher-presets.js";
 import { pinSchema } from "./auth.js";
+import { invoiceCustomerSchema } from "./invoice.js";
 
 export const provisionEdgeSchema = z.object({
   apiToken: z.string().min(32),
@@ -112,17 +114,51 @@ export const releaseDessertSchema = z.object({
   tableId: z.string().min(1),
 });
 
-export const payTableSchema = z.object({
-  paymentMethod: z.enum(["CASH", "POS", "MEAL_VOUCHER", "SATISPAY", "OTHER"]),
-  amountReceived: z.number().positive().optional(),
-  operatorId: z.string().min(1),
-  operatorName: z.string().min(1),
-  paymentRequestId: z.string().uuid().optional(),
-  shiftId: z.string().uuid().optional(),
-  splitMode: z.enum(["FULL", "ROMAN", "ANALYTIC"]).default("FULL"),
-  checkId: z.string().uuid().optional(),
-  documentType: z.enum(["RECEIPT", "INVOICE", "TRAINING"]).default("RECEIPT"),
-});
+export const payTableSchema = z
+  .object({
+    paymentMethod: z.enum(["CASH", "POS", "MEAL_VOUCHER", "SATISPAY", "OTHER"]).optional(),
+    paymentSplits: z.array(paymentSplitSchema).min(1).max(4).optional(),
+    amountReceived: z.number().positive().optional(),
+    operatorId: z.string().min(1),
+    operatorName: z.string().min(1),
+    paymentRequestId: z.string().uuid().optional(),
+    shiftId: z.string().uuid().optional(),
+    splitMode: z.enum(["FULL", "ROMAN", "ANALYTIC"]).default("FULL"),
+    checkId: z.string().uuid().optional(),
+    documentType: z.enum(["RECEIPT", "INVOICE", "TRAINING"]).default("RECEIPT"),
+    invoiceCustomer: invoiceCustomerSchema.optional(),
+    fullMealReceipt: z.boolean().optional().default(false),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.paymentMethod && !data.paymentSplits?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Metodo di pagamento o paymentSplits richiesti",
+        path: ["paymentMethod"],
+      });
+    }
+    if (data.documentType === "INVOICE" && !data.invoiceCustomer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dati cliente obbligatori per fattura",
+        path: ["invoiceCustomer"],
+      });
+    }
+    if (data.documentType !== "INVOICE" && data.invoiceCustomer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dati cliente consentiti solo con documento Fattura",
+        path: ["invoiceCustomer"],
+      });
+    }
+    if (data.paymentSplits?.length && data.documentType === "INVOICE") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Pagamento misto non disponibile con fattura",
+        path: ["paymentSplits"],
+      });
+    }
+  });
 
 export const romanSplitSchema = z.object({
   shares: z.number().int().min(2).max(20),
@@ -168,6 +204,36 @@ export const counterSaleSchema = z.object({
   operatorName: z.string().min(1),
   lines: z.array(orderLineSchema).min(1),
 });
+
+export const createCounterOrderSchema = z
+  .object({
+    channel: z.enum(["TAKEAWAY", "DELIVERY"]),
+    operatorId: z.string().min(1),
+    operatorName: z.string().min(1),
+    customerName: z.string().max(120).optional(),
+    phone: z.string().max(30).optional(),
+    address: z.string().max(200).optional(),
+    notes: z.string().max(500).optional(),
+    broker: z.string().max(80).optional(),
+    asap: z.boolean().default(true),
+    scheduledAt: z.string().datetime().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.channel === "DELIVERY" && !data.asap && !data.scheduledAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Orario consegna obbligatorio",
+        path: ["scheduledAt"],
+      });
+    }
+    if (!data.asap && !data.scheduledAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Seleziona un orario o «Il prima possibile»",
+        path: ["scheduledAt"],
+      });
+    }
+  });
 
 export const updateTableGuestsSchema = z.object({
   guests: z.number().int().min(1).max(99),

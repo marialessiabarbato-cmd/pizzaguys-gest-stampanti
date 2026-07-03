@@ -24,6 +24,7 @@ interface DailyReportSnapshot {
     voided: number;
     corrections: number;
   };
+  discountDetails?: Array<{ label: string; quantity: number; total: number }>;
   vatReceipts: Array<{ label: string; rate: number; gross: number }>;
   vatInvoices: Array<{ label: string; rate: number; gross: number }>;
 }
@@ -121,6 +122,14 @@ export function DailyReportDetailPanel({ snapshot }: { snapshot: DailyReportSnap
           label: g.name,
           qty: g.quantity,
           total: g.total,
+        }))}
+      />
+      <MiniTable
+        title="Dettaglio sconti"
+        rows={(snapshot.discountDetails ?? []).map((d) => ({
+          label: d.label,
+          qty: d.quantity,
+          total: d.total,
         }))}
       />
       <MiniTable
