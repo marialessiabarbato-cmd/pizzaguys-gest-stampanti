@@ -79,7 +79,7 @@ export function MenuPanel({
         </div>
       </div>
 
-      <ul className="flex-1 space-y-2 overflow-y-auto p-3">
+      <ul className="flex-1 divide-y divide-[hsl(var(--pg-border))] overflow-y-auto">
         {products.map((p) => {
           const excluded = isExcluded(p);
           const price = resolvePrice(p, channel, menu.prices ?? []);
@@ -89,15 +89,15 @@ export function MenuPanel({
                 type="button"
                 disabled={excluded}
                 onClick={() => onAddProduct(p)}
-                className={`flex min-h-14 w-full items-center justify-between rounded-xl border border-[hsl(var(--pg-border))] px-4 py-3 text-left active:scale-[0.99] ${
-                  excluded ? "pointer-events-none opacity-30" : "hover:border-[hsl(var(--pg-primary))]/40"
+                className={`flex min-h-[3.25rem] w-full items-center justify-between px-4 py-3 text-left active:bg-[hsl(var(--pg-muted))]/30 ${
+                  excluded ? "pointer-events-none opacity-30" : ""
                 }`}
               >
                 <span className="pr-3 font-medium leading-tight">
                   {excluded && "🚫 "}
                   {localized(p.name)}
                 </span>
-                <span className="shrink-0 font-semibold tabular-nums text-[hsl(var(--pg-muted-foreground))]">
+                <span className="shrink-0 tabular-nums text-[hsl(var(--pg-muted-foreground))]">
                   € {price.toFixed(2)}
                 </span>
               </button>

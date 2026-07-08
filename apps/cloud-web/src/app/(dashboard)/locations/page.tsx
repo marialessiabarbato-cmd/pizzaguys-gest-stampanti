@@ -1,10 +1,12 @@
 "use client";
 
-import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
+import { Button, Card, CardContent } from "@pizzaguys/ui";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { locationStatusLabel } from "@/lib/activity-labels";
 import { api } from "@/lib/api";
-import { LocationDiscountPresetsPanel } from "@/components/LocationDiscountPresetsPanel";
-import { LocationMealVoucherPresetsPanel } from "@/components/LocationMealVoucherPresetsPanel";
+import { detailLinkClass, inputFullClass } from "@/lib/cloud-admin-ui";
 
 interface Location {
   id: string;
@@ -14,14 +16,25 @@ interface Location {
   managerEmail: string;
   coverChargeAmount: number;
   healthStatus: string;
-  schemaVersion: number;
-  lastHeartbeatAt: string | null;
   hasToken: boolean;
 }
 
+function statusColor(status: string) {
+  if (status === "ONLINE") return "text-green-600";
+  if (status === "DESYNC") return "text-amber-600";
+  return "text-red-500";
+}
+
+function euro(value: number) {
+  return `€ ${value.toFixed(2).replace(".", ",")}`;
+}
+
 export default function LocationsPage() {
+  const router = useRouter();
   const [locations, setLocations] = useState<Location[]>([]);
-  const [tokenReveal, setTokenReveal] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     name: "",
     address: "",
@@ -29,7 +42,10 @@ export default function LocationsPage() {
     managerEmail: "",
   });
 
-  const load = () => api<Location[]>("/api/v2/locations").then(setLocations);
+  const load = () =>
+    api<Location[]>("/api/v2/locations")
+      .then(setLocations)
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     void load();
@@ -37,132 +53,143 @@ export default function LocationsPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await api<{ apiToken: string }>("/api/v2/locations", {
-      method: "POST",
-      body: JSON.stringify(form),
-    });
-    setTokenReveal(res.apiToken);
-    setForm({ name: "", address: "", vatNumber: "", managerEmail: "" });
-    void load();
-  };
-
-  const regenerateToken = async (id: string) => {
-    if (!confirm("Rigenerare il token? Il vecchio token smetterà di funzionare.")) return;
-    const res = await api<{ apiToken: string }>(`/api/v2/locations/${id}/regenerate-token`, {
-      method: "POST",
-    });
-    setTokenReveal(res.apiToken);
-    void load();
-  };
-
-  const revokeToken = async (id: string) => {
-    if (!confirm("Revocare il token? L'edge perderà la connessione al cloud.")) return;
-    await api(`/api/v2/locations/${id}/token`, { method: "DELETE" });
-    void load();
-  };
-
-  const saveCoverCharge = async (id: string, amount: number) => {
-    await api(`/api/v2/locations/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ coverChargeAmount: amount }),
-    });
-    void load();
+    setCreating(true);
+    try {
+      const res = await api<{ location: { id: string }; apiToken: string }>("/api/v2/locations", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+      setShowCreate(false);
+      setForm({ name: "", address: "", vatNumber: "", managerEmail: "" });
+      sessionStorage.setItem(`pg_location_token_${res.location.id}`, res.apiToken);
+      router.push(`/locations/${res.location.id}`);
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Sedi</h1>
-
-      {tokenReveal && (
-        <Card className="border-[hsl(var(--pg-warning))]">
-          <CardContent className="pt-6">
-            <p className="mb-2 font-medium text-[hsl(var(--pg-warning))]">
-              Token API — copialo ora, non verrà più mostrato:
-            </p>
-            <code className="block break-all rounded bg-[hsl(var(--pg-muted))] p-3 text-sm">
-              {tokenReveal}
-            </code>
-            <Button className="mt-3" variant="outline" onClick={() => setTokenReveal(null)}>
-              Ho salvato il token
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Sedi</h1>
+          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+            Elenco punti vendita collegati al cloud.
+          </p>
+        </div>
+        <Button onClick={() => setShowCreate(true)}>Crea nuova sede</Button>
+      </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Nuova sede</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={create} className="grid gap-3 md:grid-cols-2">
-            {(["name", "address", "vatNumber", "managerEmail"] as const).map((field) => (
-              <input
-                key={field}
-                className="rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
-                placeholder={field === "vatNumber" ? "Partita IVA (11 cifre)" : field === "name" ? "Nome sede" : field === "address" ? "Indirizzo" : "Email manager"}
-                value={form[field]}
-                onChange={(e) => setForm({ ...form, [field]: e.target.value })}
-                required
-              />
-            ))}
-            <Button type="submit" className="md:col-span-2">
-              Crea sede
-            </Button>
-          </form>
+        <CardContent className="p-0">
+          {loading ? (
+            <p className="px-6 py-4 text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
+          ) : locations.length === 0 ? (
+            <p className="px-6 py-4 text-sm text-[hsl(var(--pg-muted-foreground))]">
+              Nessuna sede configurata. Clicca &quot;Crea nuova sede&quot; per iniziare.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[hsl(var(--pg-border))] text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    <th className="px-6 py-3 font-medium">Nome</th>
+                    <th className="px-3 py-3 font-medium">Indirizzo</th>
+                    <th className="px-3 py-3 font-medium">Stato</th>
+                    <th className="px-3 py-3 font-medium">Coperto</th>
+                    <th className="px-3 py-3 font-medium">Collegamento</th>
+                    <th className="px-6 py-3 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {locations.map((loc) => (
+                    <tr key={loc.id} className="border-b border-[hsl(var(--pg-border))]/50">
+                      <td className="px-6 py-3 font-medium">{loc.name}</td>
+                      <td className="max-w-[200px] truncate px-3 py-3 text-[hsl(var(--pg-muted-foreground))]">
+                        {loc.address}
+                      </td>
+                      <td className={`px-3 py-3 ${statusColor(loc.healthStatus)}`}>
+                        {locationStatusLabel(loc.healthStatus)}
+                      </td>
+                      <td className="px-3 py-3 tabular-nums">{euro(loc.coverChargeAmount)}</td>
+                      <td className="px-3 py-3 text-[hsl(var(--pg-muted-foreground))]">
+                        {loc.hasToken ? "Attivo" : "Revocato"}
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <Link
+                          href={`/locations/${loc.id}`}
+                          className={detailLinkClass}
+                        >
+                          Dettaglio
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <div className="space-y-3">
-        {locations.map((loc) => (
-          <Card key={loc.id}>
-            <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-6">
-              <div>
-                <p className="font-semibold">{loc.name}</p>
-                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">{loc.address}</p>
-                <p className="text-xs">P.IVA {loc.vatNumber} · {loc.managerEmail}</p>
-                <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                  Schema v{loc.schemaVersion} · Token: {loc.hasToken ? "attivo" : "revocato"}
-                  {loc.lastHeartbeatAt && ` · Ultimo heartbeat: ${new Date(loc.lastHeartbeatAt).toLocaleString("it-IT")}`}
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <label className="text-xs">Coperto (€)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.5}
-                    className="w-20 rounded border border-[hsl(var(--pg-border))] bg-transparent px-2 py-1 text-sm"
-                    defaultValue={loc.coverChargeAmount}
-                    key={`cover-${loc.id}-${loc.coverChargeAmount}`}
-                    onBlur={(e) => {
-                      const v = Number(e.target.value);
-                      if (!Number.isFinite(v) || v < 0) return;
-                      if (v !== loc.coverChargeAmount) void saveCoverCharge(loc.id, v);
-                    }}
-                  />
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-lg">
+            <CardContent className="space-y-4 pt-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Nuova sede</h2>
+                  <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                    Dopo la creazione riceverai il token API da configurare sulla Main Station.
+                  </p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs uppercase">{loc.healthStatus}</span>
-                <Button variant="outline" onClick={() => regenerateToken(loc.id)}>
-                  Rigenera token
+                <Button variant="ghost" type="button" onClick={() => setShowCreate(false)}>
+                  ✕
                 </Button>
-                {loc.hasToken && (
-                  <Button variant="ghost" onClick={() => revokeToken(loc.id)}>
-                    Revoca
-                  </Button>
-                )}
               </div>
-            </CardContent>
-            <CardContent className="border-t border-[hsl(var(--pg-border))] pt-0">
-              <LocationDiscountPresetsPanel locationId={loc.id} />
-            </CardContent>
-            <CardContent className="border-t border-[hsl(var(--pg-border))] pt-0">
-              <LocationMealVoucherPresetsPanel locationId={loc.id} />
+              <form onSubmit={create} className="grid gap-3">
+                <input
+                  className={inputFullClass}
+                  placeholder="Nome sede"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  required
+                />
+                <input
+                  className={inputFullClass}
+                  placeholder="Indirizzo"
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  required
+                />
+                <input
+                  className={inputFullClass}
+                  placeholder="Partita IVA (11 cifre)"
+                  value={form.vatNumber}
+                  onChange={(e) => setForm({ ...form, vatNumber: e.target.value })}
+                  required
+                />
+                <input
+                  type="email"
+                  className={inputFullClass}
+                  placeholder="Email manager"
+                  value={form.managerEmail}
+                  onChange={(e) => setForm({ ...form, managerEmail: e.target.value })}
+                  required
+                />
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
+                    Annulla
+                  </Button>
+                  <Button type="submit" disabled={creating}>
+                    {creating ? "Creazione..." : "Crea sede"}
+                  </Button>
+                </div>
+              </form>
             </CardContent>
           </Card>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

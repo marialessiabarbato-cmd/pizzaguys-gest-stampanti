@@ -1,6 +1,8 @@
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useMemo, useState } from "react";
+import { CounterCustomerPicker } from "./CounterCustomerPicker";
 import { edgeApi } from "../lib/api";
+import type { CounterCustomerSelection } from "../lib/counter-customers";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
@@ -52,11 +54,20 @@ function buildScheduledAt(asap: boolean, hour: number, minute: number): string |
 export function CounterOrderModal({
   initialChannel,
   loading,
+  embedded = false,
+  hideChannelTabs = false,
+  recentCustomers = [],
   onConfirm,
   onClose,
 }: {
   initialChannel: CounterChannel;
   loading?: boolean;
+  /** Se true, il form riempie il pannello laterale senza coprire la mappa */
+  embedded?: boolean;
+  /** Nasconde Asporto/Consegna quando il canale è già scelto dalla pagina */
+  hideChannelTabs?: boolean;
+  /** Clienti da ordini asporto/delivery già aperti (per selezione rapida) */
+  recentCustomers?: CounterCustomerSelection[];
   onConfirm: (payload: {
     channel: CounterChannel;
     customerName?: string;
@@ -72,9 +83,11 @@ export function CounterOrderModal({
   const [form, setForm] = useState<CounterOrderForm>(() => defaultForm(initialChannel));
   const [brokers, setBrokers] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
 
   useEffect(() => {
     setForm(defaultForm(initialChannel));
+    setShowCustomerPicker(false);
   }, [initialChannel]);
 
   useEffect(() => {
@@ -92,6 +105,17 @@ export function CounterOrderModal({
 
   const setField = <K extends keyof CounterOrderForm>(key: K, value: CounterOrderForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setError("");
+  };
+
+  const applyCustomer = (customer: CounterCustomerSelection) => {
+    setForm((prev) => ({
+      ...prev,
+      customerName: customer.name,
+      phone: customer.phone ?? prev.phone,
+      address: customer.address ?? prev.address,
+    }));
+    setShowCustomerPicker(false);
     setError("");
   };
 
@@ -113,18 +137,25 @@ export function CounterOrderModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[hsl(var(--pg-background))]">
+    <div
+      className={
+        embedded
+          ? "flex min-h-0 flex-1 flex-col bg-[hsl(var(--pg-background))]"
+          : "fixed inset-0 z-50 flex flex-col bg-[hsl(var(--pg-background))]"
+      }
+    >
+      {!hideChannelTabs && (
       <div className="grid shrink-0 grid-cols-2 border-b border-[hsl(var(--pg-border))]">
         {(
           [
             ["TAKEAWAY", "Asporto"],
-            ["DELIVERY", "Consegna a domicilio"],
+            ["DELIVERY", "Consegna"],
           ] as const
         ).map(([id, label]) => (
           <button
             key={id}
             type="button"
-            className={`min-h-[56px] px-4 py-3 text-base font-semibold transition ${
+            className={`min-h-[48px] px-3 py-2 text-sm font-semibold transition ${
               form.channel === id
                 ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                 : "bg-[hsl(var(--pg-muted))]/40 text-[hsl(var(--pg-muted-foreground))]"
@@ -135,12 +166,17 @@ export function CounterOrderModal({
           </button>
         ))}
       </div>
+      )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-2">
-        <section className="space-y-4">
+      <div
+        className={`grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 ${
+          embedded ? "grid-cols-2" : "grid-cols-1 lg:grid-cols-2"
+        }`}
+      >
+        <section className="space-y-3">
           <Button
             type="button"
-            className="h-12 w-full text-base"
+            className={`w-full ${embedded ? "h-10 text-sm" : "h-12 text-base"}`}
             variant={form.asap ? "default" : "outline"}
             onClick={() => setField("asap", true)}
           >
@@ -149,12 +185,14 @@ export function CounterOrderModal({
 
           <div>
             <p className="mb-2 text-sm font-semibold">Ora</p>
-            <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
+            <div className={`grid gap-1.5 ${embedded ? "grid-cols-6" : "grid-cols-6 sm:grid-cols-8"}`}>
               {HOURS.map((h) => (
                 <button
                   key={h}
                   type="button"
-                  className={`min-h-[44px] rounded-lg text-sm font-medium ${
+                  className={`rounded-lg text-sm font-medium ${
+                    embedded ? "min-h-[36px]" : "min-h-[44px]"
+                  } ${
                     !form.asap && form.hour === h
                       ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                       : "bg-[hsl(var(--pg-muted))]"
@@ -169,12 +207,14 @@ export function CounterOrderModal({
 
           <div>
             <p className="mb-2 text-sm font-semibold">Minuti</p>
-            <div className="grid grid-cols-6 gap-2">
+            <div className={`grid gap-1.5 ${embedded ? "grid-cols-4" : "grid-cols-6"}`}>
               {MINUTES.map((m) => (
                 <button
                   key={m}
                   type="button"
-                  className={`min-h-[44px] rounded-lg text-sm font-medium ${
+                  className={`rounded-lg text-sm font-medium ${
+                    embedded ? "min-h-[36px]" : "min-h-[44px]"
+                  } ${
                     !form.asap && form.minute === m
                       ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                       : "bg-[hsl(var(--pg-muted))]"
@@ -189,11 +229,43 @@ export function CounterOrderModal({
         </section>
 
         <section className="space-y-3">
-          <Field
-            label="Cliente"
-            value={form.customerName}
-            onChange={(v) => setField("customerName", v)}
-          />
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">Cliente</label>
+              <Button
+                type="button"
+                variant={showCustomerPicker ? "default" : "outline"}
+                className="h-8 px-3 text-xs"
+                onClick={() => setShowCustomerPicker((open) => !open)}
+              >
+                {showCustomerPicker ? "Chiudi rubrica" : "Rubrica"}
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="h-12 flex-1 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3"
+                value={form.customerName}
+                onChange={(e) => setField("customerName", e.target.value)}
+                placeholder="Nome cliente"
+              />
+              {form.customerName && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 w-12 shrink-0 px-0"
+                  onClick={() => setField("customerName", "")}
+                  aria-label="Cancella Cliente"
+                >
+                  ×
+                </Button>
+              )}
+            </div>
+            {showCustomerPicker && (
+              <div className="mt-2">
+                <CounterCustomerPicker recentCustomers={recentCustomers} onSelect={applyCustomer} />
+              </div>
+            )}
+          </div>
           {form.channel === "DELIVERY" && (
             <>
               <Field label="Indirizzo" value={form.address} onChange={(v) => setField("address", v)} />
@@ -243,11 +315,24 @@ export function CounterOrderModal({
         <p className="shrink-0 px-4 py-2 text-sm text-red-600">{error}</p>
       )}
 
-      <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-primary))]/10 p-4">
-        <Button variant="outline" className="h-12 min-w-[120px]" onClick={onClose} disabled={loading}>
+      <footer
+        className={`flex shrink-0 items-center justify-end gap-2 border-t border-[hsl(var(--pg-border))] p-3 ${
+          embedded ? "bg-[hsl(var(--pg-background))]" : "bg-[hsl(var(--pg-primary))]/10 p-4"
+        }`}
+      >
+        <Button
+          variant="outline"
+          className={embedded ? "h-10 min-w-[96px]" : "h-12 min-w-[120px]"}
+          onClick={onClose}
+          disabled={loading}
+        >
           Chiudi
         </Button>
-        <Button className="h-12 min-w-[120px]" onClick={handleConfirm} disabled={loading}>
+        <Button
+          className={embedded ? "h-10 min-w-[96px]" : "h-12 min-w-[120px]"}
+          onClick={handleConfirm}
+          disabled={loading}
+        >
           {loading ? "…" : "Ok"}
         </Button>
       </footer>

@@ -46,9 +46,14 @@ export function Shell({
             </button>
           ))}
         </nav>
-        <Button variant="outline" className="mt-8 w-full" onClick={toggleTheme}>
-          Tema
-        </Button>
+        <div className="mt-8 border-t border-[hsl(var(--pg-border))] pt-4">
+          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+            Account
+          </p>
+          <Button variant="outline" className="w-full" onClick={toggleTheme}>
+            Tema
+          </Button>
+        </div>
       </aside>
       <main className="flex-1 p-6">{children}</main>
     </div>

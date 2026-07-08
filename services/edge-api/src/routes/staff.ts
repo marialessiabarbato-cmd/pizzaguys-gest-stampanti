@@ -20,6 +20,20 @@ import {
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 
+async function hasActivePinConflict(
+  app: FastifyInstance,
+  pin: string,
+  excludeStaffId?: string,
+): Promise<boolean> {
+  const activeMembers = app.edgeDb.select().from(staff).where(eq(staff.isActive, true)).all();
+  for (const member of activeMembers) {
+    if (excludeStaffId && member.id === excludeStaffId) continue;
+    const samePin = await bcrypt.compare(pin, member.pinHash);
+    if (samePin) return true;
+  }
+  return false;
+}
+
 export async function staffRoutes(app: FastifyInstance) {
   app.get("/api/staff", async () => {
     return app.edgeDb
@@ -39,6 +53,9 @@ export async function staffRoutes(app: FastifyInstance) {
     const parsed = createStaffSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+    if (await hasActivePinConflict(app, parsed.data.pin)) {
+      return reply.status(409).send({ error: "PIN già in uso da un altro operatore attivo" });
     }
     const now = new Date().toISOString();
     const pinHash = await bcrypt.hash(parsed.data.pin, 12);
@@ -69,6 +86,9 @@ export async function staffRoutes(app: FastifyInstance) {
     }
     const patch: Record<string, unknown> = { ...parsed.data, updatedAt: new Date().toISOString() };
     if (parsed.data.pin) {
+      if (await hasActivePinConflict(app, parsed.data.pin, req.params.id)) {
+        return reply.status(409).send({ error: "PIN già in uso da un altro operatore attivo" });
+      }
       patch.pinHash = await bcrypt.hash(parsed.data.pin, 12);
       delete patch.pin;
     }

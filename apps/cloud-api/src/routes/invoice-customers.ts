@@ -31,6 +31,17 @@ export async function invoiceCustomerProfileRoutes(app: FastifyInstance) {
     });
   });
 
+  app.get<{ Params: { id: string } }>("/api/v2/invoice-customers/:id", guard, async (req, reply) => {
+    const brand = await getDefaultBrand(app.db);
+    const row = await app.db.query.invoiceCustomerProfiles.findFirst({
+      where: eq(invoiceCustomerProfiles.id, req.params.id),
+    });
+    if (!row || row.brandId !== brand.id) {
+      return reply.status(404).send({ error: "Cliente non trovato" });
+    }
+    return row;
+  });
+
   app.post("/api/v2/invoice-customers", guard, async (req, reply) => {
     const parsed = createInvoiceCustomerProfileSchema.safeParse(req.body);
     if (!parsed.success) {

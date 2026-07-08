@@ -299,7 +299,124 @@ def test_cloud() -> tuple[str | None, str | None]:
     else:
         bad("cloud nightly preview", f"HTTP {code}")
 
+    test_cloud_admin_details(token, location_id)
+
     return token, location_id
+
+
+def test_cloud_admin_details(token: str, location_id: str | None) -> None:
+    print("\n=== CLOUD API — dettagli admin ===")
+    fake_id = "00000000-0000-0000-0000-000000000000"
+
+    _, customers = req(CLOUD, "GET", "/api/v2/invoice-customers", token=token)
+    if isinstance(customers, list) and customers:
+        cid = customers[0]["id"]
+        code, detail = req(CLOUD, "GET", f"/api/v2/invoice-customers/{cid}", token=token)
+        if expect_status("cloud invoice-customer dettaglio", code, 200, detail):
+            if detail.get("businessName"):
+                ok("cloud invoice-customer campi anagrafici")
+    else:
+        warn("cloud invoice-customer dettaglio", "nessun cliente in rubrica")
+
+    code, missing = req(CLOUD, "GET", f"/api/v2/invoice-customers/{fake_id}", token=token)
+    expect_status("cloud invoice-customer 404", code, 404, missing)
+
+    _, inv_body = req(CLOUD, "GET", "/api/v2/invoices", token=token)
+    invoices = inv_body.get("invoices", []) if isinstance(inv_body, dict) else []
+    if invoices:
+        iid = invoices[0]["id"]
+        code, detail = req(CLOUD, "GET", f"/api/v2/invoices/{iid}", token=token)
+        if expect_status("cloud invoice dettaglio", code, 200, detail):
+            if detail.get("invoiceNumber"):
+                ok("cloud invoice campi fattura")
+    else:
+        warn("cloud invoice dettaglio", "nessuna fattura in archivio")
+
+    code, missing = req(CLOUD, "GET", f"/api/v2/invoices/{fake_id}", token=token)
+    expect_status("cloud invoice 404", code, 404, missing)
+
+    if not location_id:
+        warn("cloud closure dettaglio", "sede non disponibile")
+        return
+
+    _, closures = req(
+        CLOUD, "GET", f"/api/v2/locations/{location_id}/closures", token=token,
+    )
+    if isinstance(closures, list) and closures:
+        clid = closures[0]["id"]
+        code, detail = req(CLOUD, "GET", f"/api/v2/closures/{clid}", token=token)
+        if expect_status("cloud closure dettaglio", code, 200, detail):
+            if detail.get("locationName") and detail.get("closureDate"):
+                ok("cloud closure campi report")
+    else:
+        warn("cloud closure dettaglio", "nessuna chiusura in archivio")
+
+    code, missing = req(CLOUD, "GET", f"/api/v2/closures/{fake_id}", token=token)
+    expect_status("cloud closure 404", code, 404, missing)
+
+    smoke_label = f"Smoke patch {uuid.uuid4().hex[:6]}"
+    code, created = req(
+        CLOUD,
+        "POST",
+        f"/api/v2/locations/{location_id}/discount-presets",
+        {"label": smoke_label, "percent": 5, "sortOrder": 99},
+        token=token,
+    )
+    if code in (200, 201) and created.get("id"):
+        pid = created["id"]
+        code, patched = req(
+            CLOUD,
+            "PATCH",
+            f"/api/v2/locations/{location_id}/discount-presets/{pid}",
+            {"label": f"{smoke_label} OK"},
+            token=token,
+        )
+        expect_status("cloud discount-preset patch", code, 200, patched)
+        code, _ = req(
+            CLOUD,
+            "DELETE",
+            f"/api/v2/locations/{location_id}/discount-presets/{pid}",
+            token=token,
+        )
+        if code == 204:
+            ok("cloud discount-preset delete")
+        else:
+            bad("cloud discount-preset delete", f"HTTP {code}")
+    else:
+        warn("cloud discount-preset patch/delete", f"create HTTP {code}")
+
+    voucher_label = f"Smoke voucher {uuid.uuid4().hex[:6]}"
+    code, created = req(
+        CLOUD,
+        "POST",
+        f"/api/v2/locations/{location_id}/meal-voucher-presets",
+        {"label": voucher_label, "amount": 9, "sortOrder": 99},
+        token=token,
+    )
+    if code in (200, 201) and created.get("id"):
+        vid = created["id"]
+        code, patched = req(
+            CLOUD,
+            "PATCH",
+            f"/api/v2/locations/{location_id}/meal-voucher-presets/{vid}",
+            {"label": f"{voucher_label} OK"},
+            token=token,
+        )
+        expect_status("cloud meal-voucher-preset patch", code, 200, patched)
+        code, _ = req(
+            CLOUD,
+            "DELETE",
+            f"/api/v2/locations/{location_id}/meal-voucher-presets/{vid}",
+            token=token,
+        )
+        if code == 204:
+            ok("cloud meal-voucher-preset delete")
+        else:
+            bad("cloud meal-voucher-preset delete", f"HTTP {code}")
+    elif code == 500:
+        warn("cloud meal-voucher-preset patch/delete", "HTTP 500 — esegui pnpm db:migrate")
+    else:
+        warn("cloud meal-voucher-preset patch/delete", f"create HTTP {code}")
 
 
 # ── Edge base ────────────────────────────────────────────────────────────────

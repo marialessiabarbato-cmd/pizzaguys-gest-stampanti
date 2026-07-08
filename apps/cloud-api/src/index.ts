@@ -4,6 +4,7 @@ import authPlugin from "./plugins/auth.js";
 import dbPlugin from "./plugins/db.js";
 import { auditRoutes } from "./routes/audit.js";
 import { authRoutes } from "./routes/auth.js";
+import { closureRoutes } from "./routes/closures.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { locationRoutes } from "./routes/locations.js";
 import { menuRoutes } from "./routes/menu.js";
@@ -38,6 +39,7 @@ app.get("/health", async () => ({
 
 await authRoutes(app);
 await locationRoutes(app);
+await closureRoutes(app);
 await menuRoutes(app);
 await variantRoutes(app);
 await priceRoutes(app);

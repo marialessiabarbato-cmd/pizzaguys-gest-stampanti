@@ -1,9 +1,17 @@
 "use client";
 
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { DailyReportDetailPanel, type DailyReportSnapshot } from "@/components/DailyReportDetailPanel";
 import { api, apiText } from "@/lib/api";
+import {
+  btnSize,
+  detailLinkClass,
+  formRowEndGap3Class,
+  stackedInputClass,
+  stackedLabelClass,
+  stackedSelectClass,
+} from "@/lib/cloud-admin-ui";
 
 interface Location {
   id: string;
@@ -20,7 +28,6 @@ interface ClosureRow {
   discrepancy: number;
   byPaymentMethod: Record<string, number>;
   receivedAt: string;
-  dailyReport?: DailyReportSnapshot | null;
 }
 
 interface NightlyRow {
@@ -84,7 +91,6 @@ export default function ClosuresPage() {
   const [closuresTo, setClosuresTo] = useState(todayKey());
   const [closures, setClosures] = useState<ClosureRow[]>([]);
   const [closuresLoading, setClosuresLoading] = useState(false);
-  const [selectedClosureId, setSelectedClosureId] = useState<string | null>(null);
 
   const [reportDate, setReportDate] = useState(yesterdayKey());
   const [summary, setSummary] = useState<NightlySummary | null>(null);
@@ -114,9 +120,6 @@ export default function ClosuresPage() {
         `/api/v2/locations/${selectedLocationId}/closures?${params}`,
       );
       setClosures(rows);
-      setSelectedClosureId((prev) =>
-        prev && rows.some((r) => r.id === prev) ? prev : rows[0]?.id ?? null,
-      );
     } catch (err) {
       console.error(err);
       setClosures([]);
@@ -191,7 +194,6 @@ export default function ClosuresPage() {
   };
 
   const selectedLocation = locations.find((l) => l.id === selectedLocationId);
-  const selectedClosure = closures.find((c) => c.id === selectedClosureId) ?? null;
 
   return (
     <div className="space-y-8">
@@ -224,23 +226,23 @@ export default function ClosuresPage() {
             </p>
           )}
 
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="text-sm">
+          <div className={formRowEndGap3Class}>
+            <label className={stackedLabelClass}>
               Data chiusure
               <input
                 type="date"
-                className="mt-1 block rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
+                className={stackedInputClass}
                 value={reportDate}
                 onChange={(e) => setReportDate(e.target.value)}
               />
             </label>
-            <Button variant="outline" onClick={() => void loadReportSummary()} disabled={reportLoading}>
+            <Button size={btnSize.inline} variant="outline" onClick={() => void loadReportSummary()} disabled={reportLoading}>
               Aggiorna
             </Button>
-            <Button variant="outline" onClick={() => void previewReport()}>
+            <Button size={btnSize.inline} variant="outline" onClick={() => void previewReport()}>
               Anteprima HTML
             </Button>
-            <Button onClick={() => void sendReport()}>Invia email report</Button>
+            <Button size={btnSize.inline} onClick={() => void sendReport()}>Invia email report</Button>
           </div>
 
           {reportError && <p className="text-sm text-red-500">{reportError}</p>}
@@ -312,11 +314,11 @@ export default function ClosuresPage() {
           <CardTitle>Storico chiusure per sede</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="text-sm">
+          <div className={formRowEndGap3Class}>
+            <label className={stackedLabelClass}>
               Sede
               <select
-                className="mt-1 block min-w-[200px] rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
+                className={stackedSelectClass}
                 value={selectedLocationId}
                 onChange={(e) => setSelectedLocationId(e.target.value)}
               >
@@ -327,25 +329,25 @@ export default function ClosuresPage() {
                 ))}
               </select>
             </label>
-            <label className="text-sm">
+            <label className={stackedLabelClass}>
               Da
               <input
                 type="date"
-                className="mt-1 block rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
+                className={stackedInputClass}
                 value={closuresFrom}
                 onChange={(e) => setClosuresFrom(e.target.value)}
               />
             </label>
-            <label className="text-sm">
+            <label className={stackedLabelClass}>
               A
               <input
                 type="date"
-                className="mt-1 block rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
+                className={stackedInputClass}
                 value={closuresTo}
                 onChange={(e) => setClosuresTo(e.target.value)}
               />
             </label>
-            <Button variant="outline" onClick={() => void loadClosures()} disabled={closuresLoading}>
+            <Button size={btnSize.inline} variant="outline" onClick={() => void loadClosures()} disabled={closuresLoading}>
               Cerca
             </Button>
           </div>
@@ -374,16 +376,14 @@ export default function ClosuresPage() {
                     <th className="px-3 py-2 text-right">POS</th>
                     <th className="px-3 py-2 text-right">Scostamento</th>
                     <th className="px-3 py-2">Ricevuta cloud</th>
+                    <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
                   {closures.map((row) => (
                     <tr
                       key={row.id}
-                      className={`cursor-pointer border-t border-[hsl(var(--pg-border))] ${
-                        selectedClosureId === row.id ? "bg-[hsl(var(--pg-muted))]/50" : ""
-                      }`}
-                      onClick={() => setSelectedClosureId(row.id)}
+                      className="border-t border-[hsl(var(--pg-border))]"
                     >
                       <td className="px-3 py-2 font-medium">{row.closureDate}</td>
                       <td className="px-3 py-2">{row.fiscalZNumber ?? "—"}</td>
@@ -399,28 +399,19 @@ export default function ClosuresPage() {
                       </td>
                       <td className="px-3 py-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
                         {new Date(row.receivedAt).toLocaleString("it-IT")}
-                        {row.dailyReport ? " · dettaglio" : ""}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Link
+                          href={`/closures/${row.id}`}
+                          className={detailLinkClass}
+                        >
+                          Dettaglio
+                        </Link>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-
-          {selectedClosure && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">
-                Dettaglio chiusura · {selectedClosure.closureDate}
-              </h3>
-              {selectedClosure.dailyReport ? (
-                <DailyReportDetailPanel snapshot={selectedClosure.dailyReport} />
-              ) : (
-                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                  Nessun report giornaliero strutturato per questa chiusura (sync precedente alla
-                  Fase A/B).
-                </p>
-              )}
             </div>
           )}
         </CardContent>

@@ -4,7 +4,7 @@ import * as React from "react";
 import { cn } from "../lib/utils.js";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 min-h-12 min-w-12 px-4 text-sm",
+  "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 text-sm",
   {
     variants: {
       variant: {
@@ -17,9 +17,11 @@ const buttonVariants = cva(
         danger: "bg-[hsl(var(--pg-danger))] text-white hover:opacity-90",
       },
       size: {
-        default: "h-12 px-4",
-        lg: "h-14 px-6 text-base",
-        icon: "h-12 w-12",
+        default: "h-12 min-h-12 min-w-12 px-4",
+        lg: "h-14 min-h-14 px-6 text-base",
+        sm: "h-9 min-h-9 min-w-0 px-3",
+        compact: "h-8 min-h-8 min-w-0 px-2 text-xs",
+        icon: "h-12 w-12 min-h-12 min-w-12",
       },
     },
     defaultVariants: {
@@ -40,7 +42,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn(buttonVariants({ variant, size }), className)}
         ref={ref}
         {...props}
       />

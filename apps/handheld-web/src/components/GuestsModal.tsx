@@ -8,6 +8,7 @@ import {
   projectedGuests,
   tableSeats,
 } from "../lib/table-seats";
+import { formatTableLabel } from "../lib/table-display";
 import type { LiveTable } from "../lib/types";
 
 export type GuestsConfirmPayload = {
@@ -85,8 +86,13 @@ export function GuestsModal({
   const inc = () => setGuests((g) => Math.min(maxGuests, g + 1));
 
   const mergeLabels = mergeIds
-    .map((id) => tables.find((t) => t.id === id)?.label)
+    .map((id) => {
+      const label = tables.find((t) => t.id === id)?.label;
+      return label ? formatTableLabel(label) : undefined;
+    })
     .filter(Boolean);
+
+  const primaryLabel = formatTableLabel(primaryTable.label);
 
   const canSubmit =
     !loading &&
@@ -104,23 +110,32 @@ export function GuestsModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/40 sm:items-center sm:justify-center">
       <div className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-2xl bg-[hsl(var(--pg-background))] shadow-xl sm:rounded-2xl">
-        <div className="border-b border-[hsl(var(--pg-border))] px-4 py-3">
+        <div className="border-b border-[hsl(var(--pg-border))] px-4 py-4">
           <h2 className="text-center text-lg font-bold">Coperti</h2>
-          <p className="text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
-            Tavolo {primaryTable.label}
+          <p className="mt-1 text-center text-sm font-medium text-[hsl(var(--pg-muted-foreground))]">
+            {primaryLabel}
             {mergeEnabled && mergeLabels.length > 0
               ? ` + ${mergeLabels.join(" + ")}`
               : ""}
           </p>
-          <p className="mt-1 text-center text-xs text-[hsl(var(--pg-muted-foreground))]">
-            {mergeEnabled && mergeIds.length > 0
-              ? `${maxGuests} posti totali`
-              : `Capienza: ${baseCap} posti`}
-          </p>
+          <div className="mt-2 flex items-center justify-center gap-2">
+            <span className="rounded-full bg-[hsl(var(--pg-muted))] px-2.5 py-0.5 text-[11px] font-semibold text-[hsl(var(--pg-muted-foreground))]">
+              Capienza base: {baseCap}
+            </span>
+            {mergeEnabled && mergeIds.length > 0 && (
+              <span className="rounded-full bg-[hsl(var(--pg-muted))] px-2.5 py-0.5 text-[11px] font-semibold text-[hsl(var(--pg-muted-foreground))]">
+                Totale gruppo: {maxGuests}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          <div className="flex items-center justify-center gap-4">
+          <div className="pb-1">
+            <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+              Numero coperti
+            </p>
+            <div className="flex items-center justify-center gap-4">
             <Button
               type="button"
               variant="outline"
@@ -142,68 +157,53 @@ export function GuestsModal({
             >
               +
             </Button>
+            </div>
           </div>
 
-          {guests >= baseCap && !mergeEnabled && (
-            <button
-              type="button"
-              className="w-full rounded-lg border border-dashed border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/5 px-3 py-2 text-sm text-[hsl(var(--pg-primary))]"
-              onClick={() => enableMerge(true)}
-            >
-              Servono più posti? Unisci altri tavoli
-            </button>
-          )}
-
-          <label
-            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 ${
-              mergeEnabled
-                ? "border-amber-300 bg-amber-50"
-                : "border-[hsl(var(--pg-border))]"
+          <Button
+            type="button"
+            variant="outline"
+            className={`h-11 w-full text-sm ${
+              mergeEnabled ? "bg-[hsl(var(--pg-muted))]/40" : ""
             }`}
+            disabled={loading}
+            onClick={() => enableMerge(!mergeEnabled)}
           >
-            <input
-              type="checkbox"
-              className="h-5 w-5 accent-amber-500"
-              checked={mergeEnabled}
-              disabled={loading}
-              onChange={(e) => enableMerge(e.target.checked)}
-            />
-            <span className="text-sm font-medium">
-              ⊕ Unisci con altri tavoli
-            </span>
-          </label>
+            Unisci con altri tavoli
+          </Button>
 
           {mergeEnabled && (
-            <section className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-3">
-              <p className="mb-2 text-xs font-semibold text-amber-900">
-                Seleziona i tavoli da aggiungere a {primaryTable.label}
+            <section className="space-y-3 border-t border-[hsl(var(--pg-border))] pt-3">
+              <p className="text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
+                Seleziona i tavoli da aggiungere a {primaryLabel}
               </p>
               {partners.length === 0 ? (
-                <p className="text-sm text-amber-700">Nessun altro tavolo disponibile.</p>
+                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                  Nessun altro tavolo disponibile.
+                </p>
               ) : (
                 <div className="grid grid-cols-3 gap-2">
                   {partners.map((t) => {
                     const selected = mergeIds.includes(t.id);
-                    const isFree = t.status === "FREE";
                     return (
                       <button
                         key={t.id}
                         type="button"
                         disabled={loading}
                         onClick={() => toggleMerge(t.id)}
-                        className={`min-h-[56px] rounded-lg border-2 px-1 py-2 text-sm font-semibold transition ${
+                        className={`min-h-[56px] rounded-lg border px-1 py-2 text-sm font-semibold transition ${
                           selected
-                            ? "border-amber-500 bg-amber-400/30 text-amber-950 shadow-sm"
-                            : isFree
-                              ? "border-dashed border-amber-200 bg-white/60"
-                              : "border-[hsl(var(--pg-border))] bg-white"
+                            ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/15 text-[hsl(var(--pg-primary))] shadow-sm ring-1 ring-[hsl(var(--pg-primary))]/30"
+                            : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/25 text-[hsl(var(--pg-foreground))]"
                         }`}
                       >
-                        {selected && (
-                          <span className="mr-0.5 text-[hsl(var(--pg-primary))]">✓</span>
-                        )}
-                        {t.label}
-                        <span className="mt-0.5 block text-[9px] font-normal opacity-70">
+                        {selected && <span className="mr-0.5">✓</span>}
+                        {formatTableLabel(t.label)}
+                        <span
+                          className={`mt-0.5 block text-[9px] font-normal ${
+                            selected ? "opacity-90" : "opacity-75"
+                          }`}
+                        >
                           {guestsAt(t)} cop. · {t.defaultGuests} posti
                         </span>
                       </button>
@@ -212,16 +212,17 @@ export function GuestsModal({
                 </div>
               )}
               {mergeIds.length > 0 && (
-                <div className="mt-3 space-y-2 rounded-lg border border-amber-300 bg-white p-2.5">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                <div className="space-y-2 border-t border-[hsl(var(--pg-border))] pt-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
                     Gruppo che verrà creato
                   </p>
                   <TableUnionChips
                     host={{ ...primaryTable, linkedTableIds: mergeIds }}
                     allTables={tables}
                     size="md"
+                    tone="neutral"
                   />
-                  <p className="text-center text-sm font-semibold text-amber-950">
+                  <p className="text-center text-sm font-semibold text-[hsl(var(--pg-foreground))]">
                     {guests} coperti · {maxGuests} posti
                   </p>
                 </div>
@@ -229,7 +230,15 @@ export function GuestsModal({
             </section>
           )}
 
-          {submitHint && <p className="text-sm text-amber-700">{submitHint}</p>}
+          {submitHint && (
+            <p
+              className={`text-sm ${
+                guests > maxGuests ? "text-red-600" : "text-[hsl(var(--pg-muted-foreground))]"
+              }`}
+            >
+              {submitHint}
+            </p>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 

@@ -38,11 +38,13 @@ function euro(value: number) {
 export function OpenTablesModal({
   shiftId,
   rooms,
+  embedded = false,
   onClose,
   onSelectTable,
 }: {
   shiftId?: string;
   rooms: Array<{ id: string; name: string }>;
+  embedded?: boolean;
   onClose: () => void;
   onSelectTable: (tableId: string) => void;
 }) {
@@ -87,8 +89,20 @@ export function OpenTablesModal({
   }, [load]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/50 p-2 sm:p-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col rounded-xl bg-[hsl(var(--pg-background))] shadow-xl">
+    <div
+      className={
+        embedded
+          ? "flex min-h-0 flex-1 flex-col"
+          : "fixed inset-0 z-50 flex flex-col bg-black/50 p-2 sm:p-4"
+      }
+    >
+      <div
+        className={
+          embedded
+            ? "flex min-h-0 w-full flex-1 flex-col rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]"
+            : "mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col rounded-xl bg-[hsl(var(--pg-background))] shadow-xl"
+        }
+      >
         <header className="shrink-0 border-b border-[hsl(var(--pg-border))] px-4 py-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-lg font-bold">Tavoli aperti</h2>

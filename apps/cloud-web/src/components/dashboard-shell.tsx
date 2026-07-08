@@ -27,10 +27,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-56 border-r border-[hsl(var(--pg-border))] p-4">
-        <p className="mb-6 text-lg font-bold">Pizza Guys</p>
-        <nav className="space-y-1">
+    <div className="min-h-screen">
+      <aside className="fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-4">
+        <p className="mb-6 shrink-0 text-lg font-bold">Pizza Guys</p>
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto">
           {NAV.map((item) => (
             <Link
               key={item.href}
@@ -45,7 +45,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </nav>
-        <div className="mt-8 space-y-2">
+        <div className="mt-4 shrink-0 space-y-2 border-t border-[hsl(var(--pg-border))] pt-4">
           <Button variant="outline" className="w-full" onClick={toggleTheme}>
             Tema
           </Button>
@@ -54,7 +54,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
       </aside>
-      <main className="flex-1 p-8">{children}</main>
+      <main className="ml-56 min-h-screen p-8">{children}</main>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
 import { TableUnionChips } from "../components/TableUnionChips";
-import { isUnionHost, mergedTableLabel } from "../lib/table-display";
+import { formatTableLabel, isUnionHost, mergedTableLabel } from "../lib/table-display";
 import { tableSeats } from "../lib/table-seats";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { CourseOptionsModal } from "../components/CourseOptionsModal";
@@ -311,19 +311,24 @@ export function TableWorkspace({
 
       {/* Header */}
       <header className="shrink-0 border-b border-[hsl(var(--pg-border))] px-3 py-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <button
             type="button"
             onClick={onLeaveTable}
-            className="shrink-0 text-sm font-medium text-[hsl(var(--pg-primary))]"
+            className="mt-0.5 shrink-0 text-sm font-medium text-[hsl(var(--pg-primary))]"
           >
             ← Tavoli
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-bold">
-              {mergedTableLabel(table, tables)}
-            </h1>
-            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="truncate text-lg font-bold leading-tight">
+                {mergedTableLabel(table, tables)}
+              </h1>
+              <p className="shrink-0 text-right text-lg font-bold tabular-nums">
+                €{tableTotal.toFixed(2)}
+              </p>
+            </div>
+            <p className="mt-1 text-xs text-[hsl(var(--pg-muted-foreground))]">
               {operator.firstName} ·{" "}
               <button
                 type="button"
@@ -333,41 +338,23 @@ export function TableWorkspace({
                 {table.guests ?? table.defaultGuests} coperti
               </button>
               {isUnionHost(table) && (
-                <span className="font-medium text-amber-700">
-                  {" "}
-                  · {tableSeats(table)} posti totali
-                </span>
+                <span> · {tableSeats(table)} posti totali</span>
               )}
               {cartCount > 0 && ` · ${cartCount} in bozza`}
             </p>
+            {isUnionHost(table) && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-[hsl(var(--pg-muted))]/35 px-2.5 py-2">
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  Un conto
+                </span>
+                <div className="min-w-0 flex-1">
+                  <TableUnionChips host={table} allTables={tables} size="sm" tone="neutral" />
+                </div>
+              </div>
+            )}
           </div>
-          <p className="shrink-0 text-right text-lg font-bold tabular-nums">€{tableTotal.toFixed(2)}</p>
         </div>
       </header>
-
-      {isUnionHost(table) && (
-        <div className="shrink-0 border-b border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100/80 px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-400 text-lg font-bold text-amber-950 shadow-sm">
-              ⊕
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
-                Tavoli uniti — un solo conto
-              </p>
-              <div className="mt-1.5">
-                <TableUnionChips host={table} allTables={tables} size="md" />
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              <p className="text-lg font-bold tabular-nums text-amber-950">
-                {tableSeats(table)}
-              </p>
-              <p className="text-[10px] font-medium text-amber-800">posti</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {needsLock && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-amber-200 bg-amber-500/10 px-3 py-2 text-sm">
@@ -382,12 +369,12 @@ export function TableWorkspace({
         </div>
       )}
 
-      {message && (
+      {message && !message.startsWith("Tavoli uniti:") && (
         <p className="shrink-0 border-b border-[hsl(var(--pg-border))] px-3 py-2 text-sm">{message}</p>
       )}
 
       {/* Tab bar */}
-      <nav className="flex shrink-0 gap-2 border-b border-[hsl(var(--pg-border))] p-2">
+      <nav className="flex shrink-0 gap-1 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-2">
         <TabButton
           label="Comanda"
           badge={cartCount > 0 ? cartCount : undefined}
@@ -730,15 +717,15 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`relative min-h-12 flex-1 rounded-xl text-sm font-semibold transition ${
+      className={`relative min-h-11 flex-1 rounded-lg text-sm font-semibold transition ${
         active
-          ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
-          : "bg-[hsl(var(--pg-muted))]/60"
+          ? "bg-[hsl(var(--pg-background))] text-[hsl(var(--pg-foreground))] shadow-sm ring-1 ring-[hsl(var(--pg-border))]"
+          : "text-[hsl(var(--pg-muted-foreground))] hover:text-[hsl(var(--pg-foreground))]"
       }`}
     >
       {label}
       {badge != null && badge > 0 && (
-        <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/25 px-1 text-xs">
+        <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--pg-primary))] px-1 text-xs text-[hsl(var(--pg-primary-foreground))]">
           {badge > 99 ? "99+" : badge}
         </span>
       )}

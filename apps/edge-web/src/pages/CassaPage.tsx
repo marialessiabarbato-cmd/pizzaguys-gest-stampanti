@@ -1,7 +1,9 @@
-import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod } from "@pizzaguys/types";
-import { Button } from "@pizzaguys/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, TableStatus } from "@pizzaguys/types";
+import { Button, useTheme } from "@pizzaguys/ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
+import { CassaHeader } from "../components/CassaHeader";
+import { TableMapViewport } from "../components/TableMapViewport";
 import { ComandaPanel } from "../components/ComandaPanel";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
@@ -20,17 +22,26 @@ import { ReservationsModal } from "../components/ReservationsModal";
 import { ShiftCloseModal } from "../components/ShiftCloseModal";
 import { TableTransferModal } from "../components/TableTransferModal";
 import { edgeApi } from "../lib/api";
+import { dedupeRecentCustomers } from "../lib/counter-customers";
+import {
+  TABLE_STATUS_COLORS,
+  TABLE_STATUS_LABELS,
+  filterTablesByRoom,
+  formatTableLabel,
+  tableLabelFontClass,
+} from "../lib/table-display";
 import { useEdgeWs } from "../lib/ws";
 
-const STATUS_COLORS: Record<TableStatus, string> = {
-  FREE: "bg-green-500",
-  OCCUPIED: "bg-blue-500",
-  LOCKED: "bg-red-500",
-  BILL_REQUESTED: "bg-yellow-500 animate-pulse",
-  SPLIT_IN_PROGRESS: "bg-purple-500",
-};
+const STATUS_COLORS = TABLE_STATUS_COLORS;
 
-type ChannelFilter = "ALL" | "SALA" | "ASPORTO" | "DELIVERY";
+type ChannelFilter = "SALA" | "ASPORTO" | "DELIVERY";
+type CassaWorkspace = "main" | "openTables" | "reservations";
+type UnifiedMenuItem = {
+  id: string;
+  label: string;
+  channel: ChannelFilter;
+  roomId?: string;
+};
 
 interface LiveTable {
   id: string;
@@ -107,6 +118,7 @@ interface CounterOrderRow {
   channel: CounterChannel;
   customerName?: string;
   phone?: string;
+  address?: string;
   scheduledLabel: string;
   status: TableStatus;
   total: number;
@@ -134,12 +146,13 @@ export function CassaPage({
   locationName?: string;
   onAdmin: () => void;
 }) {
+  const { theme, setTheme } = useTheme();
   const { connected, on } = useEdgeWs();
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [tables, setTables] = useState<LiveTable[]>([]);
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("ALL");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("SALA");
   const [selectedTable, setSelectedTable] = useState<LiveTable | null>(null);
   const [bill, setBill] = useState<TableBill | null>(null);
   const [message, setMessage] = useState("");
@@ -187,15 +200,20 @@ export function CassaPage({
   const [confirmClosure, setConfirmClosure] = useState(false);
   const [confirmShiftClose, setConfirmShiftClose] = useState(false);
   const [confirmClosePanel, setConfirmClosePanel] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profilePin, setProfilePin] = useState("");
+  const [profilePinConfirm, setProfilePinConfirm] = useState("");
+  const [profilePinError, setProfilePinError] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState("");
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [showClosureHistory, setShowClosureHistory] = useState(false);
   const [showDocumentList, setShowDocumentList] = useState(false);
-  const [showOpenTables, setShowOpenTables] = useState(false);
-  const [showReservations, setShowReservations] = useState(false);
+  const [workspace, setWorkspace] = useState<CassaWorkspace>("main");
   const [analyticCheckId, setAnalyticCheckId] = useState<string | undefined>();
   const [counterOrders, setCounterOrders] = useState<CounterOrderRow[]>([]);
   const [showCounterModal, setShowCounterModal] = useState(false);
@@ -210,8 +228,15 @@ export function CassaPage({
   const canComanda = operator?.role === "USER_ADMIN" || operator?.role === "CASHIER";
   const isComandaMode =
     !!selectedTable && panelTab === "comanda" && canComanda && !!operator;
-  const isCounterChannelView = channelFilter === "ASPORTO" || channelFilter === "DELIVERY";
   const isCounterOrderSelected = Boolean(bill?.counterOrder);
+  const showCounterOrders = channelFilter === "ASPORTO" || channelFilter === "DELIVERY";
+  const counterChannelLabel = channelFilter === "ASPORTO" ? "asporto" : "delivery";
+  const counterAsideOpen =
+    showCounterOrders && Boolean(selectedTable) && !showCounterModal;
+  const recentCounterCustomers = useMemo(
+    () => dedupeRecentCustomers(counterOrders),
+    [counterOrders],
+  );
 
   const loadCounterOrders = useCallback(() => {
     const channel = channelFilter === "ASPORTO" ? "TAKEAWAY" : channelFilter === "DELIVERY" ? "DELIVERY" : undefined;
@@ -297,6 +322,23 @@ export function CassaPage({
       );
     });
   }, [operator, loadTables, loadPendingPayments, loadCounterOrders, loadActiveShift]);
+
+  useEffect(() => {
+    if (rooms.length === 0) {
+      setSelectedRoomId("");
+      return;
+    }
+    setSelectedRoomId((current) => {
+      if (current && rooms.some((room) => room.id === current)) return current;
+      const internalRoom = rooms.find((room) => room.name.trim().toLowerCase().includes("interna"));
+      return internalRoom?.id ?? rooms[0]?.id ?? "";
+    });
+  }, [rooms]);
+
+  useEffect(() => {
+    if (!operator) return;
+    loadCounterOrders();
+  }, [channelFilter, operator, loadCounterOrders]);
 
   useEffect(() => {
     if (!operator) return;
@@ -535,7 +577,27 @@ export function CassaPage({
 
   const openCounterModal = (channel: CounterChannel) => {
     setCounterModalChannel(channel);
+    setChannelFilter(channel === "TAKEAWAY" ? "ASPORTO" : "DELIVERY");
+    setSelectedTable(null);
+    setBill(null);
+    setPaymentResult(null);
     setShowCounterModal(true);
+  };
+
+  const handleChannelFilter = (id: ChannelFilter) => {
+    setWorkspace("main");
+    setChannelFilter(id);
+    if (id === "SALA") {
+      if (selectedTable?.isVirtual) {
+        setSelectedTable(null);
+        setBill(null);
+        setPaymentResult(null);
+      }
+    } else if (selectedTable && !selectedTable.isVirtual) {
+      setSelectedTable(null);
+      setBill(null);
+      setPaymentResult(null);
+    }
   };
 
   const handleCreateCounterOrder = async (payload: {
@@ -885,16 +947,106 @@ export function CassaPage({
     }
   };
 
-  const filteredTables = tables.filter((t) => {
-    if (t.isVirtual) return false;
-    if (channelFilter === "ALL") return true;
-    if (channelFilter === "SALA") return true;
-    return false;
-  });
+  const allPhysicalTables = useMemo(() => tables.filter((t) => !t.isVirtual), [tables]);
+
+  const filteredTables = useMemo(
+    () => filterTablesByRoom(tables, selectedRoomId || null, rooms.length),
+    [tables, selectedRoomId, rooms.length],
+  );
+  const displayTables = useMemo(() => {
+    const internalRoom = rooms.find((room) => room.name.trim().toLowerCase().includes("interna"));
+    const internalMinX = tables
+      .filter((t) => !t.isVirtual && internalRoom && t.roomId === internalRoom.id)
+      .reduce<number | null>((min, t) => (min == null ? t.x : Math.min(min, t.x)), null);
+    const baseX = internalMinX ?? filteredTables.reduce<number | null>(
+      (min, t) => (min == null ? t.x : Math.min(min, t.x)),
+      null,
+    );
+    if (baseX == null) return filteredTables;
+    return filteredTables.map((t) => ({ ...t, x: t.x - baseX }));
+  }, [filteredTables, rooms, tables]);
+
+  const activeRoomName = useMemo(
+    () => rooms.find((room) => room.id === selectedRoomId)?.name,
+    [rooms, selectedRoomId],
+  );
+  const unifiedMenuItems = useMemo<UnifiedMenuItem[]>(() => {
+    const roomItems = rooms.map((room) => ({
+      id: `room:${room.id}`,
+      label: `Sala ${room.name}`,
+      channel: "SALA" as const,
+      roomId: room.id,
+    }));
+    return [
+      ...roomItems,
+      { id: "channel:ASPORTO", label: "Asporto", channel: "ASPORTO" as const },
+      { id: "channel:DELIVERY", label: "Delivery", channel: "DELIVERY" as const },
+    ];
+  }, [rooms]);
+
+  const tableStatusSummary = useMemo(() => {
+    const counts: Partial<Record<TableStatus, number>> = {};
+    for (const t of filteredTables) {
+      counts[t.status] = (counts[t.status] ?? 0) + 1;
+    }
+    return counts;
+  }, [filteredTables]);
+
+  const openTableCount = useMemo(
+    () => allPhysicalTables.filter((t) => t.status !== "FREE").length,
+    [allPhysicalTables],
+  );
+
+  const selectedUnifiedItemId = useMemo(() => {
+    if (channelFilter === "SALA") return selectedRoomId ? `room:${selectedRoomId}` : "room:none";
+    return `channel:${channelFilter}`;
+  }, [channelFilter, selectedRoomId]);
+
+  const operatorRoleLabel = useMemo(() => {
+    if (!operator) return "—";
+    if (operator.role === "USER_ADMIN") return "User Admin";
+    if (operator.role === "CASHIER") return "Cassiere";
+    if (operator.role === "WAITER") return "Cameriere";
+    return operator.role;
+  }, [operator]);
+  const operatorInitials = useMemo(() => {
+    if (!operator) return "";
+    const a = operator.firstName?.[0] ?? "";
+    const b = operator.lastName?.[0] ?? "";
+    return `${a}${b}`.toUpperCase();
+  }, [operator]);
+
+  const handleProfilePinReset = async () => {
+    if (!operator) return;
+    if (!/^[0-9]{4}$/.test(profilePin)) {
+      setProfilePinError("Il PIN deve avere 4 cifre numeriche.");
+      return;
+    }
+    if (profilePin !== profilePinConfirm) {
+      setProfilePinError("I PIN non coincidono.");
+      return;
+    }
+    setProfileSaving(true);
+    setProfilePinError("");
+    try {
+      await edgeApi(`/api/staff/${operator.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pin: profilePin }),
+      });
+      setProfilePin("");
+      setProfilePinConfirm("");
+      setMessage("PIN aggiornato");
+      setShowProfileModal(false);
+    } catch (err) {
+      setProfilePinError(err instanceof Error ? err.message : "Errore aggiornamento PIN");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   if (!operator) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-6">
+      <main className="flex h-dvh flex-col items-center justify-center overflow-y-auto p-6">
         <div className="w-full max-w-sm space-y-6">
           <div className="text-center">
             <h1 className="text-2xl font-bold">Cassa</h1>
@@ -909,82 +1061,28 @@ export function CassaPage({
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b border-[hsl(var(--pg-border))] px-4 py-3">
-        <div>
-          <h1 className="text-xl font-bold">Cassa</h1>
-          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-            {operator.firstName} {operator.lastName}
-            {locationName ? ` · ${locationName}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`rounded-full px-2 py-1 text-xs ${connected ? "bg-green-500/20 text-green-600" : "bg-red-500/20 text-red-600"}`}
-          >
-            {connected ? "Online" : "Offline"}
-          </span>
-          {(operator.role === "USER_ADMIN" || operator.role === "CASHIER") && (
-            <>
-              <Button
-                variant="outline"
-                className="h-9 px-3 text-sm"
-                onClick={() => setShowOpenTables(true)}
-              >
-                Tavoli aperti
-              </Button>
-              <Button
-                variant="outline"
-                className="h-9 px-3 text-sm"
-                onClick={() => setShowReservations(true)}
-              >
-                Prenotazioni
-              </Button>
-              <Button
-                variant="outline"
-                className="h-9 px-3 text-sm"
-                onClick={() => setShowDocumentList(true)}
-              >
-                Lista documenti
-              </Button>
-              <Button
-                variant="outline"
-                className="h-9 px-3 text-sm"
-                onClick={() => setShowClosureHistory(true)}
-              >
-                Storico chiusure
-              </Button>
-              <Button
-                variant="outline"
-                className="h-9 px-3 text-sm"
-                onClick={() => setConfirmClosure(true)}
-              >
-                Chiusura giornata
-              </Button>
-            </>
-          )}
-          {activeShift ? (
-            <Button
-              variant="outline"
-              className="h-9 px-3 text-sm"
-              onClick={() => setConfirmShiftClose(true)}
-            >
-              Chiusura turno
-            </Button>
-          ) : (
-            <Button variant="outline" className="h-9 px-3 text-sm" onClick={() => setConfirmStartShift(true)}>
-              Avvia turno
-            </Button>
-          )}
-          <Button variant="outline" className="h-9 px-3 text-sm" onClick={onAdmin}>
-            Admin
-          </Button>
-          <Button variant="ghost" className="h-9 px-3 text-sm" onClick={() => setConfirmLogout(true)}>
-            Esci
-          </Button>
-        </div>
-      </header>
+    <div className="grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-[hsl(var(--pg-background))]">
+      <CassaHeader
+        operatorName={`${operator.firstName} ${operator.lastName}`}
+        locationName={locationName}
+        connected={connected}
+        activeShift={activeShift}
+        openTableCount={openTableCount}
+        pendingPaymentCount={pendingPayments.length}
+        canManage={canComanda}
+        onOpenTables={() => setWorkspace("openTables")}
+        onReservations={() => setWorkspace("reservations")}
+        onDocumentList={() => setShowDocumentList(true)}
+        onClosureHistory={() => setShowClosureHistory(true)}
+        onClosureDay={() => setConfirmClosure(true)}
+        onStartShift={() => setConfirmStartShift(true)}
+        onCloseShift={() => setConfirmShiftClose(true)}
+        onAdmin={onAdmin}
+        onProfile={() => setShowProfileModal(true)}
+        onLogout={() => setConfirmLogout(true)}
+      />
 
+      <div className="flex min-h-0 flex-col overflow-hidden">
       {pendingPayments.length > 0 && (
         <div className="shrink-0 space-y-1 border-b border-yellow-500/30 bg-yellow-500/10 px-4 py-2">
           {pendingPayments.map((p) => (
@@ -1011,138 +1109,275 @@ export function CassaPage({
         <p className="shrink-0 bg-[hsl(var(--pg-muted))] px-4 py-2 text-sm">{message}</p>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {workspace === "openTables" ? (
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3">
+            <OpenTablesModal
+              embedded
+              shiftId={activeShift?.id}
+              rooms={rooms}
+              onClose={() => setWorkspace("main")}
+              onSelectTable={(tableId) => {
+                setWorkspace("main");
+                void openTableById(tableId);
+              }}
+            />
+          </section>
+        ) : workspace === "reservations" && operator ? (
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3">
+            <ReservationsModal
+              embedded
+              operatorId={operator.id}
+              operatorName={`${operator.firstName} ${operator.lastName}`}
+              rooms={rooms}
+              tables={tables}
+              onClose={() => setWorkspace("main")}
+              onOpenTable={(tableId) => {
+                setWorkspace("main");
+                void openTableById(tableId);
+                loadTables();
+              }}
+            />
+          </section>
+        ) : (
+        <>
         {!isComandaMode && (
-        <section className="flex min-w-0 flex-1 flex-col p-4">
-          <div className="mb-3 flex flex-wrap gap-2">
-            {(
-              [
-                ["ALL", "Tutti"],
-                ["SALA", "Sala"],
-                ["ASPORTO", "Asporto"],
-                ["DELIVERY", "Delivery"],
-              ] as const
-            ).map(([id, label]) => (
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3">
+          <div className="mb-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+            {unifiedMenuItems.map((item) => (
               <Button
-                key={id}
+                key={item.id}
                 className="h-9 px-3 text-sm"
-                variant={channelFilter === id ? "default" : "outline"}
-                onClick={() => setChannelFilter(id)}
+                variant={selectedUnifiedItemId === item.id ? "default" : "outline"}
+                onClick={() => {
+                  if (item.channel === "SALA") {
+                    if (item.roomId) setSelectedRoomId(item.roomId);
+                    handleChannelFilter("SALA");
+                    return;
+                  }
+                  handleChannelFilter(item.channel);
+                }}
               >
-                {label}
+                {item.label}
               </Button>
             ))}
-            {canComanda && (
-              <>
-                <Button
-                  className="h-9 px-3 text-sm"
-                  variant="outline"
-                  onClick={() => openCounterModal("TAKEAWAY")}
-                >
-                  + Asporto
-                </Button>
-                <Button
-                  className="h-9 px-3 text-sm"
-                  variant="outline"
-                  onClick={() => openCounterModal("DELIVERY")}
-                >
-                  + Delivery
-                </Button>
-              </>
+            </div>
+            {channelFilter === "SALA" ? (
+            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+              {filteredTables.length}{" "}
+              {filteredTables.length === 1 ? "tavolo" : "tavoli"}
+              {activeRoomName ? ` · ${activeRoomName}` : " in sala"}
+            </p>
+            ) : (
+            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+              {counterOrders.length}{" "}
+              {counterOrders.length === 1 ? "ordine attivo" : "ordini attivi"}
+            </p>
             )}
+            </div>
           </div>
 
-          {isCounterChannelView ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
-              {canComanda && (
+          {channelFilter === "SALA" ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <TableMapViewport tables={displayTables} maxScale={1.15} align="start" className="!p-0">
+              {(scale) =>
+                displayTables.length === 0 ? (
+                  <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
+                    {rooms.length > 1 && activeRoomName
+                      ? `Nessun tavolo in ${activeRoomName} — configura la mappa da Admin → Sala`
+                      : "Nessun tavolo in sala — configura la mappa da Admin → Sala"}
+                  </p>
+                ) : (
+                  displayTables.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      disabled={lockPending === t.id}
+                      onClick={() => selectTable(filteredTables.find((row) => row.id === t.id) ?? t)}
+                      style={{
+                        position: "absolute",
+                        left: t.x,
+                        top: t.y,
+                        width: t.width,
+                        height: t.height,
+                      }}
+                      className={`flex min-h-[42px] min-w-[42px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border-2 border-white/20 px-1 text-white shadow-md transition active:scale-[0.97] ${STATUS_COLORS[t.status] ?? "bg-gray-500"} ${selectedTable?.id === t.id ? "ring-4 ring-white ring-offset-2 ring-offset-[hsl(var(--pg-background))]" : ""} ${lockPending === t.id ? "opacity-50" : ""}`}
+                    >
+                      <span
+                        className={`max-w-full truncate px-1 font-bold leading-tight ${tableLabelFontClass(t.label, t.width * scale)}`}
+                      >
+                        {formatTableLabel(t.label)}
+                      </span>
+                      <span className="text-[10px] font-medium opacity-90">
+                        {(t.guests ?? t.defaultGuests ?? 0) > 0
+                          ? `${t.guests ?? t.defaultGuests} cop.`
+                          : "0 cop."}
+                      </span>
+                      {t.lockedByName && t.status === "LOCKED" && (
+                        <span className="max-w-full truncate px-1 text-[10px] opacity-90">
+                          {t.lockedByName}
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )
+              }
+            </TableMapViewport>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[hsl(var(--pg-border))] px-4 py-2.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
+              {(Object.keys(STATUS_COLORS) as TableStatus[]).map((status) => (
+                <span key={status} className="flex items-center gap-1.5">
+                  <span className={`h-2.5 w-2.5 rounded-full ${STATUS_COLORS[status].split(" ")[0]}`} />
+                  {TABLE_STATUS_LABELS[status]}
+                  {tableStatusSummary[status] != null && tableStatusSummary[status]! > 0 && (
+                    <span className="tabular-nums text-[hsl(var(--pg-foreground))]">
+                      ({tableStatusSummary[status]})
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+          ) : (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20">
+            <div className="flex items-start justify-between gap-3 border-b border-[hsl(var(--pg-border))] px-4 py-3">
+              <div className="min-w-0 flex-1">
+                {showCounterModal ? (
+                  <>
+                    <h2 className="text-xl font-bold capitalize">Nuovo ordine {counterChannelLabel}</h2>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      Compila i dati qui sotto e conferma con Ok
+                    </p>
+                  </>
+                ) : selectedTable && bill ? (
+                  <>
+                    <button
+                      type="button"
+                      className="mb-1 text-xs text-[hsl(var(--pg-primary))] hover:underline"
+                      onClick={() => {
+                        setSelectedTable(null);
+                        setBill(null);
+                        setPaymentResult(null);
+                      }}
+                    >
+                      ← Lista ordini {counterChannelLabel}
+                    </button>
+                    <h2 className="text-xl font-bold">{bill.tableLabel}</h2>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      {selectedTable.status}
+                      {bill.counterOrder?.scheduledLabel && (
+                        <span> · {bill.counterOrder.scheduledLabel}</span>
+                      )}
+                      <span> · € {bill.total.toFixed(2)}</span>
+                    </p>
+                    {bill.counterOrder && (
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-[hsl(var(--pg-muted-foreground))]">
+                        {bill.counterOrder.customerName && (
+                          <span>{bill.counterOrder.customerName}</span>
+                        )}
+                        {bill.counterOrder.phone && <span>{bill.counterOrder.phone}</span>}
+                        {bill.counterOrder.address && <span>{bill.counterOrder.address}</span>}
+                        {bill.counterOrder.broker && <span>{bill.counterOrder.broker}</span>}
+                        {bill.counterOrder.notes && (
+                          <span className="italic">Nota: {bill.counterOrder.notes}</span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : selectedTable ? (
+                  <>
+                    <h2 className="text-xl font-bold">{selectedTable.label}</h2>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento conto…</p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-xl font-bold capitalize">{counterChannelLabel}</h2>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      Gestione ordini {counterChannelLabel}
+                    </p>
+                  </>
+                )}
+              </div>
+              {canComanda && !showCounterModal && (
                 <Button
-                  className="h-12 w-full text-base"
+                  className="h-10 shrink-0 px-4 text-sm"
                   onClick={() =>
                     openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
                   }
                 >
-                  + Nuovo ordine {channelFilter === "ASPORTO" ? "asporto" : "delivery"}
+                  + Nuovo ordine
                 </Button>
               )}
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border border-[hsl(var(--pg-border))] p-3">
-                {counterOrders.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
-                    Nessun ordine attivo
+            </div>
+            {showCounterModal ? (
+              <CounterOrderModal
+                embedded
+                hideChannelTabs
+                initialChannel={counterModalChannel}
+                loading={loading}
+                recentCustomers={recentCounterCustomers}
+                onClose={() => setShowCounterModal(false)}
+                onConfirm={(payload) => void handleCreateCounterOrder(payload)}
+              />
+            ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {counterOrders.length === 0 ? (
+                <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 text-center">
+                  <p className="text-base font-medium">Nessun ordine attivo</p>
+                  <p className="max-w-sm text-sm text-[hsl(var(--pg-muted-foreground))]">
+                    Crea un nuovo ordine {counterChannelLabel} per iniziare a prendere comanda e incassare.
                   </p>
-                ) : (
-                  counterOrders.map((order) => (
+                  {canComanda && (
+                    <Button
+                      className="h-10 px-4"
+                      onClick={() =>
+                        openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
+                      }
+                    >
+                      + Nuovo ordine
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {counterOrders.map((order) => (
                     <button
                       key={order.id}
                       type="button"
                       onClick={() => selectCounterOrder(order)}
-                      className={`flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition active:scale-[0.99] ${
+                      className={`rounded-xl border p-4 text-left transition active:scale-[0.99] ${
                         selectedTable?.id === order.id
-                          ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
-                          : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20"
+                          ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10 shadow-sm"
+                          : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] hover:border-[hsl(var(--pg-primary))]/40"
                       }`}
                     >
-                      <div>
-                        <p className="font-bold">{order.displayNumber}</p>
-                        <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                          {order.customerName || "Cliente da banco"}
-                          {order.phone ? ` · ${order.phone}` : ""}
-                        </p>
-                        <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                          {order.scheduledLabel} · {order.lineCount} articoli
-                        </p>
-                      </div>
-                      <div className="text-right">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <p className="text-lg font-bold">{order.displayNumber}</p>
                         <p className="font-semibold tabular-nums">€ {order.total.toFixed(2)}</p>
-                        <p className="text-xs uppercase text-[hsl(var(--pg-muted-foreground))]">
-                          {order.status}
-                        </p>
                       </div>
+                      <p className="truncate text-sm text-[hsl(var(--pg-muted-foreground))]">
+                        {order.customerName || "Cliente da banco"}
+                        {order.phone ? ` · ${order.phone}` : ""}
+                      </p>
+                      <p className="mt-1 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                        {order.scheduledLabel} · {order.lineCount} articoli · {order.status}
+                      </p>
                     </button>
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-          <div className="relative min-h-0 flex-1 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20">
-            {filteredTables.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                disabled={lockPending === t.id}
-                onClick={() => selectTable(t)}
-                style={{
-                  position: "absolute",
-                  left: t.x,
-                  top: t.y,
-                  width: t.width,
-                  height: t.height,
-                }}
-                className={`flex min-h-[48px] min-w-[48px] flex-col items-center justify-center rounded-lg text-white shadow-md transition active:scale-95 ${STATUS_COLORS[t.status] ?? "bg-gray-400"} ${selectedTable?.id === t.id ? "ring-4 ring-white" : ""} ${lockPending === t.id ? "opacity-50" : ""}`}
-              >
-                <span className="text-lg font-bold">{t.label}</span>
-                {t.lockedByName && t.status === "LOCKED" && (
-                  <span className="text-[10px]">{t.lockedByName}</span>
-                )}
-              </button>
-            ))}
-          </div>
-          )}
-
-          {!isCounterChannelView && (
-          <div className="mt-3 flex flex-wrap gap-3 text-xs">
-            {Object.entries(STATUS_COLORS).map(([status, color]) => (
-              <span key={status} className="flex items-center gap-1">
-                <span className={`h-3 w-3 rounded ${color.split(" ")[0]}`} />
-                {status}
-              </span>
-            ))}
+            )}
           </div>
           )}
         </section>
         )}
 
+        {(!showCounterOrders || counterAsideOpen) && (
         <aside
-          className={`flex shrink-0 flex-col border-l border-[hsl(var(--pg-border))] ${
+          className={`flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-[hsl(var(--pg-border))] ${
             isComandaMode ? "min-w-0 flex-1" : "w-full max-w-md lg:w-[28rem]"
           }`}
         >
@@ -1165,44 +1400,72 @@ export function CassaPage({
           ) : selectedTable && bill ? (
             <>
               <div className="border-b border-[hsl(var(--pg-border))] p-4">
-                <div className="mb-2 flex gap-2">
-                  <Button
-                    className="h-8 flex-1 text-xs"
-                    variant={panelTab === "conto" ? "default" : "outline"}
-                    onClick={() => setPanelTab("conto")}
-                  >
-                    Conto
-                  </Button>
-                  {canComanda && (
+                {!showCounterOrders && (
+                  <>
+                    <div className="mb-2 flex gap-2">
+                      <Button
+                        className="h-8 flex-1 text-xs"
+                        variant={panelTab === "conto" ? "default" : "outline"}
+                        onClick={() => setPanelTab("conto")}
+                      >
+                        Conto
+                      </Button>
+                      {canComanda && (
+                        <Button
+                          className="h-8 flex-1 text-xs"
+                          variant={panelTab === "comanda" ? "default" : "outline"}
+                          onClick={() => void enterComanda()}
+                        >
+                          Comanda
+                        </Button>
+                      )}
+                    </div>
+                    <h2 className="text-lg font-bold">{bill.tableLabel}</h2>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      {selectedTable.status}
+                      {bill.counterOrder?.scheduledLabel && (
+                        <span> · {bill.counterOrder.scheduledLabel}</span>
+                      )}
+                      {bill.romanSplit && (
+                        <span>
+                          {" "}
+                          · Split {bill.romanSplit.paidShares}/{bill.romanSplit.shares}
+                        </span>
+                      )}
+                    </p>
+                    {bill.counterOrder && (
+                      <div className="mt-2 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                        {bill.counterOrder.customerName && (
+                          <p>Cliente: {bill.counterOrder.customerName}</p>
+                        )}
+                        {bill.counterOrder.phone && <p>Tel: {bill.counterOrder.phone}</p>}
+                        {bill.counterOrder.address && (
+                          <p>Indirizzo: {bill.counterOrder.address}</p>
+                        )}
+                        {bill.counterOrder.broker && <p>Broker: {bill.counterOrder.broker}</p>}
+                        {bill.counterOrder.notes && <p>Nota: {bill.counterOrder.notes}</p>}
+                      </div>
+                    )}
+                  </>
+                )}
+                {showCounterOrders && (
+                  <div className="flex gap-2">
                     <Button
                       className="h-8 flex-1 text-xs"
-                      variant={panelTab === "comanda" ? "default" : "outline"}
-                      onClick={() => void enterComanda()}
+                      variant={panelTab === "conto" ? "default" : "outline"}
+                      onClick={() => setPanelTab("conto")}
                     >
-                      Comanda
+                      Conto
                     </Button>
-                  )}
-                </div>
-                <h2 className="text-lg font-bold">{bill.tableLabel}</h2>
-                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                  {selectedTable.status}
-                  {bill.counterOrder?.scheduledLabel && (
-                    <span> · {bill.counterOrder.scheduledLabel}</span>
-                  )}
-                  {bill.romanSplit && (
-                    <span>
-                      {" "}
-                      · Split {bill.romanSplit.paidShares}/{bill.romanSplit.shares}
-                    </span>
-                  )}
-                </p>
-                {bill.counterOrder && (
-                  <div className="mt-2 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
-                    {bill.counterOrder.customerName && <p>Cliente: {bill.counterOrder.customerName}</p>}
-                    {bill.counterOrder.phone && <p>Tel: {bill.counterOrder.phone}</p>}
-                    {bill.counterOrder.address && <p>Indirizzo: {bill.counterOrder.address}</p>}
-                    {bill.counterOrder.broker && <p>Broker: {bill.counterOrder.broker}</p>}
-                    {bill.counterOrder.notes && <p>Nota: {bill.counterOrder.notes}</p>}
+                    {canComanda && (
+                      <Button
+                        className="h-8 flex-1 text-xs"
+                        variant={panelTab === "comanda" ? "default" : "outline"}
+                        onClick={() => void enterComanda()}
+                      >
+                        Comanda
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1353,12 +1616,21 @@ export function CassaPage({
                 </Button>
               )}
             </div>
-          ) : (
-            <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
-              Seleziona un tavolo per visualizzare il conto
+          ) : !showCounterOrders ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+              <p className="text-base font-medium text-[hsl(var(--pg-foreground))]">
+                Nessun tavolo selezionato
+              </p>
+              <p className="max-w-xs text-sm text-[hsl(var(--pg-muted-foreground))]">
+                Tocca un tavolo sulla mappa per aprire il conto, incassare o gestire la comanda.
+              </p>
             </div>
-          )}
+          ) : null}
         </aside>
+        )}
+        </>
+        )}
+      </div>
       </div>
 
       {pendingUnlockTable && (
@@ -1505,6 +1777,125 @@ export function CassaPage({
         />
       )}
 
+      {showProfileModal && operator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[hsl(var(--pg-border))] px-4 py-3">
+              <h2 className="text-base font-semibold">Profilo</h2>
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-sm text-[hsl(var(--pg-muted-foreground))] hover:bg-[hsl(var(--pg-muted))]/50"
+                onClick={() => {
+                  setShowProfileModal(false);
+                  setProfilePin("");
+                  setProfilePinConfirm("");
+                  setProfilePinError("");
+                }}
+                aria-label="Chiudi"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 px-4 py-4">
+              <div className="rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[hsl(var(--pg-primary))]/15 text-sm font-bold text-[hsl(var(--pg-primary))]">
+                    {operatorInitials}
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold leading-tight">
+                      {operator.firstName} {operator.lastName}
+                    </p>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">{operatorRoleLabel}</p>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm">
+                  {locationName && (
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[hsl(var(--pg-muted-foreground))]">Sede</span>
+                      <strong className="text-right">{locationName}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Tema</p>
+                <div className="inline-flex rounded-lg border border-[hsl(var(--pg-border))] p-1">
+                  <button
+                    type="button"
+                    className={`h-8 rounded-md px-3 text-sm ${
+                      theme === "light"
+                        ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                        : "text-[hsl(var(--pg-muted-foreground))]"
+                    }`}
+                    onClick={() => setTheme("light")}
+                  >
+                    Chiaro
+                  </button>
+                  <button
+                    type="button"
+                    className={`h-8 rounded-md px-3 text-sm ${
+                      theme === "dark"
+                        ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                        : "text-[hsl(var(--pg-muted-foreground))]"
+                    }`}
+                    onClick={() => setTheme("dark")}
+                  >
+                    Scuro
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Modifica codice di sblocco</p>
+                <input
+                  className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-sm"
+                  placeholder="Nuovo PIN (4 cifre)"
+                  pattern="[0-9]{4}"
+                  maxLength={4}
+                  value={profilePin}
+                  onChange={(e) => {
+                    setProfilePin(e.target.value);
+                    setProfilePinError("");
+                  }}
+                />
+                <input
+                  className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-sm"
+                  placeholder="Conferma PIN"
+                  pattern="[0-9]{4}"
+                  maxLength={4}
+                  value={profilePinConfirm}
+                  onChange={(e) => {
+                    setProfilePinConfirm(e.target.value);
+                    setProfilePinError("");
+                  }}
+                />
+                {profilePinError && <p className="text-sm text-red-600">{profilePinError}</p>}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[hsl(var(--pg-border))] px-4 py-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowProfileModal(false);
+                  setProfilePin("");
+                  setProfilePinConfirm("");
+                  setProfilePinError("");
+                }}
+              >
+                Chiudi
+              </Button>
+              <Button onClick={() => void handleProfilePinReset()} disabled={profileSaving}>
+                {profileSaving ? "Salvataggio..." : "Salva PIN"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPayment && bill && (
         <PaymentModal
           title={
@@ -1556,31 +1947,7 @@ export function CassaPage({
         <DocumentListModal operatorId={operator.id} onClose={() => setShowDocumentList(false)} />
       )}
 
-      {showOpenTables && (
-        <OpenTablesModal
-          shiftId={activeShift?.id}
-          rooms={rooms}
-          onClose={() => setShowOpenTables(false)}
-          onSelectTable={(tableId) => {
-            void openTableById(tableId);
-          }}
-        />
-      )}
-
-      {showReservations && operator && (
-        <ReservationsModal
-          operatorId={operator.id}
-          operatorName={`${operator.firstName} ${operator.lastName}`}
-          rooms={rooms}
-          tables={tables}
-          onClose={() => setShowReservations(false)}
-          onOpenTable={(tableId) => {
-            void openTableById(tableId);
-            setShowReservations(false);
-            loadTables();
-          }}
-        />
-      )}
+      
 
       {showShiftClose && activeShift && (
         <ShiftCloseModal
@@ -1654,14 +2021,6 @@ export function CassaPage({
         </div>
       )}
 
-      {showCounterModal && (
-        <CounterOrderModal
-          initialChannel={counterModalChannel}
-          loading={loading}
-          onClose={() => setShowCounterModal(false)}
-          onConfirm={(payload) => void handleCreateCounterOrder(payload)}
-        />
-      )}
     </div>
   );
 }

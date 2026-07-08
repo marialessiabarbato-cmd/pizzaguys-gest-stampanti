@@ -1,8 +1,10 @@
 "use client";
 
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { detailLinkClass, searchInputClass } from "@/lib/cloud-admin-ui";
 
 interface CustomerRow {
   id: string;
@@ -42,7 +44,7 @@ export default function InvoiceCustomersPage() {
 
       <div className="flex max-w-md gap-2">
         <input
-          className="h-10 flex-1 rounded-md border border-[hsl(var(--pg-border))] px-3"
+          className={searchInputClass}
           placeholder="Cerca…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -64,7 +66,8 @@ export default function InvoiceCustomersPage() {
                 <th className="py-2 pr-4">Città</th>
                 <th className="py-2 pr-4">P.IVA</th>
                 <th className="py-2 pr-4">SDI / PEC</th>
-                <th className="py-2">Tel.</th>
+                <th className="py-2 pr-4">Tel.</th>
+                <th className="py-2" />
               </tr>
             </thead>
             <tbody>
@@ -74,7 +77,15 @@ export default function InvoiceCustomersPage() {
                   <td className="py-2 pr-4">{c.city ?? "—"}</td>
                   <td className="py-2 pr-4 tabular-nums">{c.vatNumber ?? c.taxCode ?? "—"}</td>
                   <td className="py-2 pr-4">{c.sdiCode ?? c.pec ?? "—"}</td>
-                  <td className="py-2">{c.phone ?? "—"}</td>
+                  <td className="py-2 pr-4">{c.phone ?? "—"}</td>
+                  <td className="py-2 text-right">
+                    <Link
+                      href={`/invoice-customers/${c.id}`}
+                      className={detailLinkClass}
+                    >
+                      Dettaglio
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -135,9 +135,7 @@ export async function menuRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Params: { id: string } }>("/api/v2/products/:id", guard, async (req, reply) => {
-    const body = req.body as Record<string, unknown>;
-    if (body.basePrice != null) body.basePrice = String(body.basePrice);
-    const parsed = createProductSchema.partial().safeParse(body);
+    const parsed = createProductSchema.partial().safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }

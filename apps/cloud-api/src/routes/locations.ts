@@ -1,30 +1,44 @@
 import { dailyClosures, locations, brandSettings } from "@pizzaguys/db/schema";
-import { extractDailyReportFromReceipts } from "@pizzaguys/types";
 import { createLocationSchema, updateLocationSchema } from "@pizzaguys/validators";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { writeAudit } from "../lib/audit.js";
+import { formatClosureResponse } from "../lib/closure-response.js";
 import { getDefaultBrand } from "../lib/brand.js";
 import { generateApiToken, hashApiToken } from "../lib/tokens.js";
+
+function formatLocationRow(l: typeof locations.$inferSelect) {
+  return {
+    id: l.id,
+    name: l.name,
+    address: l.address,
+    vatNumber: l.vatNumber,
+    fiscalCode: l.fiscalCode,
+    managerEmail: l.managerEmail,
+    coverChargeAmount: Number(l.coverChargeAmount ?? 0),
+    schemaVersion: l.schemaVersion,
+    healthStatus: l.healthStatus,
+    lastHeartbeatAt: l.lastHeartbeatAt,
+    hasToken: Boolean(l.apiTokenHash),
+    createdAt: l.createdAt,
+    updatedAt: l.updatedAt,
+  };
+}
 
 export async function locationRoutes(app: FastifyInstance) {
   const guard = { preHandler: [app.authenticate] };
 
   app.get("/api/v2/locations", guard, async () => {
     const rows = await app.db.select().from(locations).orderBy(locations.name);
-    return rows.map((l) => ({
-      id: l.id,
-      name: l.name,
-      address: l.address,
-      vatNumber: l.vatNumber,
-      managerEmail: l.managerEmail,
-      coverChargeAmount: Number(l.coverChargeAmount ?? 0),
-      schemaVersion: l.schemaVersion,
-      healthStatus: l.healthStatus,
-      lastHeartbeatAt: l.lastHeartbeatAt,
-      hasToken: Boolean(l.apiTokenHash),
-      createdAt: l.createdAt,
-    }));
+    return rows.map(formatLocationRow);
+  });
+
+  app.get<{ Params: { id: string } }>("/api/v2/locations/:id", guard, async (req, reply) => {
+    const row = await app.db.query.locations.findFirst({
+      where: eq(locations.id, req.params.id),
+    });
+    if (!row) return reply.status(404).send({ error: "Sede non trovata" });
+    return formatLocationRow(row);
   });
 
   app.post("/api/v2/locations", guard, async (req, reply) => {
@@ -150,20 +164,7 @@ export async function locationRoutes(app: FastifyInstance) {
       .orderBy(desc(dailyClosures.closureDate))
       .limit(limit);
 
-    return rows.map((row) => ({
-      id: row.id,
-      closureDate: row.closureDate,
-      fiscalZNumber: row.fiscalZNumber,
-      gross: Number(row.gross),
-      cashDeclared: Number(row.cashDeclared),
-      posDeclared: Number(row.posDeclared),
-      discrepancy: Number(row.discrepancy),
-      byChannel: row.byChannel,
-      byPaymentMethod: row.byPaymentMethod,
-      receivedAt: row.receivedAt,
-      createdAt: row.createdAt,
-      dailyReport: extractDailyReportFromReceipts(row.receipts as unknown[]),
-    }));
+    return rows.map((row) => formatClosureResponse(row, location.name));
   });
 
   app.delete<{ Params: { id: string } }>(

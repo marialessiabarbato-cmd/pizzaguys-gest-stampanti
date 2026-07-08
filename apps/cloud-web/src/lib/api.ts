@@ -1,4 +1,13 @@
 const API_URL = process.env.NEXT_PUBLIC_CLOUD_API_URL ?? "http://localhost:4000";
+const API_TIMEOUT_MS = 10_000;
+
+function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(timeout),
+  );
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -25,7 +34,7 @@ export async function api<T>(
   }
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetchWithTimeout(`${API_URL}${path}`, {
     ...options,
     headers,
   });
@@ -59,7 +68,7 @@ async function authFetch(path: string, options: RequestInit = {}): Promise<Respo
   }
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const res = await fetchWithTimeout(`${API_URL}${path}`, { ...options, headers });
 
   if (res.status === 401 && typeof window !== "undefined") {
     const onLogin = window.location.pathname.startsWith("/login");

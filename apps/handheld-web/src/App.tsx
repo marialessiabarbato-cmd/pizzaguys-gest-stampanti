@@ -435,11 +435,7 @@ export default function App() {
       setUnlockOverridePin(undefined);
       await requestLock(target, overridePin, payload.guests);
       if (payload.mergeTableIds.length > 0) {
-        const labels = payload.mergeTableIds
-          .map((id) => tables.find((t) => t.id === id)?.label)
-          .filter(Boolean)
-          .join("+");
-        setMessage(`Tavoli uniti: ${target.label}${labels ? `+${labels}` : ""}`);
+        setMessage("");
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Errore apertura tavolo";
@@ -1251,6 +1247,7 @@ export default function App() {
         <MapScreen
           operator={operator}
           tables={tables}
+          rooms={rooms}
           message={message}
           isOffline={isOffline}
           lockPending={lockPending}

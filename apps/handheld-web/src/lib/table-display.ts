@@ -1,5 +1,109 @@
+import type { TableStatus } from "@pizzaguys/types";
 import { tableSeats } from "./table-seats";
 import type { LiveTable } from "./types";
+
+export const TABLE_STATUS_ACCENT: Record<TableStatus, string> = {
+  FREE: "border-l-emerald-600",
+  OCCUPIED: "border-l-blue-600",
+  LOCKED: "border-l-rose-600",
+  BILL_REQUESTED: "border-l-amber-500",
+  SPLIT_IN_PROGRESS: "border-l-violet-600",
+};
+
+export const TABLE_STATUS_DOT: Record<TableStatus, string> = {
+  FREE: "bg-emerald-600",
+  OCCUPIED: "bg-blue-600",
+  LOCKED: "bg-rose-600",
+  BILL_REQUESTED: "bg-amber-500",
+  SPLIT_IN_PROGRESS: "bg-violet-600",
+};
+
+export const TABLE_STATUS_COLORS: Record<TableStatus, string> = {
+  FREE: "bg-emerald-600",
+  OCCUPIED: "bg-blue-600",
+  LOCKED: "bg-rose-600",
+  BILL_REQUESTED: "bg-amber-500 animate-pulse",
+  SPLIT_IN_PROGRESS: "bg-violet-600",
+};
+
+export const TABLE_STATUS_LABELS: Record<TableStatus, string> = {
+  FREE: "Libero",
+  OCCUPIED: "Occupato",
+  LOCKED: "In uso cameriere",
+  BILL_REQUESTED: "Conto richiesto",
+  SPLIT_IN_PROGRESS: "Divisione conto",
+};
+
+/** Normalizza etichette tipo "tavolo7", "TAVOLO8", "TAVolo 5" → "Tavolo 7" */
+export function formatTableLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return trimmed;
+
+  if (/^asporto$/i.test(trimmed)) return "Asporto";
+  if (/^delivery$/i.test(trimmed)) return "Delivery";
+
+  const numbered = trimmed.match(/^tavolo\s*#?\s*(\d+)$/i);
+  if (numbered) return `Tavolo ${numbered[1]}`;
+
+  return trimmed
+    .split(/\s+/)
+    .map((word) => {
+      if (/^\d+$/.test(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+export function tableLabelFontClass(label: string, width: number): string {
+  const len = formatTableLabel(label).length;
+  if (len > 14 || width < 72) return "text-[10px]";
+  if (len > 10 || width < 96) return "text-xs";
+  if (len > 7 || width < 112) return "text-sm";
+  return "text-base";
+}
+
+export interface MapTableBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function computeMapBounds(
+  tables: MapTableBounds[],
+  padding = 40,
+): { width: number; height: number } {
+  if (tables.length === 0) return { width: 480, height: 320 };
+  const maxX = Math.max(...tables.map((t) => t.x + t.width));
+  const maxY = Math.max(...tables.map((t) => t.y + t.height));
+  return {
+    width: Math.max(360, maxX + padding),
+    height: Math.max(280, maxY + padding),
+  };
+}
+
+export function computeMapScale(
+  content: { width: number; height: number },
+  container: { width: number; height: number },
+  padding = 24,
+  maxScale = 5,
+): number {
+  if (container.width <= padding || container.height <= padding) return 1;
+  const sx = (container.width - padding) / content.width;
+  const sy = (container.height - padding) / content.height;
+  const fit = Math.min(sx, sy);
+  return Math.min(Math.max(fit, 1), maxScale);
+}
+
+export function filterTablesByRoom<T extends { isVirtual: boolean; roomId?: string | null }>(
+  tables: T[],
+  roomId: string | null,
+  roomCount: number,
+): T[] {
+  const physical = tables.filter((t) => !t.isVirtual);
+  if (roomCount <= 1 || !roomId) return physical;
+  return physical.filter((t) => t.roomId === roomId || !t.roomId);
+}
 
 /** Tavoli nel gruppo (host + annessi), in ordine host prima */
 export function unionMembers(table: LiveTable, allTables: LiveTable[]): LiveTable[] {
@@ -12,11 +116,11 @@ export function unionMembers(table: LiveTable, allTables: LiveTable[]): LiveTabl
   return members;
 }
 
-/** Etichetta composta per tavoli uniti, es. "T1+T3" */
+/** Etichetta composta per tavoli uniti, es. "Tavolo 1 + Tavolo 3" */
 export function mergedTableLabel(table: LiveTable, allTables: LiveTable[]): string {
   return unionMembers(table, allTables)
-    .map((t) => t.label)
-    .join("+");
+    .map((t) => formatTableLabel(t.label))
+    .join(" + ");
 }
 
 export function hostTableLabel(
@@ -24,7 +128,8 @@ export function hostTableLabel(
   allTables: LiveTable[],
 ): string | null {
   if (!table.mergedIntoTableId) return null;
-  return allTables.find((t) => t.id === table.mergedIntoTableId)?.label ?? null;
+  const label = allTables.find((t) => t.id === table.mergedIntoTableId)?.label;
+  return label ? formatTableLabel(label) : null;
 }
 
 export function hostTable(
@@ -43,6 +148,42 @@ export function isMergedAway(table: LiveTable): boolean {
   return !!table.mergedIntoTableId;
 }
 
+export function shortTableRef(label: string): string {
+  const formatted = formatTableLabel(label);
+  const numbered = formatted.match(/(\d+)\s*$/);
+  if (numbered) return numbered[1]!;
+  return formatted.length > 6 ? `${formatted.slice(0, 6)}…` : formatted;
+}
+
+/** Tavoli visibili sulla mappa: nasconde gli annessi (conto sul host). */
+export function filterMapVisibleTables<T extends { mergedIntoTableId?: string | null }>(
+  tables: T[],
+): T[] {
+  return tables.filter((t) => !t.mergedIntoTableId);
+}
+
+/** Testo compatto per le card tavolo sulla mappa cameriere */
+export function mapTableMeta(
+  table: LiveTable,
+  allTables: LiveTable[],
+): { title: string; meta: string } {
+  const title = formatTableLabel(table.label);
+  const guests = table.guests ?? 0;
+  const seats = tableSeats(table);
+
+  if (isUnionHost(table)) {
+    return {
+      title,
+      meta: guests > 0 ? `${guests} cop.` : `${seats} posti`,
+    };
+  }
+
+  return {
+    title,
+    meta: guests > 0 ? `${guests} cop.` : `${Math.max(table.defaultGuests ?? 0, 0)} cop.`,
+  };
+}
+
 export function seatSummary(table: LiveTable): string {
   const seats = tableSeats(table);
   const guests = table.guests ?? 0;
@@ -50,7 +191,7 @@ export function seatSummary(table: LiveTable): string {
     return guests > 0 ? `${guests} cop. · ${seats} posti` : `${seats} posti`;
   }
   if (guests > 0) return `${guests} coperti`;
-  return "";
+  return `${Math.max(table.defaultGuests ?? 0, 0)} cop.`;
 }
 
 export function tableCenter(t: LiveTable): { x: number; y: number } {

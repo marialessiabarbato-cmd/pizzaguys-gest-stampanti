@@ -4,6 +4,7 @@ import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui"
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, setToken } from "@/lib/api";
+import { loginInputClass } from "@/lib/cloud-admin-ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function LoginPage() {
           <form onSubmit={submit} className="space-y-4">
             <input
               type="email"
-              className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-3"
+              className={loginInputClass}
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -48,7 +49,7 @@ export default function LoginPage() {
             />
             <input
               type="password"
-              className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-3"
+              className={loginInputClass}
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

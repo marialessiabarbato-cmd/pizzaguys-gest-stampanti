@@ -17,7 +17,7 @@ export function MapUnionLines({ links }: { links: UnionLink[] }) {
           refY="4"
           orient="auto"
         >
-          <path d="M0,0 L8,4 L0,8 Z" fill="rgb(251 191 36)" />
+          <path d="M0,0 L8,4 L0,8 Z" fill="rgba(148,163,184,0.7)" />
         </marker>
       </defs>
       {links.map(({ host, child, x1, y1, x2, y2 }) => (
@@ -27,9 +27,8 @@ export function MapUnionLines({ links }: { links: UnionLink[] }) {
             y1={y1}
             x2={x2}
             y2={y2}
-            stroke="rgb(251 191 36)"
-            strokeWidth={4}
-            strokeOpacity={0.35}
+            stroke="rgba(148,163,184,0.3)"
+            strokeWidth={3}
             strokeLinecap="round"
           />
           <line
@@ -37,9 +36,9 @@ export function MapUnionLines({ links }: { links: UnionLink[] }) {
             y1={y1}
             x2={x2}
             y2={y2}
-            stroke="rgb(253 224 71)"
-            strokeWidth={2}
-            strokeDasharray="8 5"
+            stroke="rgba(148,163,184,0.7)"
+            strokeWidth={1.5}
+            strokeDasharray="6 5"
             strokeLinecap="round"
             markerEnd="url(#union-arrow)"
           />

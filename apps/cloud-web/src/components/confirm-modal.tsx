@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@pizzaguys/ui";
+import { btnSize } from "@/lib/cloud-admin-ui";
 
 export function ConfirmModal({
   title,
@@ -25,11 +26,12 @@ export function ConfirmModal({
         <h2 className="mb-2 text-lg font-bold">{title}</h2>
         <p className="mb-6 text-sm text-[hsl(var(--pg-muted-foreground))]">{message}</p>
         <div className="flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>
+          <Button variant="outline" size={btnSize.inline} className="flex-1" onClick={onCancel}>
             {cancelLabel}
           </Button>
           <Button
             className="flex-1"
+            size={btnSize.inline}
             variant={variant === "danger" ? "danger" : "default"}
             onClick={onConfirm}
           >

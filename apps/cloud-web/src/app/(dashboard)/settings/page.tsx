@@ -1,117 +1,88 @@
 "use client";
 
-import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
+import { Card, CardContent } from "@pizzaguys/ui";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import type { BrandSettings } from "@/lib/settings-types";
+import { detailLinkClass } from "@/lib/cloud-admin-ui";
 
-interface Settings {
-  maxDiscountPercent: number;
-  tableLockTimeoutMinutes: number;
-  sdiEnabled: number;
-  deliveryBrokers: string[];
-  schemaVersion: number;
-}
+const SECTIONS = [
+  {
+    href: "/settings/cassa",
+    title: "Cassa e comanda",
+    description: (s: BrandSettings) =>
+      `Sconto max ${s.maxDiscountPercent}% · Blocco tavolo ${s.tableLockTimeoutMinutes} min`,
+  },
+  {
+    href: "/settings/fatturazione",
+    title: "Fatturazione elettronica",
+    description: (s: BrandSettings) =>
+      s.sdiEnabled ? "Invio SDI attivo" : "Invio SDI disattivato (pilota)",
+  },
+  {
+    href: "/settings/delivery",
+    title: "Delivery",
+    description: (s: BrandSettings) =>
+      s.deliveryBrokers?.length
+        ? s.deliveryBrokers.join(", ")
+        : "Nessuna piattaforma configurata",
+  },
+  {
+    href: "/settings/audit",
+    title: "Registro tecnico",
+    description: () => "Cronologia operazioni per supporto e diagnostica",
+  },
+] as const;
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [form, setForm] = useState({
-    maxDiscountPercent: 20,
-    tableLockTimeoutMinutes: 15,
-    sdiEnabled: false,
-    deliveryBrokers: "",
-  });
-  const [saved, setSaved] = useState(false);
+  const [settings, setSettings] = useState<BrandSettings | null>(null);
 
   useEffect(() => {
-    api<Settings>("/api/v2/settings").then((s) => {
-      setSettings(s);
-      setForm({
-        maxDiscountPercent: s.maxDiscountPercent,
-        tableLockTimeoutMinutes: s.tableLockTimeoutMinutes,
-        sdiEnabled: Boolean(s.sdiEnabled),
-        deliveryBrokers: (s.deliveryBrokers ?? []).join(", "),
-      });
-    });
+    api<BrandSettings>("/api/v2/settings").then(setSettings).catch(console.error);
   }, []);
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const updated = await api<Settings>("/api/v2/settings", {
-      method: "PATCH",
-      body: JSON.stringify({
-        maxDiscountPercent: form.maxDiscountPercent,
-        tableLockTimeoutMinutes: form.tableLockTimeoutMinutes,
-        sdiEnabled: form.sdiEnabled,
-        deliveryBrokers: form.deliveryBrokers
-          .split(",")
-          .map((b) => b.trim())
-          .filter(Boolean),
-      }),
-    });
-    setSettings(updated);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
-
-  if (!settings) return <p>Caricamento...</p>;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Parametri globali</h1>
+      <div>
+        <h1 className="text-2xl font-bold">Impostazioni</h1>
+        <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+          Parametri globali del brand, validi per tutte le sedi collegate.
+        </p>
+      </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Brand Pizza Guys</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={save} className="max-w-md space-y-4">
-            <div>
-              <label className="mb-1 block text-sm">Sconto massimo (%)</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
-                value={form.maxDiscountPercent}
-                onChange={(e) => setForm({ ...form, maxDiscountPercent: Number(e.target.value) })}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Timeout lock tavolo (minuti)</label>
-              <input
-                type="number"
-                min={1}
-                max={120}
-                className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
-                value={form.tableLockTimeoutMinutes}
-                onChange={(e) => setForm({ ...form, tableLockTimeoutMinutes: Number(e.target.value) })}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.sdiEnabled}
-                onChange={(e) => setForm({ ...form, sdiEnabled: e.target.checked })}
-              />
-              Fatturazione elettronica SDI abilitata (post-MVP)
-            </label>
-            <div>
-              <label className="mb-1 block text-sm">Broker delivery (separati da virgola)</label>
-              <input
-                className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
-                placeholder="Glovo, Deliveroo, Just Eat"
-                value={form.deliveryBrokers}
-                onChange={(e) => setForm({ ...form, deliveryBrokers: e.target.value })}
-              />
-            </div>
-            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-              Schema version corrente: v{settings.schemaVersion}
-            </p>
-            <Button type="submit">Salva impostazioni</Button>
-            {saved && <p className="text-sm text-green-600">Impostazioni salvate.</p>}
-          </form>
+        <CardContent className="p-0">
+          {!settings ? (
+            <p className="px-6 py-4 text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
+          ) : (
+            <ul className="divide-y divide-[hsl(var(--pg-border))]">
+              {SECTIONS.map((section) => (
+                <li key={section.href}>
+                  <Link
+                    href={section.href}
+                    className="flex items-center justify-between gap-4 px-6 py-4 transition-colors hover:bg-[hsl(var(--pg-muted))]/50"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">{section.title}</p>
+                      <p className="truncate text-sm text-[hsl(var(--pg-muted-foreground))]">
+                        {section.description(settings)}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 ${detailLinkClass}`}>Dettaglio</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
+
+      {settings && (
+        <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+          Versione configurazione menu: <span className="font-mono">v{settings.schemaVersion}</span>
+        </p>
+      )}
     </div>
   );
 }

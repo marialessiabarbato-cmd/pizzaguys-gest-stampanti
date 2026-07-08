@@ -1,8 +1,10 @@
 "use client";
 
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { btnSize, detailLinkClass, pageHeaderRowClass, selectFullClass } from "@/lib/cloud-admin-ui";
 
 interface Location {
   id: string;
@@ -67,14 +69,14 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className={pageHeaderRowClass}>
         <div>
           <h1 className="text-2xl font-bold">Fatture elettroniche</h1>
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
             Mock pilota — ricevute dal edge dopo pagamento con documento Fattura. Invio SDI reale in Fase 7.
           </p>
         </div>
-        <Button onClick={() => void load()} disabled={loading}>
+        <Button size={btnSize.inline} onClick={() => void load()} disabled={loading}>
           Aggiorna
         </Button>
       </div>
@@ -84,9 +86,7 @@ export default function InvoicesPage() {
           <CardTitle>Filtro sede</CardTitle>
         </CardHeader>
         <CardContent>
-          <select
-            className="w-full max-w-md rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
-            value={locationId}
+          <select className={selectFullClass} value={locationId}
             onChange={(e) => setLocationId(e.target.value)}
           >
             <option value="">Tutte le sedi</option>
@@ -115,7 +115,8 @@ export default function InvoicesPage() {
                 <th className="py-2 pr-3">Cliente</th>
                 <th className="py-2 pr-3">Totale</th>
                 <th className="py-2 pr-3">Stato</th>
-                <th className="py-2">Scontrino RT</th>
+                <th className="py-2 pr-3">Scontrino RT</th>
+                <th className="py-2" />
               </tr>
             </thead>
             <tbody>
@@ -139,7 +140,15 @@ export default function InvoicesPage() {
                       {inv.status}
                     </span>
                   </td>
-                  <td className="py-3 font-mono text-xs">{inv.receiptId}</td>
+                  <td className="py-3 pr-3 font-mono text-xs">{inv.receiptId}</td>
+                  <td className="py-3 text-right">
+                    <Link
+                      href={`/invoices/${inv.id}`}
+                      className={detailLinkClass}
+                    >
+                      Dettaglio
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
