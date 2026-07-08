@@ -9,6 +9,7 @@ import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
 import {
   buildClosureCsv,
+  getClosureArchiveById,
   listClosureArchive,
   persistClosureArchive,
   updateClosureSyncedAt,
@@ -200,6 +201,14 @@ export async function closureRoutes(app: FastifyInstance) {
 
   app.get("/api/closure/last", async () => {
     return { closure: getLastClosure() };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/closure/history/:id", async (req, reply) => {
+    const closure = getClosureArchiveById(app.edgeDb, req.params.id);
+    if (!closure) {
+      return reply.status(404).send({ error: "Chiusura non trovata" });
+    }
+    return { closure };
   });
 
   app.get<{ Querystring: { from?: string; to?: string } }>(

@@ -9,7 +9,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
 import { DiscountModal } from "../components/DiscountModal";
 import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
-import { PaymentModal } from "../components/PaymentModal";
+import { PaymentScreen } from "../components/PaymentScreen";
 import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
 import { parsePaymentAmount } from "../components/PaymentPad";
 import { PinModal } from "../components/PinModal";
@@ -35,7 +35,7 @@ import { useEdgeWs } from "../lib/ws";
 const STATUS_COLORS = TABLE_STATUS_COLORS;
 
 type ChannelFilter = "SALA" | "ASPORTO" | "DELIVERY";
-type CassaWorkspace = "main" | "openTables" | "reservations";
+type CassaWorkspace = "main" | "openTables" | "reservations" | "payment";
 type UnifiedMenuItem = {
   id: string;
   label: string;
@@ -160,7 +160,6 @@ export function CassaPage({
   const [lockPending, setLockPending] = useState<string | null>(null);
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
   const [pinModalError, setPinModalError] = useState("");
-  const [showPayment, setShowPayment] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [documentType, setDocumentType] = useState<FiscalDocumentType>("RECEIPT");
   const [invoiceCustomer, setInvoiceCustomer] = useState<InvoiceCustomer>(EMPTY_INVOICE_CUSTOMER);
@@ -192,7 +191,6 @@ export function CassaPage({
   const [presetPinError, setPresetPinError] = useState("");
   const [panelTab, setPanelTab] = useState<"conto" | "comanda">("conto");
   const [pendingUnlockAction, setPendingUnlockAction] = useState<"view" | "comanda" | null>(null);
-  const [confirmPay, setConfirmPay] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [confirmPrebill, setConfirmPrebill] = useState(false);
   const [confirmRomanSplit, setConfirmRomanSplit] = useState(false);
@@ -812,7 +810,7 @@ export function CassaPage({
     setRemainderCashAmount("");
     setPaymentRequestId(requestId);
     setAnalyticCheckId(checkId);
-    setConfirmPay(true);
+    setWorkspace("payment");
   };
 
   const handlePaymentMethod = (method: PaymentMethod) => {
@@ -912,7 +910,7 @@ export function CassaPage({
         invoiceNumber: result.invoice?.invoiceNumber,
         invoiceId: result.invoice?.id,
       });
-      setShowPayment(false);
+      setWorkspace("main");
       setCashAmount("");
       setMealVoucherAmount("");
       setRemainderCashAmount("");
@@ -1139,6 +1137,58 @@ export function CassaPage({
               }}
             />
           </section>
+        ) : workspace === "payment" && bill ? (
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <PaymentScreen
+              title={
+                isAnalyticPay
+                  ? `Pagamento ${analyticCheck?.label ?? "conto"}`
+                  : isRomanPay
+                    ? "Quota split romano"
+                    : "Pagamento"
+              }
+              tableLabel={bill.tableLabel}
+              billLines={
+                isAnalyticPay && analyticCheck
+                  ? bill.lines
+                      .filter((line) => analyticCheck.lineIds.includes(line.id))
+                      .map((line) => ({
+                        name: line.name,
+                        quantity: line.quantity,
+                        lineTotal: line.lineTotal,
+                      }))
+                  : bill.lines
+                      .filter((line) => line.id !== "__cover_charge__" || line.lineTotal > 0)
+                      .map((line) => ({
+                        name: line.name,
+                        quantity: line.quantity,
+                        lineTotal: line.lineTotal,
+                      }))
+              }
+              amount={payAmount}
+              method={paymentMethod}
+              onMethod={handlePaymentMethod}
+              documentType={documentType}
+              onDocumentType={setDocumentType}
+              invoiceCustomer={invoiceCustomer}
+              onInvoiceCustomer={setInvoiceCustomer}
+              fullMealReceipt={fullMealReceipt}
+              onFullMealReceipt={setFullMealReceipt}
+              fullMealAvailable={!isRomanPay && !isAnalyticPay}
+              cashAmount={cashAmount}
+              onCashAmount={setCashAmount}
+              mealVoucherPresets={mealVoucherPresets}
+              mealVoucherAmount={mealVoucherAmount}
+              onMealVoucherAmount={setMealVoucherAmount}
+              remainderMethod={remainderMethod}
+              onRemainderMethod={setRemainderMethod}
+              remainderCashAmount={remainderCashAmount}
+              onRemainderCashAmount={setRemainderCashAmount}
+              loading={loading}
+              onConfirm={() => void handlePay()}
+              onCancel={() => setWorkspace("main")}
+            />
+          </section>
         ) : (
         <>
         {!isComandaMode && (
@@ -1326,18 +1376,27 @@ export function CassaPage({
               {counterOrders.length === 0 ? (
                 <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 text-center">
                   <p className="text-base font-medium">Nessun ordine attivo</p>
-                  <p className="max-w-sm text-sm text-[hsl(var(--pg-muted-foreground))]">
-                    Crea un nuovo ordine {counterChannelLabel} per iniziare a prendere comanda e incassare.
-                  </p>
-                  {canComanda && (
-                    <Button
-                      className="h-10 px-4"
-                      onClick={() =>
-                        openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
-                      }
-                    >
-                      + Nuovo ordine
-                    </Button>
+                  {canComanda ? (
+                    <>
+                      <p className="max-w-sm text-sm text-[hsl(var(--pg-muted-foreground))]">
+                        Crea un nuovo ordine {counterChannelLabel} per iniziare a prendere comanda e incassare.
+                      </p>
+                      <Button
+                        className="h-10 px-4"
+                        onClick={() =>
+                          openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
+                        }
+                      >
+                        + Nuovo ordine
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="max-w-sm text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      Per creare ordini {counterChannelLabel} accedi come{" "}
+                      <span className="font-medium text-[hsl(var(--pg-foreground))]">cassiere</span> o{" "}
+                      <span className="font-medium text-[hsl(var(--pg-foreground))]">admin</span>.
+                      I camerieri gestiscono solo i tavoli in sala.
+                    </p>
                   )}
                 </div>
               ) : (
@@ -1375,7 +1434,7 @@ export function CassaPage({
         </section>
         )}
 
-        {(!showCounterOrders || counterAsideOpen) && (
+        {workspace === "main" && (!showCounterOrders || counterAsideOpen) && (
         <aside
           className={`flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-[hsl(var(--pg-border))] ${
             isComandaMode ? "min-w-0 flex-1" : "w-full max-w-md lg:w-[28rem]"
@@ -1672,19 +1731,6 @@ export function CassaPage({
         />
       )}
 
-      {confirmPay && bill && (
-        <ConfirmModal
-          title="Confermi il pagamento?"
-          message={`Incasso di € ${payAmount.toFixed(2)} per tavolo ${bill.tableLabel}.`}
-          confirmLabel="Procedi"
-          onConfirm={() => {
-            setConfirmPay(false);
-            setShowPayment(true);
-          }}
-          onCancel={() => setConfirmPay(false)}
-        />
-      )}
-
       {confirmLogout && (
         <ConfirmModal
           title="Uscire dalla cassa?"
@@ -1740,7 +1786,11 @@ export function CassaPage({
       {confirmClosure && (
         <ConfirmModal
           title="Avviare chiusura giornaliera?"
-          message="Procedura irreversibile: verifica tavoli e turni aperti."
+          message={
+            activeShift
+              ? "Chiudi prima il turno cassa (pulsante in alto), poi verifica che non ci siano tavoli aperti o pagamenti in attesa."
+              : "Procedura irreversibile: verifica tavoli e turni aperti."
+          }
           confirmLabel="Procedi"
           variant="danger"
           onConfirm={() => {
@@ -1896,40 +1946,6 @@ export function CassaPage({
         </div>
       )}
 
-      {showPayment && bill && (
-        <PaymentModal
-          title={
-            isAnalyticPay
-              ? `Pagamento ${analyticCheck?.label ?? "conto"}`
-              : isRomanPay
-                ? "Quota split romano"
-                : "Pagamento"
-          }
-          amount={payAmount}
-          method={paymentMethod}
-          onMethod={handlePaymentMethod}
-          documentType={documentType}
-          onDocumentType={setDocumentType}
-          invoiceCustomer={invoiceCustomer}
-          onInvoiceCustomer={setInvoiceCustomer}
-          fullMealReceipt={fullMealReceipt}
-          onFullMealReceipt={setFullMealReceipt}
-          fullMealAvailable={!isRomanPay && !isAnalyticPay}
-          cashAmount={cashAmount}
-          onCashAmount={setCashAmount}
-          mealVoucherPresets={mealVoucherPresets}
-          mealVoucherAmount={mealVoucherAmount}
-          onMealVoucherAmount={setMealVoucherAmount}
-          remainderMethod={remainderMethod}
-          onRemainderMethod={setRemainderMethod}
-          remainderCashAmount={remainderCashAmount}
-          onRemainderCashAmount={setRemainderCashAmount}
-          loading={loading}
-          onConfirm={() => void handlePay()}
-          onCancel={() => setShowPayment(false)}
-        />
-      )}
-
       {showClosureWizard && operator && (
         <ClosureWizard
           operatorId={operator.id}
@@ -1938,6 +1954,7 @@ export function CassaPage({
             setShowClosureWizard(false);
             loadTables();
           }}
+          onCloseShift={() => setConfirmShiftClose(true)}
         />
       )}
 

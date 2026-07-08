@@ -6,7 +6,7 @@ import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModa
 import { RoomTabs } from "../components/RoomTabs";
 import { TableMapViewport } from "../components/TableMapViewport";
 import {
-  TABLE_STATUS_ACCENT,
+  TABLE_STATUS_COLORS,
   TABLE_STATUS_DOT,
   TABLE_STATUS_LABELS,
   filterMapVisibleTables,
@@ -172,11 +172,9 @@ export function MapScreen({
                         width: table.width,
                         height: table.height,
                       }}
-                      className={`relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border border-[hsl(var(--pg-border))] border-l-4 bg-[hsl(var(--pg-background))] px-2 py-1.5 text-center shadow-sm transition active:scale-[0.98] ${TABLE_STATUS_ACCENT[status]} ${
-                        unionHost ? "ring-2 ring-[hsl(var(--pg-primary))]/20" : ""
-                      } ${lockPending === table.id ? "opacity-50" : ""} ${
-                        status === "BILL_REQUESTED" ? "animate-pulse" : ""
-                      }`}
+                      className={`relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
+                        unionHost ? "ring-2 ring-white/40 ring-offset-1 ring-offset-transparent" : ""
+                      } ${lockPending === table.id ? "opacity-50" : ""}`}
                     >
                       {unionHost && annexedCount > 0 && (
                         <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
@@ -185,12 +183,12 @@ export function MapScreen({
                       )}
 
                       <span
-                        className={`max-w-full truncate font-bold leading-tight text-[hsl(var(--pg-foreground))] ${tableLabelFontClass(title, labelWidth)}`}
+                        className={`max-w-full truncate font-bold leading-tight ${tableLabelFontClass(title, labelWidth)}`}
                       >
                         {title}
                       </span>
 
-                      <span className="max-w-full truncate text-[11px] font-medium leading-tight text-[hsl(var(--pg-muted-foreground))]">
+                      <span className="max-w-full truncate text-[11px] font-medium leading-tight text-white/85">
                         {meta}
                       </span>
                     </button>

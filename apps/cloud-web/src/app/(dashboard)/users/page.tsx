@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, CardContent } from "@pizzaguys/ui";
+import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useEffect, useState } from "react";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { api } from "@/lib/api";
@@ -11,6 +11,8 @@ import {
   inputFullClass,
   pageHeaderRowClass,
   selectClass,
+  stackedLabelClass,
+  stackedSelectClass,
 } from "@/lib/cloud-admin-ui";
 
 interface Location {
@@ -131,32 +133,43 @@ export default function UsersPage() {
         </Card>
       )}
 
-      <div className={`${formRowEndGap3Class} justify-center`}>
-        <label className="text-sm">Filtra per sede:</label>
-        <select
-          className={selectClass}
-          value={filterLocationId}
-          onChange={(e) => setFilterLocationId(e.target.value)}
-        >
-          <option value="">Tutte</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <Card>
-        <CardContent className="p-0">
+        <CardHeader>
+          <CardTitle>Elenco User Admin</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className={formRowEndGap3Class}>
+            <label className={stackedLabelClass}>
+              Sede
+              <select
+                className={stackedSelectClass}
+                value={filterLocationId}
+                onChange={(e) => setFilterLocationId(e.target.value)}
+              >
+                <option value="">Tutte le sedi</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+            {filterLocationId
+              ? `${locationName(filterLocationId)} · ${users.length} ${users.length === 1 ? "utente" : "utenti"}`
+              : `${users.length} ${users.length === 1 ? "utente" : "utenti"} in totale`}
+          </p>
+
           {loading ? (
-            <p className="px-6 py-4 text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
           ) : users.length === 0 ? (
-            <p className="px-6 py-4 text-sm text-[hsl(var(--pg-muted-foreground))]">
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
               Nessun User Admin configurato. Clicca &quot;Crea User Admin&quot; per iniziare.
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))]">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-[hsl(var(--pg-border))] text-xs text-[hsl(var(--pg-muted-foreground))]">

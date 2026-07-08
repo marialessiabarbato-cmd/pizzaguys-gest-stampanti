@@ -16,6 +16,8 @@ interface PreCheck {
   canClose: boolean;
   blockers: string[];
   openTables: Array<{ tableId: string; status: string }>;
+  pendingPayments?: Array<{ requestId: string; tableLabel: string; total: number }>;
+  openShifts?: Array<{ id: string; staffId: string }>;
   zReportIssued: boolean;
   theoretical: Theoretical;
 }
@@ -55,10 +57,12 @@ export function ClosureWizard({
   operatorId,
   operatorName,
   onClose,
+  onCloseShift,
 }: {
   operatorId: string;
   operatorName: string;
   onClose: () => void;
+  onCloseShift?: () => void;
 }) {
   const [step, setStep] = useState<Step>("precheck");
   const [preCheck, setPreCheck] = useState<PreCheck | null>(null);
@@ -164,13 +168,49 @@ export function ClosureWizard({
             {preCheck.canClose ? (
               <p className="text-sm text-green-600">Sala pronta per la chiusura.</p>
             ) : (
-              <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700">
-                <p className="font-medium">Blocchi attivi:</p>
-                <ul className="mt-1 list-inside list-disc">
+              <div className="space-y-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-700">
+                <p className="font-medium">Prima di chiudere la giornata risolvi:</p>
+                <ul className="list-inside list-disc space-y-1">
                   {preCheck.blockers.map((b) => (
                     <li key={b}>{b}</li>
                   ))}
                 </ul>
+
+                {(preCheck.openShifts?.length ?? 0) > 0 && (
+                  <div className="rounded-lg border border-red-300/60 bg-[hsl(var(--pg-background))] p-3 text-[hsl(var(--pg-foreground))]">
+                    <p className="font-medium">Turno cassa aperto</p>
+                    <p className="mt-1 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                      Usa <strong>Chiudi turno</strong> in alto a destra, fai il conteggio cieco
+                      contanti/POS, poi riapri la chiusura giornata.
+                    </p>
+                    {onCloseShift && (
+                      <Button
+                        variant="outline"
+                        className="mt-3 h-10 w-full"
+                        onClick={() => {
+                          onClose();
+                          onCloseShift();
+                        }}
+                      >
+                        Chiudi turno ora
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {preCheck.openTables.length > 0 && (
+                  <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    {preCheck.openTables.length} tavolo/i con conto aperto: incassa o annulla gli
+                    ordini prima di procedere.
+                  </p>
+                )}
+
+                {(preCheck.pendingPayments?.length ?? 0) > 0 && (
+                  <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    {preCheck.pendingPayments!.length} richiesta/e di pagamento in attesa: usa la
+                    barra gialla in alto per incassare.
+                  </p>
+                )}
               </div>
             )}
 

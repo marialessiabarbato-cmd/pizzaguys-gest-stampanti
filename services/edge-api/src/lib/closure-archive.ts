@@ -1,7 +1,20 @@
-import { closureArchive } from "@pizzaguys/edge-db";
+import { closureArchive, staff } from "@pizzaguys/edge-db";
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import type { DailyClosureRecord } from "./closure-state.js";
+
+function mapClosureRow(row: typeof closureArchive.$inferSelect): ClosureArchiveRow {
+  return {
+    id: row.id,
+    closureDate: row.closureDate,
+    zNumber: row.zNumber,
+    theoretical: JSON.parse(row.theoreticalJson) as DailyClosureRecord["theoretical"],
+    declared: JSON.parse(row.declaredJson) as DailyClosureRecord["declared"],
+    discrepancy: JSON.parse(row.discrepancyJson) as DailyClosureRecord["discrepancy"],
+    syncedAt: row.syncedAt,
+    createdAt: row.createdAt,
+  };
+}
 
 export function persistClosureArchive(
   db: EdgeDatabase,
@@ -38,6 +51,26 @@ export interface ClosureArchiveRow {
   createdAt: string;
 }
 
+export interface ClosureArchiveDetail extends ClosureArchiveRow {
+  operatorName: string | null;
+}
+
+export function getClosureArchiveById(
+  db: EdgeDatabase,
+  id: string,
+): ClosureArchiveDetail | null {
+  const row = db.select().from(closureArchive).where(eq(closureArchive.id, id)).get();
+  if (!row) return null;
+
+  let operatorName: string | null = null;
+  if (row.operatorStaffId) {
+    const member = db.select().from(staff).where(eq(staff.id, row.operatorStaffId)).get();
+    if (member) operatorName = `${member.firstName} ${member.lastName}`;
+  }
+
+  return { ...mapClosureRow(row), operatorName };
+}
+
 export function listClosureArchive(
   db: EdgeDatabase,
   filters?: { from?: string; to?: string },
@@ -50,16 +83,7 @@ export function listClosureArchive(
   const rows =
     conditions.length > 0 ? query.where(and(...conditions)).all() : query.all();
 
-  return rows.map((row) => ({
-    id: row.id,
-    closureDate: row.closureDate,
-    zNumber: row.zNumber,
-    theoretical: JSON.parse(row.theoreticalJson) as DailyClosureRecord["theoretical"],
-    declared: JSON.parse(row.declaredJson) as DailyClosureRecord["declared"],
-    discrepancy: JSON.parse(row.discrepancyJson) as DailyClosureRecord["discrepancy"],
-    syncedAt: row.syncedAt,
-    createdAt: row.createdAt,
-  }));
+  return rows.map((row) => mapClosureRow(row));
 }
 
 export function buildClosureCsv(rows: ClosureArchiveRow[], locationName?: string): string {
