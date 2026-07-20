@@ -16,6 +16,7 @@ function formatLocationRow(l: typeof locations.$inferSelect) {
     fiscalCode: l.fiscalCode,
     managerEmail: l.managerEmail,
     coverChargeAmount: Number(l.coverChargeAmount ?? 0),
+    maxGuestCapacity: Number(l.maxGuestCapacity ?? 0),
     schemaVersion: l.schemaVersion,
     healthStatus: l.healthStatus,
     lastHeartbeatAt: l.lastHeartbeatAt,
@@ -91,7 +92,12 @@ export async function locationRoutes(app: FastifyInstance) {
     const [updated] = await app.db
       .update(locations)
       .set({
-        coverChargeAmount: parsed.data.coverChargeAmount,
+        ...(parsed.data.coverChargeAmount != null
+          ? { coverChargeAmount: parsed.data.coverChargeAmount }
+          : {}),
+        ...(parsed.data.maxGuestCapacity != null
+          ? { maxGuestCapacity: parsed.data.maxGuestCapacity }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(locations.id, req.params.id))
@@ -109,13 +115,20 @@ export async function locationRoutes(app: FastifyInstance) {
       userId: req.user.sub,
       locationId: updated?.id,
       operation: "location.update",
-      previousState: { coverChargeAmount: existing.coverChargeAmount },
-      nextState: { coverChargeAmount: parsed.data.coverChargeAmount },
+      previousState: {
+        coverChargeAmount: existing.coverChargeAmount,
+        maxGuestCapacity: existing.maxGuestCapacity,
+      },
+      nextState: {
+        coverChargeAmount: updated?.coverChargeAmount,
+        maxGuestCapacity: updated?.maxGuestCapacity,
+      },
     });
 
     return {
       id: updated?.id,
       coverChargeAmount: Number(updated?.coverChargeAmount ?? 0),
+      maxGuestCapacity: Number(updated?.maxGuestCapacity ?? 0),
     };
   });
 

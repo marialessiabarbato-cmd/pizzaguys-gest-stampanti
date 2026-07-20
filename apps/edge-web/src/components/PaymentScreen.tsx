@@ -255,7 +255,7 @@ export function PaymentScreen({
                           if (d.id !== "INVOICE") {
                             onInvoiceCustomer(EMPTY_INVOICE_CUSTOMER);
                           }
-                          if (d.id !== "RECEIPT") {
+                          if (d.id !== "INVOICE") {
                             onFullMealReceipt(false);
                           }
                         }}
@@ -286,7 +286,7 @@ export function PaymentScreen({
                 </section>
               )}
 
-              {documentType === "RECEIPT" && fullMealAvailable && !isMealVoucher && (
+              {documentType === "INVOICE" && fullMealAvailable && !isMealVoucher && (
                 <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-[hsl(var(--pg-border))] px-4 py-3">
                   <input
                     type="checkbox"
@@ -296,7 +296,7 @@ export function PaymentScreen({
                     onChange={(e) => onFullMealReceipt(e.target.checked)}
                   />
                   <span className="text-sm leading-snug">
-                    <span className="font-medium">Scontrino come &quot;Pasto completo&quot;</span>
+                    <span className="font-medium">Fattura come &quot;Pasto completo&quot;</span>
                     <span className="mt-1 block text-xs text-[hsl(var(--pg-muted-foreground))]">
                       Una sola riga fiscale al totale (dettaglio piatti resta nel gestionale).
                     </span>

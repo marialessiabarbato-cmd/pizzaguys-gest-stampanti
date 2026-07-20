@@ -116,6 +116,7 @@ async function buildCatalogSnapshot(
       tableLockTimeoutMinutes: settings?.tableLockTimeoutMinutes ?? 15,
       deliveryBrokers: settings?.deliveryBrokers ?? [],
       coverChargeAmount: Number(location?.coverChargeAmount ?? 0),
+      maxGuestCapacity: Number(location?.maxGuestCapacity ?? 0),
     },
   };
 }

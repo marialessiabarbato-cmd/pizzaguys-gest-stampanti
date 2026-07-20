@@ -6,6 +6,7 @@ import {
   authorizeDiscountSchema,
   callCourseSchema,
   releaseDessertSchema,
+  setLinePriceSchema,
   stornoLineSchema,
   updateTableGuestsSchema,
   upsertOrderSchema,
@@ -34,6 +35,7 @@ import {
   rebuildKdsTicketsForOrder,
   releaseLock,
   requestLock,
+  setLineUnitPrice,
   setTableOccupied,
   releaseDessertQueue,
   stornoLine,
@@ -46,7 +48,11 @@ import { broadcastKdsUpdate } from "../lib/kds-broadcast.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 import { processCallCourse } from "../lib/call-course.js";
 import { getActiveStaffById, verifyManagerPin } from "../lib/staff-auth.js";
-import { parseGuestCount, effectiveCapacityForTable } from "../lib/table-capacity.js";
+import {
+  checkVenueCapacity,
+  parseGuestCount,
+  effectiveCapacityForTable,
+} from "../lib/table-capacity.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
@@ -79,13 +85,19 @@ function validateOrderLines(
   maxDiscount: number,
 ): { ok: true } | { ok: false; error: string } {
   for (const line of lines) {
-    const base = line.basePrice ?? line.unitPrice;
-    const fiscalVariants = (line.variants ?? []).map((v) => ({
-      type: v.type,
-      priceDelta: v.priceDelta,
-    }));
-    if (!isLinePriceValid(base, fiscalVariants)) {
-      return { ok: false, error: `Prezzo non valido per ${line.name}` };
+    if (line.manualPrice) {
+      if (line.unitPrice <= 0) {
+        return { ok: false, error: `Prezzo non valido per ${line.name}` };
+      }
+    } else {
+      const base = line.basePrice ?? line.unitPrice;
+      const fiscalVariants = (line.variants ?? []).map((v) => ({
+        type: v.type,
+        priceDelta: v.priceDelta,
+      }));
+      if (!isLinePriceValid(base, fiscalVariants)) {
+        return { ok: false, error: `Prezzo non valido per ${line.name}` };
+      }
     }
     if (line.discountPercent && line.discountPercent > maxDiscount) {
       return { ok: false, error: `Sconto oltre il massimo (${maxDiscount}%)` };
@@ -113,6 +125,15 @@ export async function orderRoutes(app: FastifyInstance) {
     const dbTables = app.edgeDb.select().from(tables).all();
     return dbTables.map((t) => {
       const runtime = getTableRuntime(t.id);
+      let openedAt = runtime.openedAt ?? null;
+      if (!openedAt && runtime.status !== "FREE") {
+        const draft = getOrderByTable(t.id);
+        const submitted = getSubmittedOrdersByTable(t.id);
+        const times = [draft?.createdAt, ...submitted.map((o) => o.createdAt)].filter(
+          Boolean,
+        ) as string[];
+        if (times.length) openedAt = times.sort()[0]!;
+      }
       return {
         ...t,
         status: runtime.status,
@@ -122,6 +143,7 @@ export async function orderRoutes(app: FastifyInstance) {
         tableCapacity: runtime.tableCapacity,
         linkedTableIds: runtime.linkedTableIds,
         mergedIntoTableId: runtime.mergedIntoTableId,
+        openedAt,
         roomId: t.roomId,
       };
     });
@@ -208,6 +230,8 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const runtime = getTableRuntime(req.params.id);
+    // LOCKED is excluded from totalActiveGuests — count these covers as additional.
+    const venueCheck = checkVenueCapacity(app.edgeDb, runtime.guests ?? 0);
     broadcast({
       type: "TABLE_LOCKED_BROADCAST",
       payload: {
@@ -229,6 +253,8 @@ export async function orderRoutes(app: FastifyInstance) {
       guests: runtime.guests,
       tableCapacity: runtime.tableCapacity ?? table?.defaultGuests,
       linkedTableIds: runtime.linkedTableIds,
+      openedAt: runtime.openedAt ?? null,
+      venueCapacityWarning: venueCheck.ok ? null : venueCheck.warning,
     };
   });
 
@@ -468,6 +494,41 @@ export async function orderRoutes(app: FastifyInstance) {
     broadcastKdsUpdate({ cancellation });
 
     return { ok: true, line: result.line, printResult, cancellation };
+  });
+
+  app.post("/api/orders/line-price", async (req, reply) => {
+    const parsed = setLinePriceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+
+    const operator = getActiveStaffById(app.edgeDb, parsed.data.operatorId);
+    if (!operator) return reply.status(401).send({ error: "Operatore non valido" });
+
+    const ctx = resolveTableContext(parsed.data.tableId, app.edgeDb);
+    if (!ctx) return reply.status(404).send({ error: "Tavolo non trovato" });
+
+    const result = setLineUnitPrice(
+      parsed.data.tableId,
+      parsed.data.lineId,
+      parsed.data.unitPrice,
+    );
+    if (!result.ok) return reply.status(400).send({ error: result.error });
+
+    writeEdgeAudit(app.edgeDb, {
+      staffId: operator.id,
+      operation: "ORDER_LINE_PRICE",
+      severity: "INFO",
+      nextState: {
+        tableId: parsed.data.tableId,
+        lineId: parsed.data.lineId,
+        unitPrice: parsed.data.unitPrice,
+        operatorName: parsed.data.operatorName.trim(),
+        orderId: result.orderId,
+      },
+    });
+
+    return { ok: true, line: result.line };
   });
 
   app.post("/api/orders/call-course", async (req, reply) => {

@@ -1,24 +1,61 @@
 import { Button } from "@pizzaguys/ui";
 import { useMemo, useState } from "react";
-import { TableUnionChips } from "./TableUnionChips";
-import {
-  combinedSeats,
-  guestsAt,
-  mergePartnerPool,
-  projectedGuests,
-  tableSeats,
-} from "../lib/table-seats";
 import { formatTableLabel } from "../lib/table-display";
-import type { LiveTable } from "../lib/types";
 
 export type GuestsConfirmPayload = {
   guests: number;
   mergeTableIds: string[];
 };
 
+export interface GuestsModalTable {
+  id: string;
+  label: string;
+  status: string;
+  isVirtual: boolean;
+  roomId?: string | null;
+  guests?: number;
+  defaultGuests?: number;
+  tableCapacity?: number;
+}
+
+const OCCUPIED = new Set(["OCCUPIED", "LOCKED", "BILL_REQUESTED"]);
+
+function guestsAt(table: GuestsModalTable): number {
+  if (table.guests != null && table.guests > 0) return table.guests;
+  if (table.status !== "FREE") return table.defaultGuests ?? 0;
+  return 0;
+}
+
+function mergePartnerPool(
+  primary: GuestsModalTable,
+  allTables: GuestsModalTable[],
+): GuestsModalTable[] {
+  return allTables
+    .filter(
+      (t) =>
+        !t.isVirtual &&
+        t.id !== primary.id &&
+        t.status !== "SPLIT_IN_PROGRESS" &&
+        t.status !== "BILL_REQUESTED",
+    )
+    .sort((a, b) => {
+      const aOcc = OCCUPIED.has(a.status) ? 0 : 1;
+      const bOcc = OCCUPIED.has(b.status) ? 0 : 1;
+      if (aOcc !== bOcc) return aOcc - bOcc;
+      if (primary.roomId) {
+        const aRoom = a.roomId === primary.roomId ? 0 : 1;
+        const bRoom = b.roomId === primary.roomId ? 0 : 1;
+        if (aRoom !== bRoom) return aRoom - bRoom;
+      }
+      return String(a.label ?? "").localeCompare(String(b.label ?? ""), "it", {
+        numeric: true,
+      });
+    });
+}
+
 interface Props {
-  primaryTable: LiveTable;
-  tables: LiveTable[];
+  primaryTable: GuestsModalTable;
+  tables: GuestsModalTable[];
   initialGuests?: number;
   confirmLabel?: string;
   loading?: boolean;
@@ -38,10 +75,14 @@ export function GuestsModal({
   onCancel,
 }: Props) {
   const tables = Array.isArray(tablesProp) ? tablesProp : [];
-  const baseCap = Math.max(1, tableSeats(primaryTable));
-  const startGuests = Math.max(1, initialGuests ?? primaryTable.guests ?? primaryTable.defaultGuests ?? 2);
+  const startValue =
+    initialGuests != null && initialGuests > 0
+      ? String(initialGuests)
+      : primaryTable.guests != null && primaryTable.guests > 0
+        ? String(primaryTable.guests)
+        : "";
 
-  const [guests, setGuests] = useState(startGuests);
+  const [guestsInput, setGuestsInput] = useState(startValue);
   const [mergeEnabled, setMergeEnabled] = useState(false);
   const [mergeIds, setMergeIds] = useState<string[]>([]);
 
@@ -50,35 +91,26 @@ export function GuestsModal({
     [primaryTable, tables],
   );
 
-  const involvedIds = useMemo(
-    () => (mergeEnabled ? [primaryTable.id, ...mergeIds] : [primaryTable.id]),
-    [mergeEnabled, mergeIds, primaryTable.id],
-  );
-
-  const seatsHint = Math.max(
-    1,
-    mergeEnabled ? Math.max(combinedSeats(involvedIds, tables), baseCap) : baseCap,
-  );
+  const guests = Math.max(0, Math.floor(Number.parseInt(guestsInput, 10) || 0));
 
   const toggleMerge = (id: string) => {
-    setMergeIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      const involved = [primaryTable.id, ...next];
-      const projected = projectedGuests(involved, tables);
-      setGuests((g) => Math.max(Math.max(g, 1), projected));
-      return next;
-    });
+    setMergeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const enableMerge = (on: boolean) => {
     setMergeEnabled(on);
-    if (!on) {
-      setMergeIds([]);
-    }
+    if (!on) setMergeIds([]);
   };
 
-  const dec = () => setGuests((g) => Math.max(1, g - 1));
-  const inc = () => setGuests((g) => g + 1);
+  const dec = () => {
+    const next = Math.max(1, guests - 1);
+    setGuestsInput(String(next));
+  };
+
+  const inc = () => {
+    const next = Math.max(1, guests + 1);
+    setGuestsInput(String(next));
+  };
 
   const mergeLabels = mergeIds
     .map((id) => {
@@ -89,10 +121,15 @@ export function GuestsModal({
 
   const primaryLabel = formatTableLabel(primaryTable.label);
 
-  const canSubmit = !loading && (!mergeEnabled || mergeIds.length >= 1) && guests >= 1;
+  const canSubmit =
+    !loading && guests >= 1 && (!mergeEnabled || mergeIds.length >= 1);
 
   const submitHint =
-    mergeEnabled && mergeIds.length === 0 ? "Seleziona almeno un tavolo da unire" : "";
+    mergeEnabled && mergeIds.length === 0
+      ? "Seleziona almeno un tavolo da unire"
+      : guests < 1
+        ? "Inserisci almeno 1 coperto"
+        : "";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/40 sm:items-center sm:justify-center">
@@ -101,20 +138,8 @@ export function GuestsModal({
           <h2 className="text-center text-lg font-bold">Coperti</h2>
           <p className="mt-1 text-center text-sm font-medium text-[hsl(var(--pg-muted-foreground))]">
             {primaryLabel}
-            {mergeEnabled && mergeLabels.length > 0
-              ? ` + ${mergeLabels.join(" + ")}`
-              : ""}
+            {mergeEnabled && mergeLabels.length > 0 ? ` + ${mergeLabels.join(" + ")}` : ""}
           </p>
-          <div className="mt-2 flex items-center justify-center gap-2">
-            <span className="rounded-full bg-[hsl(var(--pg-muted))] px-2.5 py-0.5 text-[11px] font-semibold text-[hsl(var(--pg-muted-foreground))]">
-              Posti tavolo: {baseCap}
-            </span>
-            {mergeEnabled && mergeIds.length > 0 && (
-              <span className="rounded-full bg-[hsl(var(--pg-muted))] px-2.5 py-0.5 text-[11px] font-semibold text-[hsl(var(--pg-muted-foreground))]">
-                Posti gruppo: {seatsHint}
-              </span>
-            )}
-          </div>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
@@ -122,42 +147,42 @@ export function GuestsModal({
             <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
               Numero coperti
             </p>
-            <div className="flex items-center justify-center gap-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-14 w-14 text-2xl"
-              onClick={dec}
-              disabled={guests <= 1 || loading}
-            >
-              −
-            </Button>
-            <span className="min-w-[3rem] text-center text-4xl font-bold tabular-nums">
-              {guests}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-14 w-14 text-2xl"
-              onClick={inc}
-              disabled={loading}
-            >
-              +
-            </Button>
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-14 w-14 text-2xl"
+                onClick={dec}
+                disabled={guests <= 1 || loading}
+              >
+                −
+              </Button>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                className="h-14 w-24 rounded-xl border border-[hsl(var(--pg-border))] bg-transparent text-center text-3xl font-bold tabular-nums"
+                value={guestsInput}
+                disabled={loading}
+                placeholder="1"
+                onChange={(e) => setGuestsInput(e.target.value.replace(/[^\d]/g, ""))}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-14 w-14 text-2xl"
+                onClick={inc}
+                disabled={loading}
+              >
+                +
+              </Button>
             </div>
-            {guests > seatsHint && (
-              <p className="mt-2 text-center text-xs text-[hsl(var(--pg-muted-foreground))]">
-                Oltre i posti del tavolo ({seatsHint}) — consentito
-              </p>
-            )}
           </div>
 
           <Button
             type="button"
             variant="outline"
-            className={`h-11 w-full text-sm ${
-              mergeEnabled ? "bg-[hsl(var(--pg-muted))]/40" : ""
-            }`}
+            className={`h-11 w-full text-sm ${mergeEnabled ? "bg-[hsl(var(--pg-muted))]/40" : ""}`}
             disabled={loading}
             onClick={() => enableMerge(!mergeEnabled)}
           >
@@ -196,7 +221,7 @@ export function GuestsModal({
                             selected ? "opacity-90" : "opacity-75"
                           }`}
                         >
-                          {guestsAt(t)} cop. · {t.defaultGuests} posti
+                          {guestsAt(t)} cop.
                         </span>
                       </button>
                     );
@@ -204,20 +229,10 @@ export function GuestsModal({
                 </div>
               )}
               {mergeIds.length > 0 && (
-                <div className="space-y-2 border-t border-[hsl(var(--pg-border))] pt-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
-                    Gruppo che verrà creato
-                  </p>
-                  <TableUnionChips
-                    host={{ ...primaryTable, linkedTableIds: mergeIds }}
-                    allTables={tables}
-                    size="md"
-                    tone="neutral"
-                  />
-                  <p className="text-center text-sm font-semibold text-[hsl(var(--pg-foreground))]">
-                    {guests} coperti · {seatsHint} posti
-                  </p>
-                </div>
+                <p className="text-center text-sm font-semibold text-[hsl(var(--pg-foreground))]">
+                  {guests >= 1 ? `${guests} coperti` : "—"} · gruppo {primaryLabel}
+                  {mergeLabels.length > 0 ? ` + ${mergeLabels.join(" + ")}` : ""}
+                </p>
               )}
             </section>
           )}
@@ -244,7 +259,7 @@ export function GuestsModal({
             disabled={!canSubmit}
             onClick={() =>
               onConfirm({
-                guests,
+                guests: Math.max(1, guests),
                 mergeTableIds: mergeEnabled ? mergeIds : [],
               })
             }

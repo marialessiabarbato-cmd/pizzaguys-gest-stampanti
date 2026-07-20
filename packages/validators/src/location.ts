@@ -11,7 +11,8 @@ export const createLocationSchema = z.object({
 export type CreateLocationInput = z.infer<typeof createLocationSchema>;
 
 export const updateLocationSchema = z.object({
-  coverChargeAmount: z.number().min(0).max(100),
+  coverChargeAmount: z.number().min(0).max(100).optional(),
+  maxGuestCapacity: z.number().int().min(0).max(10000).optional(),
 });
 
 export type UpdateLocationInput = z.infer<typeof updateLocationSchema>;

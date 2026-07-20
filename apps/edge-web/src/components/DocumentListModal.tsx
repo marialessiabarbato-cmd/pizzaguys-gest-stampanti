@@ -29,6 +29,8 @@ interface FiscalDocumentRow {
   status: "ISSUED" | "VOIDED";
   voidedAt: string | null;
   invoiceNumber: string | null;
+  invoiceId?: string | null;
+  tableId?: string | null;
   receipt: {
     lines: Array<{ name: string; quantity: number; unitPrice: number; vatRate: number }>;
     total: number;

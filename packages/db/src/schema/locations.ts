@@ -15,6 +15,8 @@ export const locations = pgTable("locations", {
   managerEmail: text("manager_email").notNull(),
   /** Importo coperto per persona (€), configurabile per sede */
   coverChargeAmount: real("cover_charge_amount").notNull().default(0),
+  /** Capienza massima coperti sede (0 = illimitata) */
+  maxGuestCapacity: integer("max_guest_capacity").notNull().default(0),
   apiTokenHash: text("api_token_hash"),
   schemaVersion: integer("schema_version").notNull().default(1),
   healthStatus: locationHealthEnum("health_status").notNull().default("OFFLINE"),

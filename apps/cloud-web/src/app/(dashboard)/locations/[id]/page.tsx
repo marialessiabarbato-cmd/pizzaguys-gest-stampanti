@@ -23,6 +23,7 @@ interface LocationDetail {
   fiscalCode: string | null;
   managerEmail: string;
   coverChargeAmount: number;
+  maxGuestCapacity: number;
   healthStatus: string;
   schemaVersion: number;
   lastHeartbeatAt: string | null;
@@ -58,6 +59,7 @@ export default function LocationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [tokenReveal, setTokenReveal] = useState<string | null>(null);
   const [coverCharge, setCoverCharge] = useState("0");
+  const [maxGuestCapacity, setMaxGuestCapacity] = useState("0");
 
   const load = useCallback(async () => {
     if (!locationId) return;
@@ -67,6 +69,7 @@ export default function LocationDetailPage() {
       const row = await api<LocationDetail>(`/api/v2/locations/${locationId}`);
       setLocation(row);
       setCoverCharge(String(row.coverChargeAmount));
+      setMaxGuestCapacity(String(row.maxGuestCapacity ?? 0));
     } catch (err) {
       setLocation(null);
       setError(err instanceof Error ? err.message : "Errore caricamento");
@@ -95,6 +98,17 @@ export default function LocationDetailPage() {
     await api(`/api/v2/locations/${location.id}`, {
       method: "PATCH",
       body: JSON.stringify({ coverChargeAmount: amount }),
+    });
+    await load();
+  };
+
+  const saveMaxGuestCapacity = async () => {
+    if (!location) return;
+    const capacity = Number.parseInt(maxGuestCapacity, 10);
+    if (!Number.isFinite(capacity) || capacity < 0) return;
+    await api(`/api/v2/locations/${location.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ maxGuestCapacity: capacity }),
     });
     await load();
   };
@@ -210,6 +224,40 @@ export default function LocationDetailPage() {
               </Button>
               <span className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                 Attuale: {euro(location.coverChargeAmount)}
+              </span>
+            </div>
+          </div>
+
+          <div className="border-t border-[hsl(var(--pg-border))] pt-4">
+            <label className="mb-2 block text-sm font-medium">
+              Capienza massima coperti sede
+            </label>
+            <p className="mb-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
+              Intero ≥ 0. Valore 0 = illimitata.
+            </p>
+            <div className={formRowEndGap3Class}>
+              <input
+                type="number"
+                min={0}
+                max={10000}
+                step={1}
+                className={`w-28 ${inputClass}`}
+                value={maxGuestCapacity}
+                onChange={(e) => setMaxGuestCapacity(e.target.value)}
+              />
+              <Button
+                type="button"
+                size={btnSize.inline}
+                variant="outline"
+                onClick={() => void saveMaxGuestCapacity()}
+              >
+                Salva capienza
+              </Button>
+              <span className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                Attuale:{" "}
+                {location.maxGuestCapacity === 0
+                  ? "Illimitata"
+                  : `${location.maxGuestCapacity} coperti`}
               </span>
             </div>
           </div>

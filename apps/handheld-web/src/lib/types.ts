@@ -114,5 +114,5 @@ export interface SubmittedLine {
   voidedQuantity?: number;
 }
 
-export type Screen = "pin" | "map" | "table";
+export type Screen = "pin" | "map" | "table" | "counter";
 export type WorkspaceTab = "comanda" | "menu";

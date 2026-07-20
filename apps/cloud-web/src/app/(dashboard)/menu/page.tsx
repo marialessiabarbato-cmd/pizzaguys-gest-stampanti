@@ -18,8 +18,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { TableFilters, matchesSearch } from "@/components/TableFilters";
 import { EU_ALLERGENS, SALES_CHANNELS, VAT_RATES, localizedName } from "@/lib/constants";
 import { api } from "@/lib/api";
 import {
@@ -32,7 +33,6 @@ import {
   listRowClass,
   pageHeaderRowClass,
   inlineLinkClass,
-  searchInputClass,
   selectClass,
 } from "@/lib/cloud-admin-ui";
 
@@ -238,6 +238,15 @@ export default function MenuPage() {
   const [priceLocationId, setPriceLocationId] = useState("");
   const [bulkPercent, setBulkPercent] = useState("0");
   const [productSearch, setProductSearch] = useState("");
+  const [productHoldFilter, setProductHoldFilter] = useState("");
+  const [variantGroupSearch, setVariantGroupSearch] = useState("");
+  const [variantOptionSearch, setVariantOptionSearch] = useState("");
+  const [variantTypeFilter, setVariantTypeFilter] = useState("");
+  const [priceSearch, setPriceSearch] = useState("");
+  const [priceCategoryFilter, setPriceCategoryFilter] = useState("");
+  const [importingVariants, setImportingVariants] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const variantImportRef = useRef<HTMLInputElement>(null);
   const [showCatForm, setShowCatForm] = useState(false);
   const [showProdForm, setShowProdForm] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -579,10 +588,62 @@ export default function MenuPage() {
 
   const filteredProducts = useMemo(() => {
     const inCategory = products.filter((p) => p.categoryId === selectedCatId);
-    const query = productSearch.trim().toLowerCase();
-    if (!query) return inCategory;
-    return inCategory.filter((p) => localizedName(p.name).toLowerCase().includes(query));
-  }, [products, selectedCatId, productSearch]);
+    return inCategory.filter((p) => {
+      if (!matchesSearch(localizedName(p.name), productSearch)) return false;
+      if (productHoldFilter === "hold" && !p.hold) return false;
+      if (productHoldFilter === "normal" && p.hold) return false;
+      return true;
+    });
+  }, [products, selectedCatId, productSearch, productHoldFilter]);
+
+  const filteredVariantGroups = useMemo(() => {
+    return variantGroups.filter((g) =>
+      matchesSearch(localizedName(g.name), variantGroupSearch),
+    );
+  }, [variantGroups, variantGroupSearch]);
+
+  const filteredGroupVariants = useMemo(() => {
+    return groupVariants.filter((v) => {
+      if (!matchesSearch(localizedName(v.name), variantOptionSearch)) return false;
+      if (variantTypeFilter && v.type !== variantTypeFilter) return false;
+      return true;
+    });
+  }, [groupVariants, variantOptionSearch, variantTypeFilter]);
+
+  const filteredPriceProducts = useMemo(() => {
+    return products.filter((p) => {
+      if (priceCategoryFilter && p.categoryId !== priceCategoryFilter) return false;
+      if (!matchesSearch(localizedName(p.name), priceSearch)) return false;
+      return true;
+    });
+  }, [products, priceSearch, priceCategoryFilter]);
+
+  const importVariantsCsv = async (file: File) => {
+    setImportingVariants(true);
+    setImportMessage("");
+    try {
+      const csv = await file.text();
+      const result = await api<{
+        createdGroups: number;
+        createdOptions: number;
+        errors: string[];
+      }>("/api/v2/variants/import", {
+        method: "POST",
+        body: JSON.stringify({ csv }),
+      });
+      setImportMessage(
+        `Importati ${result.createdOptions} opzioni` +
+          (result.createdGroups ? ` · ${result.createdGroups} gruppi nuovi` : "") +
+          (result.errors.length ? ` · ${result.errors.length} errori` : ""),
+      );
+      await load();
+    } catch (err) {
+      setImportMessage(err instanceof Error ? err.message : "Import fallito");
+    } finally {
+      setImportingVariants(false);
+      if (variantImportRef.current) variantImportRef.current.value = "";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -746,14 +807,24 @@ export default function MenuPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {products.filter((p) => p.categoryId === selectedCatId).length > 4 && (
-                    <input
-                      className={searchInputClass}
-                      placeholder="Cerca prodotto..."
-                      value={productSearch}
-                      onChange={(e) => setProductSearch(e.target.value)}
-                    />
-                  )}
+                  <TableFilters
+                    search={productSearch}
+                    onSearchChange={setProductSearch}
+                    searchPlaceholder="Cerca prodotto…"
+                    filters={[
+                      {
+                        id: "hold",
+                        label: "Tipo",
+                        value: productHoldFilter,
+                        onChange: setProductHoldFilter,
+                        allLabel: "Tutti",
+                        options: [
+                          { value: "normal", label: "Normali" },
+                          { value: "hold", label: "In hold" },
+                        ],
+                      },
+                    ]}
+                  />
                   {filteredProducts.map((p) => (
                     <div
                       key={p.id}
@@ -928,14 +999,46 @@ export default function MenuPage() {
       )}
 
       {tab === "varianti" && (
-        <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TableFilters
+              search={variantGroupSearch}
+              onSearchChange={setVariantGroupSearch}
+              searchPlaceholder="Cerca gruppo varianti…"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={variantImportRef}
+                type="file"
+                accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void importVariantsCsv(file);
+                }}
+              />
+              <Button
+                size={btnSize.inline}
+                variant="outline"
+                disabled={importingVariants}
+                onClick={() => variantImportRef.current?.click()}
+              >
+                {importingVariants ? "Import…" : "Importa Excel"}
+              </Button>
+            </div>
+          </div>
+          {importMessage && (
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">{importMessage}</p>
+          )}
+          <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <div className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
                 <div>
                   <CardTitle className="text-base">Gruppi</CardTitle>
                   <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                    {variantGroups.length} {variantGroups.length === 1 ? "gruppo" : "gruppi"}
+                    {filteredVariantGroups.length} di {variantGroups.length}{" "}
+                    {variantGroups.length === 1 ? "gruppo" : "gruppi"}
                   </p>
                 </div>
                 <Button
@@ -954,8 +1057,12 @@ export default function MenuPage() {
                   <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                     Nessun gruppo varianti. Creane uno per iniziare.
                   </p>
+                ) : filteredVariantGroups.length === 0 ? (
+                  <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                    Nessun gruppo corrisponde alla ricerca.
+                  </p>
                 ) : (
-                  variantGroups.map((g) => (
+                  filteredVariantGroups.map((g) => (
                     <div
                       key={g.id}
                       className={`rounded-md border px-3 py-2 text-sm ${
@@ -1099,7 +1206,24 @@ export default function MenuPage() {
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {groupVariants.map((v) => (
+                  <TableFilters
+                    search={variantOptionSearch}
+                    onSearchChange={setVariantOptionSearch}
+                    searchPlaceholder="Cerca opzione…"
+                    filters={[
+                      {
+                        id: "type",
+                        label: "Tipo",
+                        value: variantTypeFilter,
+                        onChange: setVariantTypeFilter,
+                        options: [
+                          { value: "ADD", label: "Aggiunta" },
+                          { value: "REMOVE", label: "Rimozione" },
+                        ],
+                      },
+                    ]}
+                  />
+                  {filteredGroupVariants.map((v) => (
                     <div
                       key={v.id}
                       className={`${listRowClass(editingVariantId === v.id)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
@@ -1264,6 +1388,7 @@ export default function MenuPage() {
             )}
           </div>
         </div>
+        </div>
       )}
 
       {tab === "prezzi" && (
@@ -1272,6 +1397,23 @@ export default function MenuPage() {
             <CardTitle>Matrice prezzi Sede × Canale</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <TableFilters
+              search={priceSearch}
+              onSearchChange={setPriceSearch}
+              searchPlaceholder="Cerca prodotto…"
+              filters={[
+                {
+                  id: "category",
+                  label: "Categoria",
+                  value: priceCategoryFilter,
+                  onChange: setPriceCategoryFilter,
+                  options: categories.map((c) => ({
+                    value: c.id,
+                    label: localizedName(c.name),
+                  })),
+                },
+              ]}
+            />
             <div className={formRowEndGap3Class}>
               <div>
                 <label className="mb-1 block text-xs">Sede</label>
@@ -1309,7 +1451,7 @@ export default function MenuPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p) => (
+                  {filteredPriceProducts.map((p) => (
                     <tr key={p.id} className="border-b border-[hsl(var(--pg-border))]">
                       <td className="py-2 pr-4">{localizedName(p.name)}</td>
                       <td className="py-2 pr-4">€ {Number(p.basePrice).toFixed(2)}</td>
@@ -1331,6 +1473,16 @@ export default function MenuPage() {
                         ))}
                     </tr>
                   ))}
+                  {filteredPriceProducts.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={2 + SALES_CHANNELS.length}
+                        className="py-6 text-center text-[hsl(var(--pg-muted-foreground))]"
+                      >
+                        Nessun prodotto corrisponde ai filtri
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

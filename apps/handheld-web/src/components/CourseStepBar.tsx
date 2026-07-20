@@ -1,4 +1,4 @@
-import { ORDER_STEPS } from "../lib/course";
+import { ORDER_STEPS, normalizeCourse } from "../lib/course";
 import type { CartLine } from "../lib/types";
 
 export function CourseStepBar({
@@ -13,7 +13,9 @@ export function CourseStepBar({
   onSelect: (course: number) => void;
 }) {
   const countByCourse = (course: number) =>
-    cart.filter((l) => l.course === course).reduce((n, l) => n + l.quantity, 0);
+    cart
+      .filter((l) => normalizeCourse(l.course) === normalizeCourse(course))
+      .reduce((n, l) => n + l.quantity, 0);
 
   const activeStep = ORDER_STEPS.find((s) => s.course === activeCourse);
 

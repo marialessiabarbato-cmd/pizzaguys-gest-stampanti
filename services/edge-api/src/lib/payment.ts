@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { roundToFiveCents } from "@pizzaguys/fiscal";
 import type { MockReceipt } from "@pizzaguys/fiscal";
 import { formatMockReceiptText } from "@pizzaguys/fiscal";
 import type { FiscalDocumentType, InvoiceCustomer, PaymentMethod, PaymentSplit, WsEnvelope } from "@pizzaguys/types";
@@ -160,6 +161,15 @@ export async function executeTablePayment(
   const isRoman = params.splitMode === "ROMAN" && roman != null;
   const isAnalytic = params.splitMode === "ANALYTIC" && analytic != null;
 
+  const docType = params.documentType ?? "RECEIPT";
+
+  if (params.fullMealReceipt && docType !== "INVOICE") {
+    return {
+      ok: false,
+      error: "Pasto completo disponibile solo in fattura",
+      status: 400,
+    };
+  }
   if (params.fullMealReceipt && (isRoman || isAnalytic)) {
     return {
       ok: false,
@@ -174,6 +184,7 @@ export async function executeTablePayment(
       status: 400,
     };
   }
+
 
   let payAmount = bill.total;
   let receiptLines: ReturnType<typeof billToReceiptLines>;
@@ -202,7 +213,7 @@ export async function executeTablePayment(
     if (checkLines.length === 0) {
       return { ok: false, error: "Nessuna riga nel conto selezionato", status: 400 };
     }
-    payAmount = Math.round(checkLines.reduce((s, l) => s + l.lineTotal, 0) * 100) / 100;
+    payAmount = roundToFiveCents(checkLines.reduce((s, l) => s + l.lineTotal, 0));
     receiptLines = billToReceiptLines(bill, payAmount, checkLines);
   } else if (analytic && !isAnalytic) {
     return {
@@ -211,15 +222,16 @@ export async function executeTablePayment(
       status: 400,
     };
   } else {
+    payAmount = roundToFiveCents(payAmount);
+    const useFullMeal = params.fullMealReceipt && docType === "INVOICE";
     receiptLines = billToReceiptLines(
       bill,
       payAmount,
       undefined,
-      params.fullMealReceipt ? { fullMeal: true, fullMealLabel: FULL_MEAL_RECEIPT_LABEL } : undefined,
+      useFullMeal ? { fullMeal: true, fullMealLabel: FULL_MEAL_RECEIPT_LABEL } : undefined,
     );
   }
 
-  const docType = params.documentType ?? "RECEIPT";
   if (docType === "INVOICE" && (isRoman || isAnalytic)) {
     return {
       ok: false,
@@ -304,10 +316,14 @@ export async function executeTablePayment(
     lines: saleLines,
   });
 
+  const counterOrder = getCounterOrder(params.tableId);
+  const deliveryBroker = counterOrder?.broker;
+
   recordDayTransaction(params.edgeDb, closureDate, {
     receiptId: receiptResult.receipt.id,
     at: receiptResult.receipt.issuedAt,
     tableLabel: params.tableLabel,
+    tableId: params.tableId,
     serviceType,
     paymentMethod,
     paymentSplits: paymentSplits.length > 1 ? paymentSplits : undefined,
@@ -317,6 +333,7 @@ export async function executeTablePayment(
     amount: payAmount,
     lines: saleLines,
     coverGuests: bill.coverCharge?.guestCount ?? 0,
+    deliveryBroker,
   });
 
   let tableFreed = false;

@@ -99,9 +99,17 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
     }
   }
 
-  const settings = handshake.snapshot.settings as { tableLockTimeoutMinutes?: number } | undefined;
+  const settings = handshake.snapshot.settings as
+    | { tableLockTimeoutMinutes?: number; maxGuestCapacity?: number }
+    | undefined;
   if (settings?.tableLockTimeoutMinutes) {
     setLockTimeoutMinutes(settings.tableLockTimeoutMinutes);
+  }
+  if (settings?.maxGuestCapacity != null) {
+    db.update(edgeState)
+      .set({ maxGuestCapacity: settings.maxGuestCapacity, updatedAt: now })
+      .where(eq(edgeState.id, 1))
+      .run();
   }
 
   applyInvoiceCustomersFromSnapshot(db, handshake.snapshot.invoiceCustomers);

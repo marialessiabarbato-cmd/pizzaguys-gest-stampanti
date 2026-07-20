@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { roundToFiveCents, splitRoundedTotal } from "@pizzaguys/fiscal";
 import type { TableStatus } from "@pizzaguys/types";
 
 export interface OrderLineVariant {
@@ -15,6 +16,8 @@ export interface OrderLine {
   quantity: number;
   unitPrice: number;
   basePrice?: number;
+  /** Prezzo unitario impostato manualmente (cassa/cameriere) */
+  manualPrice?: boolean;
   channel: "TABLE" | "TAKEAWAY" | "DELIVERY";
   notes?: string;
   variants?: OrderLineVariant[];
@@ -348,16 +351,7 @@ export function setSplitInProgress(tableId: string) {
 }
 
 export function computeRomanShareAmounts(total: number, shares: number): number[] {
-  const amounts: number[] = [];
-  let remaining = Math.round(total * 100) / 100;
-  const baseCents = Math.floor((total * 100) / shares);
-  for (let i = 0; i < shares - 1; i++) {
-    const share = baseCents / 100;
-    amounts.push(share);
-    remaining = Math.round((remaining - share) * 100) / 100;
-  }
-  amounts.push(remaining);
-  return amounts;
+  return splitRoundedTotal(roundToFiveCents(total), shares);
 }
 
 export function startRomanSplit(tableId: string, shares: number, total: number): RomanSplit {
@@ -619,6 +613,44 @@ export function stornoLine(
     lines: order.lines.map((l) => (l.id === lineId ? updated : l)),
   });
   return { ok: true, line: updated };
+}
+
+export function setLineUnitPrice(
+  tableId: string,
+  lineId: string,
+  unitPrice: number,
+): { ok: boolean; line?: OrderLine; orderId?: string; error?: string } {
+  if (!(unitPrice > 0)) return { ok: false, error: "Prezzo non valido" };
+
+  const draft = getOrderByTable(tableId);
+  if (draft) {
+    const line = draft.lines.find((l) => l.id === lineId);
+    if (line) {
+      const updated = { ...line, unitPrice, manualPrice: true };
+      orders.set(draft.id, {
+        ...draft,
+        lines: draft.lines.map((l) => (l.id === lineId ? updated : l)),
+        updatedAt: new Date().toISOString(),
+      });
+      return { ok: true, line: updated, orderId: draft.id };
+    }
+  }
+
+  for (const order of getSubmittedOrdersByTable(tableId)) {
+    const line = order.lines.find((l) => l.id === lineId);
+    if (!line) continue;
+    const remaining = line.quantity - (line.voidedQuantity ?? 0);
+    if (remaining <= 0) return { ok: false, error: "Riga già stornata" };
+    const updated = { ...line, unitPrice, manualPrice: true };
+    orders.set(order.id, {
+      ...order,
+      lines: order.lines.map((l) => (l.id === lineId ? updated : l)),
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true, line: updated, orderId: order.id };
+  }
+
+  return { ok: false, error: "Riga non trovata" };
 }
 
 export function createDiscountToken(percent: number): string {

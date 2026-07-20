@@ -21,6 +21,7 @@ import {
 } from "./lib/runtime.js";
 import { verifyManagerPin } from "./lib/staff-auth.js";
 import { parseGuestCount, effectiveCapacityForTable } from "./lib/table-capacity.js";
+import { printTablePrebill } from "./lib/prebill-print.js";
 import { addWsClient, broadcast, broadcastTableStatus, removeWsClient } from "./lib/ws-hub.js";
 
 type WsClient = { send: (data: string) => void; readyState: number };
@@ -200,6 +201,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
             });
             setBillRequested(payload.tableId);
             broadcastTableStatus(payload.tableId, "BILL_REQUESTED");
+            void printTablePrebill(app.edgeDb, payload.tableId);
             broadcast({
               type: "PAYMENT_PENDING",
               payload: {

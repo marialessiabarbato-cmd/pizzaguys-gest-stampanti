@@ -16,6 +16,8 @@ import { PinModal } from "../components/PinModal";
 import { PinPad } from "../components/PinPad";
 import { ClosureWizard } from "../components/ClosureWizard";
 import { ClosureHistoryModal } from "../components/ClosureHistoryModal";
+import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModal";
+import { InternalClosureWizard } from "../components/InternalClosureWizard";
 import { DocumentListModal } from "../components/DocumentListModal";
 import { OpenTablesModal } from "../components/OpenTablesModal";
 import { ReservationsModal } from "../components/ReservationsModal";
@@ -55,9 +57,20 @@ interface LiveTable {
   lockedByName?: string;
   guests?: number;
   defaultGuests?: number;
+  tableCapacity?: number;
+  openedAt?: string | null;
   isVirtual: boolean;
   virtualType: string | null;
   roomId?: string | null;
+}
+
+function formatOpenedElapsed(openedAt: string | null | undefined, nowMs: number): string {
+  if (!openedAt) return "";
+  const ms = nowMs - new Date(openedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "0m";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 interface Operator {
@@ -209,6 +222,7 @@ export function CassaPage({
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
+  const [showInternalClosureWizard, setShowInternalClosureWizard] = useState(false);
   const [showClosureHistory, setShowClosureHistory] = useState(false);
   const [showDocumentList, setShowDocumentList] = useState(false);
   const [workspace, setWorkspace] = useState<CassaWorkspace>("main");
@@ -216,6 +230,12 @@ export function CassaPage({
   const [counterOrders, setCounterOrders] = useState<CounterOrderRow[]>([]);
   const [showCounterModal, setShowCounterModal] = useState(false);
   const [counterModalChannel, setCounterModalChannel] = useState<CounterChannel>("TAKEAWAY");
+  const [pendingGuestsTable, setPendingGuestsTable] = useState<LiveTable | null>(null);
+  const [showEditGuestsModal, setShowEditGuestsModal] = useState(false);
+  const [guestsModalLoading, setGuestsModalLoading] = useState(false);
+  const [guestsModalError, setGuestsModalError] = useState("");
+  const [venueCapacityWarning, setVenueCapacityWarning] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const tablesRef = useRef(tables);
   const pendingUnlockTableRef = useRef(pendingUnlockTable);
   const pendingUnlockActionRef = useRef(pendingUnlockAction);
@@ -245,6 +265,9 @@ export function CassaPage({
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
     void edgeApi<Array<{ id: string; name: string }>>("/api/rooms").then(setRooms);
+    void edgeApi<{ venueCapacityWarning?: string | null }>("/api/status").then((s) => {
+      setVenueCapacityWarning(s.venueCapacityWarning ?? null);
+    });
   }, []);
 
   const loadPendingPayments = useCallback(() => {
@@ -417,6 +440,12 @@ export function CassaPage({
   }, [operator, on, loadTables, loadPendingPayments, loadCounterOrders, loadBill]);
 
   useEffect(() => {
+    if (!operator) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [operator]);
+
+  useEffect(() => {
     if (selectedTable) void loadBill(selectedTable.id);
   }, [selectedTable, loadBill]);
 
@@ -435,7 +464,11 @@ export function CassaPage({
     }
   };
 
-  const acquireTableLock = async (table: LiveTable, overridePin?: string) => {
+  const acquireTableLock = async (
+    table: LiveTable,
+    overridePin?: string,
+    guests?: number,
+  ) => {
     if (!operator) throw new Error("Operatore non autenticato");
     return edgeApi<{
       tableId: string;
@@ -443,13 +476,15 @@ export function CassaPage({
       lockedBy?: string;
       lockedByName?: string;
       guests?: number;
+      openedAt?: string | null;
+      venueCapacityWarning?: string | null;
     }>(`/api/tables/${table.id}/lock`, {
       method: "POST",
       body: JSON.stringify({
         operatorId: operator.id,
         operatorName: `${operator.firstName} ${operator.lastName}`,
         overridePin,
-        guests: table.guests ?? table.defaultGuests ?? 2,
+        guests: guests ?? table.guests ?? 1,
       }),
     });
   };
@@ -471,11 +506,14 @@ export function CassaPage({
     setMessage("");
     try {
       const lock = await acquireTableLock(selectedTable);
+      if (lock.venueCapacityWarning) setVenueCapacityWarning(lock.venueCapacityWarning);
       setSelectedTable({
         ...selectedTable,
         status: "LOCKED",
         lockedBy: lock.lockedBy ?? operator.id,
         lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+        guests: lock.guests ?? selectedTable.guests,
+        openedAt: lock.openedAt ?? selectedTable.openedAt,
       });
       setPanelTab("comanda");
       loadTables();
@@ -492,11 +530,14 @@ export function CassaPage({
     setLockPending(pendingUnlockTable.id);
     try {
       const lock = await acquireTableLock(pendingUnlockTable, value);
+      if (lock.venueCapacityWarning) setVenueCapacityWarning(lock.venueCapacityWarning);
       const table = {
         ...pendingUnlockTable,
         status: "LOCKED" as const,
         lockedBy: lock.lockedBy ?? operator.id,
         lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+        guests: lock.guests ?? pendingUnlockTable.guests,
+        openedAt: lock.openedAt ?? pendingUnlockTable.openedAt,
       };
       const action = pendingUnlockActionRef.current;
       setSelectedTable(table);
@@ -535,6 +576,11 @@ export function CassaPage({
   };
 
   const selectTable = (table: LiveTable) => {
+    if (!table.isVirtual && table.status === "FREE") {
+      setGuestsModalError("");
+      setPendingGuestsTable(table);
+      return;
+    }
     if (table.status === "LOCKED" && table.lockedBy === operator?.id) {
       setPaymentRequestId(undefined);
       setSelectedTable(table);
@@ -556,6 +602,91 @@ export function CassaPage({
     setMessage("");
     setPaymentResult(null);
     void loadBill(table.id);
+  };
+
+  const openTableWithGuests = async (table: LiveTable, payload: GuestsConfirmPayload) => {
+    if (!operator) return;
+    setGuestsModalLoading(true);
+    setGuestsModalError("");
+    try {
+      let target = table;
+      if (payload.mergeTableIds.length > 0) {
+        await edgeApi("/api/tables/merge", {
+          method: "POST",
+          body: JSON.stringify({
+            operatorId: operator.id,
+            operatorName: `${operator.firstName} ${operator.lastName}`,
+            sourceTableIds: payload.mergeTableIds,
+            targetTableId: table.id,
+          }),
+        });
+        const live = await edgeApi<LiveTable[]>("/api/tables/live");
+        setTables(live);
+        target = live.find((t) => t.id === table.id) ?? target;
+      }
+      const lock = await acquireTableLock(target, undefined, payload.guests);
+      if (lock.venueCapacityWarning) setVenueCapacityWarning(lock.venueCapacityWarning);
+      setPendingGuestsTable(null);
+      setSelectedTable({
+        ...target,
+        status: "LOCKED",
+        lockedBy: lock.lockedBy ?? operator.id,
+        lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
+        guests: lock.guests ?? payload.guests,
+        openedAt: lock.openedAt ?? target.openedAt,
+      });
+      setPanelTab("conto");
+      setMessage(
+        payload.mergeTableIds.length > 0
+          ? `Tavoli uniti · ${payload.guests} coperti`
+          : `Tavolo aperto · ${payload.guests} coperti`,
+      );
+      loadTables();
+      void loadBill(target.id);
+    } catch (err) {
+      setGuestsModalError(err instanceof Error ? err.message : "Errore apertura tavolo");
+    } finally {
+      setGuestsModalLoading(false);
+    }
+  };
+
+  const saveTableGuests = async (payload: GuestsConfirmPayload) => {
+    if (!operator || !selectedTable) return;
+    setGuestsModalLoading(true);
+    setGuestsModalError("");
+    try {
+      if (payload.mergeTableIds.length > 0) {
+        await edgeApi("/api/tables/merge", {
+          method: "POST",
+          body: JSON.stringify({
+            operatorId: operator.id,
+            operatorName: `${operator.firstName} ${operator.lastName}`,
+            sourceTableIds: payload.mergeTableIds,
+            targetTableId: selectedTable.id,
+          }),
+        });
+      }
+      const row = await edgeApi<{ guests: number; tableCapacity?: number }>(
+        `/api/tables/${selectedTable.id}/guests`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ guests: payload.guests, operatorId: operator.id }),
+        },
+      );
+      setSelectedTable({ ...selectedTable, guests: row.guests, tableCapacity: row.tableCapacity });
+      setShowEditGuestsModal(false);
+      setMessage(
+        payload.mergeTableIds.length > 0
+          ? `Tavoli uniti · ${row.guests} coperti`
+          : `Coperti aggiornati: ${row.guests}`,
+      );
+      loadTables();
+      void loadBill(selectedTable.id);
+    } catch (err) {
+      setGuestsModalError(err instanceof Error ? err.message : "Errore aggiornamento coperti");
+    } finally {
+      setGuestsModalLoading(false);
+    }
   };
 
   const selectCounterOrder = (order: CounterOrderRow) => {
@@ -835,7 +966,7 @@ export function CassaPage({
       checkId: analyticCheckId,
       documentType,
       invoiceCustomer: documentType === "INVOICE" ? invoiceCustomer : undefined,
-      fullMealReceipt: documentType === "RECEIPT" && fullMealReceipt,
+      fullMealReceipt: documentType === "INVOICE" && fullMealReceipt,
     };
 
     if (paymentMethod === "MEAL_VOUCHER") {
@@ -1073,6 +1204,7 @@ export function CassaPage({
         onDocumentList={() => setShowDocumentList(true)}
         onClosureHistory={() => setShowClosureHistory(true)}
         onClosureDay={() => setConfirmClosure(true)}
+        onInternalClosure={() => setShowInternalClosureWizard(true)}
         onStartShift={() => setConfirmStartShift(true)}
         onCloseShift={() => setConfirmShiftClose(true)}
         onAdmin={onAdmin}
@@ -1081,6 +1213,11 @@ export function CassaPage({
       />
 
       <div className="flex min-h-0 flex-col overflow-hidden">
+      {venueCapacityWarning && (
+        <div className="shrink-0 border-b border-orange-500/40 bg-orange-500/15 px-4 py-2 text-sm text-orange-900">
+          <strong>Capienza sede:</strong> {venueCapacityWarning}
+        </div>
+      )}
       {pendingPayments.length > 0 && (
         <div className="shrink-0 space-y-1 border-b border-yellow-500/30 bg-yellow-500/10 px-4 py-2">
           {pendingPayments.map((p) => (
@@ -1265,6 +1402,11 @@ export function CassaPage({
                           ? `${t.guests ?? t.defaultGuests} cop.`
                           : "0 cop."}
                       </span>
+                      {t.status !== "FREE" && t.openedAt && (
+                        <span className="text-[9px] font-medium tabular-nums opacity-85">
+                          {formatOpenedElapsed(t.openedAt, nowMs)}
+                        </span>
+                      )}
                       {t.lockedByName && t.status === "LOCKED" && (
                         <span className="max-w-full truncate px-1 text-[10px] opacity-90">
                           {t.lockedByName}
@@ -1482,6 +1624,9 @@ export function CassaPage({
                     <h2 className="text-lg font-bold">{bill.tableLabel}</h2>
                     <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                       {selectedTable.status}
+                      {(selectedTable.guests ?? 0) > 0 && (
+                        <span> · {selectedTable.guests} cop.</span>
+                      )}
                       {bill.counterOrder?.scheduledLabel && (
                         <span> · {bill.counterOrder.scheduledLabel}</span>
                       )}
@@ -1492,6 +1637,19 @@ export function CassaPage({
                         </span>
                       )}
                     </p>
+                    {!showCounterOrders && !selectedTable.isVirtual && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-2 h-8 text-xs"
+                        onClick={() => {
+                          setGuestsModalError("");
+                          setShowEditGuestsModal(true);
+                        }}
+                      >
+                        Modifica coperti
+                      </Button>
+                    )}
                     {bill.counterOrder && (
                       <div className="mt-2 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
                         {bill.counterOrder.customerName && (
@@ -1955,6 +2113,45 @@ export function CassaPage({
             loadTables();
           }}
           onCloseShift={() => setConfirmShiftClose(true)}
+        />
+      )}
+
+      {showInternalClosureWizard && operator && (
+        <InternalClosureWizard
+          operatorId={operator.id}
+          operatorName={`${operator.firstName} ${operator.lastName}`}
+          onClose={() => setShowInternalClosureWizard(false)}
+        />
+      )}
+
+      {pendingGuestsTable && (
+        <GuestsModal
+          primaryTable={pendingGuestsTable}
+          tables={tables}
+          confirmLabel="Apri tavolo"
+          loading={guestsModalLoading}
+          error={guestsModalError}
+          onConfirm={(payload) => void openTableWithGuests(pendingGuestsTable, payload)}
+          onCancel={() => {
+            setPendingGuestsTable(null);
+            setGuestsModalError("");
+          }}
+        />
+      )}
+
+      {showEditGuestsModal && selectedTable && (
+        <GuestsModal
+          primaryTable={selectedTable}
+          tables={tables}
+          initialGuests={selectedTable.guests ?? 1}
+          confirmLabel="Salva coperti"
+          loading={guestsModalLoading}
+          error={guestsModalError}
+          onConfirm={(payload) => void saveTableGuests(payload)}
+          onCancel={() => {
+            setShowEditGuestsModal(false);
+            setGuestsModalError("");
+          }}
         />
       )}
 

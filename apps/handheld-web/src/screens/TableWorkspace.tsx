@@ -12,6 +12,7 @@ import { VariantSheet } from "../components/VariantSheet";
 import {
   groupCartByCourse,
   isCourseOnHold,
+  isOraCourse,
   normalizeCourse,
   stepLabel,
   suggestMarciaCourse,
@@ -80,6 +81,7 @@ export function TableWorkspace({
   onReleaseDessert,
   onDiscountLine,
   onStorno,
+  onPriceOverride,
   onEditVariants,
   onEditNote,
   onSaveNote,
@@ -126,6 +128,7 @@ export function TableWorkspace({
   onReleaseDessert: () => void;
   onDiscountLine: (lineId: string) => void;
   onStorno: (line: SubmittedLine) => void;
+  onPriceOverride: (target: { kind: "cart" | "submitted"; lineId: string }) => void;
   onEditVariants: (line: CartLine) => void;
   onEditNote: (line: CartLine) => void;
   onSaveNote: (lineId: string, note: string) => void;
@@ -185,17 +188,26 @@ export function TableWorkspace({
 
   const applyCourseToLine = (lineId: string, course: number) => {
     const c = normalizeCourse(course);
+    // Solo la riga selezionata cambia portata; più piatti possono condividere
+    // la stessa course (Ora / Segue) in modo indipendente.
     onUpdateCart((prev) =>
       prev.map((l) =>
-        l.lineId === lineId ? { ...l, course: c, hold: c >= 2 ? l.hold : false } : l,
+        l.lineId === lineId
+          ? {
+              ...l,
+              course: c,
+              hold: isOraCourse(c) ? false : l.hold || true,
+            }
+          : l,
       ),
     );
     setCourseModalLineId(null);
   };
 
   const applyHold = (course: number, enable: boolean) => {
+    const c = normalizeCourse(course);
     onUpdateCart((prev) =>
-      prev.map((l) => (l.course === course ? { ...l, hold: enable } : l)),
+      prev.map((l) => (normalizeCourse(l.course) === c ? { ...l, hold: enable } : l)),
     );
   };
 
@@ -405,6 +417,7 @@ export function TableWorkspace({
             search={search}
             allergenFilter={allergenFilter}
             channel={channel}
+            autofocusSearch
             onSelectCat={onSelectCat}
             onSearchChange={onSearchChange}
             onAllergenToggle={onAllergenToggle}
@@ -466,15 +479,18 @@ export function TableWorkspace({
                   <section key={course}>
                     <div
                       className={`mb-2 flex items-center justify-between rounded-xl px-3 py-2.5 ${
-                        course <= 1
+                        isOraCourse(course)
                           ? "bg-amber-500/12 text-amber-900"
                           : "bg-[hsl(var(--pg-muted))]/80"
                       }`}
                     >
                       <span className="text-xs font-bold uppercase tracking-wider">
                         {stepLabel(course)}
+                        <span className="ml-2 font-normal normal-case tracking-normal opacity-70">
+                          ({lines.reduce((n, l) => n + l.quantity, 0)})
+                        </span>
                       </span>
-                      {course >= 2 && (
+                      {!isOraCourse(course) && (
                         <button
                           type="button"
                           onClick={() => requestHoldToggle(course)}
@@ -559,11 +575,24 @@ export function TableWorkspace({
                   disabled={needsLock}
                   onClick={() => setCourseModalLineId(selectedLine.lineId)}
                 />
+                <ActionChip
+                  label="Prezzo"
+                  disabled={needsLock}
+                  onClick={() => onPriceOverride({ kind: "cart", lineId: selectedLine.lineId })}
+                />
                 <ActionChip label="Elimina" disabled={needsLock} onClick={requestDelete} />
               </>
             )}
             {selectedSubmitted && !selectedLine && (
-              <ActionChip label="Storno" onClick={() => onStorno(selectedSubmitted)} />
+              <>
+                <ActionChip
+                  label="Prezzo"
+                  onClick={() =>
+                    onPriceOverride({ kind: "submitted", lineId: selectedSubmitted.lineId })
+                  }
+                />
+                <ActionChip label="Storno" onClick={() => onStorno(selectedSubmitted)} />
+              </>
             )}
           </div>
         </div>

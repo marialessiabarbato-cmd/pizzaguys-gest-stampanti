@@ -29,6 +29,7 @@ export function MapScreen({
   guestsModalLoading,
   guestsModalError,
   onSelectTable,
+  onOpenCounter,
   onLogout,
   onConfirmLogout,
   onCancelLogout,
@@ -46,6 +47,7 @@ export function MapScreen({
   guestsModalLoading: boolean;
   guestsModalError: string;
   onSelectTable: (t: LiveTable) => void;
+  onOpenCounter?: () => void;
   onLogout: () => void;
   onConfirmLogout: () => void;
   onCancelLogout: () => void;
@@ -120,9 +122,21 @@ export function MapScreen({
             {operator.firstName} {operator.lastName}
           </p>
         </div>
-        <Button variant="outline" className="h-10 shrink-0 px-4 text-sm" onClick={onLogout}>
-          Esci
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {onOpenCounter && (
+            <Button
+              variant="outline"
+              className="h-10 shrink-0 px-3 text-sm"
+              disabled={isOffline}
+              onClick={onOpenCounter}
+            >
+              Asporto
+            </Button>
+          )}
+          <Button variant="outline" className="h-10 shrink-0 px-4 text-sm" onClick={onLogout}>
+            Esci
+          </Button>
+        </div>
       </header>
 
       <main className="flex min-h-0 flex-col overflow-hidden p-3">

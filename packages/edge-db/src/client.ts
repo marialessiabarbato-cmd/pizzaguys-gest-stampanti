@@ -216,6 +216,24 @@ export function createEdgeDb(dbPath: string) {
     /* colonna già presente */
   }
 
+  try {
+    sqlite.exec(`ALTER TABLE edge_state ADD COLUMN max_guest_capacity INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    /* colonna già presente */
+  }
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS internal_closure_archive (
+      id TEXT PRIMARY KEY,
+      closure_date TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      operator_staff_id TEXT,
+      operator_name TEXT NOT NULL,
+      emailed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
   const row = db.select().from(schema.edgeState).get();
   if (!row) {
     db.insert(schema.edgeState)

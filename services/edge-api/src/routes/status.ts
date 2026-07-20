@@ -3,6 +3,7 @@ import { provisionEdgeSchema } from "@pizzaguys/validators";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { getMenuSnapshot, provisionEdge } from "../lib/provision.js";
+import { checkVenueCapacity, getVenueMaxGuests, totalActiveGuests } from "../lib/table-capacity.js";
 
 export async function statusRoutes(app: FastifyInstance) {
   app.get("/health", async () => {
@@ -18,12 +19,16 @@ export async function statusRoutes(app: FastifyInstance) {
 
   app.get("/api/status", async () => {
     const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+    const venueCheck = checkVenueCapacity(app.edgeDb);
     return {
       status: state?.status ?? "UNPROVISIONED",
       locationId: state?.locationId,
       locationName: state?.locationName,
       schemaVersion: state?.schemaVersion ?? 0,
       lastHeartbeatAt: state?.lastHeartbeatAt,
+      maxGuestCapacity: getVenueMaxGuests(app.edgeDb),
+      activeGuests: totalActiveGuests(),
+      venueCapacityWarning: venueCheck.ok ? null : venueCheck.warning,
     };
   });
 

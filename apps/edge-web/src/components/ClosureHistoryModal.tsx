@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { edgeApi, edgeApiDownload } from "../lib/api";
 import { PAYMENT_LABELS } from "./PaymentMethodChangeModal";
 
+type HistoryTab = "fiscal" | "internal";
+
 interface ClosureTheoretical {
   total: number;
   cash: number;
@@ -27,6 +29,38 @@ interface ClosureArchiveDetail extends ClosureArchiveRow {
   operatorName: string | null;
 }
 
+interface BrokerLine {
+  broker: string;
+  cashAmount: number;
+  cardAmount: number;
+}
+
+interface ExpenseLine {
+  description: string;
+  amount: number;
+}
+
+interface ExtraLine {
+  label: string;
+  amount: number;
+}
+
+interface InternalClosureRecord {
+  id: string;
+  closureDate: string;
+  closureTotal: number;
+  cashWithdrawal: number;
+  posTotal: number;
+  brokers: BrokerLine[];
+  expenses: ExpenseLine[];
+  cashFund: number;
+  extraLines: ExtraLine[];
+  notes?: string;
+  operatorName: string;
+  emailedAt?: string;
+  createdAt: string;
+}
+
 function euro(value: number) {
   return `€ ${value.toFixed(2).replace(".", ",")}`;
 }
@@ -39,6 +73,30 @@ function daysAgoKey(days: number) {
 
 function paymentLabel(method: string) {
   return PAYMENT_LABELS[method as PaymentMethod] ?? method;
+}
+
+function formatInternalNotebook(record: InternalClosureRecord): string {
+  const lines: string[] = [
+    record.closureDate,
+    `CHIUSURA TOT € ${record.closureTotal.toFixed(2)}`,
+    `PRELIEVO CONT € ${record.cashWithdrawal.toFixed(2)}`,
+    `POS € ${record.posTotal.toFixed(2)}`,
+  ];
+  for (const b of record.brokers) {
+    const parts: string[] = [];
+    if (b.cashAmount > 0) parts.push(`€ ${b.cashAmount.toFixed(2)} (CONT)`);
+    if (b.cardAmount > 0) parts.push(`€ ${b.cardAmount.toFixed(2)} (CARTA)`);
+    lines.push(`${b.broker.toUpperCase()} ${parts.join(" ; ")}`);
+  }
+  for (const e of record.expenses) {
+    lines.push(`SPESE € ${e.amount.toFixed(2)} (${e.description})`);
+  }
+  for (const x of record.extraLines) {
+    lines.push(`${x.label} € ${x.amount.toFixed(2)}`);
+  }
+  lines.push(`FONDO CASSA € ${record.cashFund.toFixed(2)}`);
+  if (record.notes?.trim()) lines.push(`Note: ${record.notes.trim()}`);
+  return lines.join("\n");
 }
 
 function ClosureDetailPanel({
@@ -193,15 +251,61 @@ function ClosureDetailPanel({
   );
 }
 
+function InternalDetailPanel({
+  detail,
+  loading,
+  error,
+  onBack,
+}: {
+  detail: InternalClosureRecord | null;
+  loading: boolean;
+  error: string;
+  onBack: () => void;
+}) {
+  if (loading) {
+    return (
+      <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento dettaglio...</p>
+    );
+  }
+  if (error) return <p className="text-sm text-red-500">{error}</p>;
+  if (!detail) return null;
+
+  return (
+    <div className="space-y-4">
+      <Button variant="ghost" className="h-9 px-2 text-sm" onClick={onBack}>
+        ← Torna all&apos;elenco
+      </Button>
+      <div>
+        <h3 className="text-lg font-bold">Chiusura interna {detail.closureDate}</h3>
+        <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+          {new Date(detail.createdAt).toLocaleString("it-IT")}
+          {detail.operatorName ? ` · ${detail.operatorName}` : ""}
+        </p>
+      </div>
+      <pre className="overflow-x-auto rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+        {formatInternalNotebook(detail)}
+      </pre>
+      <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+        {detail.emailedAt
+          ? `Email inviata il ${new Date(detail.emailedAt).toLocaleString("it-IT")}`
+          : "Email: non inviata"}
+      </p>
+    </div>
+  );
+}
+
 export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<HistoryTab>("fiscal");
   const [from, setFrom] = useState(daysAgoKey(30));
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [rows, setRows] = useState<ClosureArchiveRow[]>([]);
+  const [internalRows, setInternalRows] = useState<InternalClosureRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ClosureArchiveDetail | null>(null);
+  const [internalDetail, setInternalDetail] = useState<InternalClosureRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
 
@@ -210,23 +314,32 @@ export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
     setError("");
     try {
       const params = new URLSearchParams({ from, to });
-      const data = await edgeApi<{ closures: ClosureArchiveRow[] }>(
-        `/api/closure/history?${params}`,
-      );
-      setRows(data.closures);
+      if (tab === "fiscal") {
+        const data = await edgeApi<{ closures: ClosureArchiveRow[] }>(
+          `/api/closure/history?${params}`,
+        );
+        setRows(data.closures);
+      } else {
+        const data = await edgeApi<InternalClosureRecord[]>(
+          `/api/internal-closure/history?${params}`,
+        );
+        setInternalRows(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       setRows([]);
+      setInternalRows([]);
       setError(err instanceof Error ? err.message : "Errore caricamento");
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, tab]);
 
   const loadDetail = useCallback(async (id: string) => {
     setSelectedId(id);
     setDetailLoading(true);
     setDetailError("");
     setDetail(null);
+    setInternalDetail(null);
     try {
       const data = await edgeApi<{ closure: ClosureArchiveDetail }>(`/api/closure/history/${id}`);
       setDetail(data.closure);
@@ -237,7 +350,26 @@ export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
     }
   }, []);
 
+  const loadInternalDetail = useCallback(async (id: string) => {
+    setSelectedId(id);
+    setDetailLoading(true);
+    setDetailError("");
+    setDetail(null);
+    setInternalDetail(null);
+    try {
+      const data = await edgeApi<InternalClosureRecord>(`/api/internal-closure/history/${id}`);
+      setInternalDetail(data);
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : "Errore caricamento dettaglio");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
+    setSelectedId(null);
+    setDetail(null);
+    setInternalDetail(null);
     void load();
   }, [load]);
 
@@ -254,10 +386,36 @@ export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const clearSelection = () => {
+    setSelectedId(null);
+    setDetail(null);
+    setInternalDetail(null);
+    setDetailError("");
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
         <h2 className="mb-4 text-lg font-bold">Storico chiusure locali</h2>
+
+        {!selectedId && (
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <Button
+              variant={tab === "fiscal" ? "default" : "outline"}
+              className="h-10"
+              onClick={() => setTab("fiscal")}
+            >
+              Fiscali
+            </Button>
+            <Button
+              variant={tab === "internal" ? "default" : "outline"}
+              className="h-10"
+              onClick={() => setTab("internal")}
+            >
+              Interne
+            </Button>
+          </div>
+        )}
 
         {!selectedId ? (
           <>
@@ -283,57 +441,102 @@ export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
               <Button variant="outline" onClick={() => void load()} disabled={loading}>
                 Aggiorna
               </Button>
-              <Button onClick={() => void downloadCsv()} disabled={csvLoading}>
-                Scarica CSV
-              </Button>
+              {tab === "fiscal" && (
+                <Button onClick={() => void downloadCsv()} disabled={csvLoading}>
+                  Scarica CSV
+                </Button>
+              )}
             </div>
 
             {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
 
             {loading ? (
               <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
-            ) : rows.length === 0 ? (
+            ) : tab === "fiscal" ? (
+              rows.length === 0 ? (
+                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                  Nessuna chiusura nel periodo.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))]">
+                  <table className="w-full min-w-[620px] text-sm">
+                    <thead className="bg-[hsl(var(--pg-muted))]/40 text-left">
+                      <tr>
+                        <th className="px-3 py-2">Data</th>
+                        <th className="px-3 py-2">Z</th>
+                        <th className="px-3 py-2 text-right">Totale</th>
+                        <th className="px-3 py-2 text-right">Scostamento</th>
+                        <th className="px-3 py-2">Cloud</th>
+                        <th className="px-3 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...rows].reverse().map((row) => (
+                        <tr key={row.id} className="border-t border-[hsl(var(--pg-border))]">
+                          <td className="px-3 py-2">{row.closureDate}</td>
+                          <td className="px-3 py-2">{row.zNumber ?? "—"}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {euro(row.theoretical.total)}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right tabular-nums ${
+                              row.discrepancy.total !== 0 ? "text-orange-600" : ""
+                            }`}
+                          >
+                            {euro(row.discrepancy.total)}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            {row.syncedAt
+                              ? new Date(row.syncedAt).toLocaleString("it-IT")
+                              : "In attesa"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              className="text-sm font-medium text-[hsl(var(--pg-primary))] hover:underline"
+                              onClick={() => void loadDetail(row.id)}
+                            >
+                              Dettaglio
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : internalRows.length === 0 ? (
               <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                Nessuna chiusura nel periodo.
+                Nessuna chiusura interna nel periodo.
               </p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))]">
-                <table className="w-full min-w-[620px] text-sm">
+                <table className="w-full min-w-[520px] text-sm">
                   <thead className="bg-[hsl(var(--pg-muted))]/40 text-left">
                     <tr>
                       <th className="px-3 py-2">Data</th>
-                      <th className="px-3 py-2">Z</th>
                       <th className="px-3 py-2 text-right">Totale</th>
-                      <th className="px-3 py-2 text-right">Scostamento</th>
-                      <th className="px-3 py-2">Cloud</th>
+                      <th className="px-3 py-2 text-right">Prelievo</th>
+                      <th className="px-3 py-2">Operatore</th>
                       <th className="px-3 py-2" />
                     </tr>
                   </thead>
                   <tbody>
-                    {[...rows].reverse().map((row) => (
+                    {internalRows.map((row) => (
                       <tr key={row.id} className="border-t border-[hsl(var(--pg-border))]">
                         <td className="px-3 py-2">{row.closureDate}</td>
-                        <td className="px-3 py-2">{row.zNumber ?? "—"}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {euro(row.theoretical.total)}
+                          {euro(row.closureTotal)}
                         </td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums ${
-                            row.discrepancy.total !== 0 ? "text-orange-600" : ""
-                          }`}
-                        >
-                          {euro(row.discrepancy.total)}
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {euro(row.cashWithdrawal)}
                         </td>
-                        <td className="px-3 py-2 text-xs">
-                          {row.syncedAt
-                            ? new Date(row.syncedAt).toLocaleString("it-IT")
-                            : "In attesa"}
-                        </td>
+                        <td className="px-3 py-2">{row.operatorName}</td>
                         <td className="px-3 py-2 text-right">
                           <button
                             type="button"
                             className="text-sm font-medium text-[hsl(var(--pg-primary))] hover:underline"
-                            onClick={() => void loadDetail(row.id)}
+                            onClick={() => void loadInternalDetail(row.id)}
                           >
                             Dettaglio
                           </button>
@@ -345,16 +548,19 @@ export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
           </>
+        ) : tab === "internal" ? (
+          <InternalDetailPanel
+            detail={internalDetail}
+            loading={detailLoading}
+            error={detailError}
+            onBack={clearSelection}
+          />
         ) : (
           <ClosureDetailPanel
             detail={detail}
             loading={detailLoading}
             error={detailError}
-            onBack={() => {
-              setSelectedId(null);
-              setDetail(null);
-              setDetailError("");
-            }}
+            onBack={clearSelection}
           />
         )}
 
@@ -363,8 +569,7 @@ export function ClosureHistoryModal({ onClose }: { onClose: () => void }) {
           className="mt-4 w-full"
           onClick={() => {
             if (selectedId) {
-              setSelectedId(null);
-              setDetail(null);
+              clearSelection();
               return;
             }
             onClose();

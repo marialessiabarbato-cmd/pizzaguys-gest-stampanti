@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { EU_ALLERGENS } from "../constants/allergens";
 import { fuzzyMatch, localized, resolvePrice } from "../lib/menu";
 import type { Category, MenuSnapshot, Product } from "../lib/types";
@@ -9,6 +10,7 @@ export function MenuPanel({
   search,
   allergenFilter,
   channel,
+  autofocusSearch = false,
   onSelectCat,
   onSearchChange,
   onAllergenToggle,
@@ -20,11 +22,20 @@ export function MenuPanel({
   search: string;
   allergenFilter: string[];
   channel: "TABLE" | "TAKEAWAY" | "DELIVERY";
+  autofocusSearch?: boolean;
   onSelectCat: (id: string) => void;
   onSearchChange: (v: string) => void;
   onAllergenToggle: (id: string) => void;
   onAddProduct: (p: Product) => void;
 }) {
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!autofocusSearch) return;
+    const t = window.setTimeout(() => searchRef.current?.focus(), 50);
+    return () => window.clearTimeout(t);
+  }, [autofocusSearch]);
+
   const products = menu.products.filter((p) => {
     if (selectedCat && p.categoryId !== selectedCat) return false;
     if (search && !fuzzyMatch(localized(p.name), search)) return false;
@@ -37,13 +48,15 @@ export function MenuPanel({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] p-3">
+      <div className="sticky top-0 z-10 shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 p-3 backdrop-blur-sm">
         <input
+          ref={searchRef}
           type="search"
           placeholder="Cerca piatto..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] px-4 text-sm"
+          className="min-h-14 w-full rounded-xl border-2 border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-4 text-base font-medium shadow-sm outline-none focus:border-[hsl(var(--pg-primary))]"
+          aria-label="Cerca piatto"
         />
         <div className="flex gap-2 overflow-x-auto pb-1">
           {categories.map((c) => {

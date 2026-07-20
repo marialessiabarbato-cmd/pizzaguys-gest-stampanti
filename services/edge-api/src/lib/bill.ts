@@ -1,4 +1,5 @@
 import type { OrderLine, TableOrder } from "./runtime.js";
+import { roundToFiveCents, splitRoundedTotal } from "@pizzaguys/fiscal";
 import {
   getAnalyticSplit,
   getOrderByTable,
@@ -98,7 +99,7 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
   const orders = [...(draft ? [draft] : []), ...submitted];
 
   const lines = orders.flatMap(orderToBillLines);
-  let total = Math.round(lines.reduce((sum, l) => sum + l.lineTotal, 0) * 100) / 100;
+  let total = roundToFiveCents(lines.reduce((sum, l) => sum + l.lineTotal, 0));
 
   let coverChargeInfo: TableBill["coverCharge"];
   if (coverCharge && coverCharge.guestCount > 0 && coverCharge.unitPrice > 0) {
@@ -112,7 +113,7 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
       unitPrice: coverCharge.unitPrice,
       lineTotal,
     });
-    total = Math.round((total + lineTotal) * 100) / 100;
+    total = roundToFiveCents(total + lineTotal);
     coverChargeInfo = {
       guestCount: coverCharge.guestCount,
       unitPrice: coverCharge.unitPrice,

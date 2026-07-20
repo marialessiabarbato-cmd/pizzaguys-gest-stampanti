@@ -36,6 +36,7 @@ export interface DayTransaction {
   receiptId: string;
   at: string;
   tableLabel: string;
+  tableId?: string;
   serviceType: ServiceType;
   paymentMethod: PaymentMethod;
   paymentSplits?: PaymentSplit[];
@@ -45,6 +46,8 @@ export interface DayTransaction {
   amount: number;
   lines: DaySaleLine[];
   coverGuests: number;
+  /** Broker delivery (Glovo, Alfonsino, …) */
+  deliveryBroker?: string;
 }
 
 function transactionPaymentParts(
@@ -331,8 +334,12 @@ export function clearDayReportLedger(db: EdgeDatabase, date = todayKey()) {
   dayStornos.delete(date);
 }
 
+export function getDayTransactions(db: EdgeDatabase, date = todayKey()): DayTransaction[] {
+  return readTransactions(db, date).filter((t) => t.documentType !== "TRAINING");
+}
+
 export function getDayTheoretical(db: EdgeDatabase, date = todayKey()) {
-  const transactions = readTransactions(db, date).filter((t) => t.documentType !== "TRAINING");
+  const transactions = getDayTransactions(db, date);
   const byPaymentMethod: Record<string, number> = {};
   for (const tx of transactions) {
     for (const part of transactionPaymentParts(tx)) {

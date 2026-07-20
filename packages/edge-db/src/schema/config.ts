@@ -9,6 +9,8 @@ export const edgeState = sqliteTable("edge_state", {
   edgeDeviceId: text("edge_device_id"),
   schemaVersion: integer("schema_version").notNull().default(0),
   lastHeartbeatAt: text("last_heartbeat_at"),
+  /** Capienza massima sede (0 = illimitata), sincronizzata da cloud */
+  maxGuestCapacity: integer("max_guest_capacity").notNull().default(0),
   updatedAt: text("updated_at").notNull(),
 });
 

@@ -27,6 +27,7 @@ export function CassaHeader({
   onDocumentList,
   onClosureHistory,
   onClosureDay,
+  onInternalClosure,
   onStartShift,
   onCloseShift,
   onAdmin,
@@ -45,6 +46,7 @@ export function CassaHeader({
   onDocumentList: () => void;
   onClosureHistory: () => void;
   onClosureDay: () => void;
+  onInternalClosure: () => void;
   onStartShift: () => void;
   onCloseShift: () => void;
   onAdmin: () => void;
@@ -120,9 +122,12 @@ export function CassaHeader({
           )}
           <HeaderMenuItem onClick={onAdmin}>Impostazioni</HeaderMenuItem>
           {canManage && (
-            <HeaderMenuItem onClick={onClosureDay} danger>
-              Chiusura giornata
-            </HeaderMenuItem>
+            <>
+              <HeaderMenuItem onClick={onInternalClosure}>Chiusura interna</HeaderMenuItem>
+              <HeaderMenuItem onClick={onClosureDay} danger>
+                Chiusura giornata
+              </HeaderMenuItem>
+            </>
           )}
           <HeaderMenuItem onClick={onLogout}>Esci</HeaderMenuItem>
         </HeaderMenu>

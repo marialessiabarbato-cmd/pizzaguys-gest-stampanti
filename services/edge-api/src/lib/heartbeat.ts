@@ -40,6 +40,16 @@ export function startHeartbeatLoop(app: FastifyInstance) {
             .set({ schemaVersion: delta.schemaVersion, updatedAt: now })
             .where(eq(edgeState.id, 1))
             .run();
+          const settings = (delta.delta as MenuSnapshot).settings as
+            | { maxGuestCapacity?: number }
+            | undefined;
+          if (settings?.maxGuestCapacity != null) {
+            app.edgeDb
+              .update(edgeState)
+              .set({ maxGuestCapacity: settings.maxGuestCapacity, updatedAt: now })
+              .where(eq(edgeState.id, 1))
+              .run();
+          }
           applyInvoiceCustomersFromSnapshot(
             app.edgeDb,
             (delta.delta as MenuSnapshot).invoiceCustomers,

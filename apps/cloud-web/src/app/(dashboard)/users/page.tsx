@@ -20,25 +20,36 @@ interface Location {
   name: string;
 }
 
-interface UserAdmin {
+type CloudRole = "USER_ADMIN" | "CASHIER" | "WAITER" | "SUPER_ADMIN";
+
+interface CloudUser {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
+  role: CloudRole;
   locationId: string | null;
   isActive: boolean;
 }
 
+const ROLE_LABELS: Record<CloudRole, string> = {
+  SUPER_ADMIN: "Super Admin",
+  USER_ADMIN: "User Admin",
+  CASHIER: "Cassiere",
+  WAITER: "Cameriere",
+};
+
 export default function UsersPage() {
-  const [users, setUsers] = useState<UserAdmin[]>([]);
+  const [users, setUsers] = useState<CloudUser[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [passwordReveal, setPasswordReveal] = useState<string | null>(null);
   const [filterLocationId, setFilterLocationId] = useState("");
-  const [toggleTarget, setToggleTarget] = useState<UserAdmin | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<UserAdmin | null>(null);
+  const [toggleTarget, setToggleTarget] = useState<CloudUser | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CloudUser | null>(null);
   const [form, setForm] = useState({
     email: "",
     firstName: "",
@@ -50,13 +61,16 @@ export default function UsersPage() {
   const load = () => {
     setLoading(true);
     const qs = filterLocationId ? `?locationId=${filterLocationId}` : "";
-    void api<UserAdmin[]>(`/api/v2/users${qs}`)
+    void api<CloudUser[]>(`/api/v2/users${qs}`)
       .then(setUsers)
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     void api<Location[]>("/api/v2/locations").then(setLocations);
+    void api<{ user: { id: string } }>("/api/v2/auth/me").then((res) =>
+      setMeId(res.user?.id ?? null),
+    );
   }, []);
 
   useEffect(() => {
@@ -80,7 +94,7 @@ export default function UsersPage() {
     }
   };
 
-  const toggleActive = async (user: UserAdmin) => {
+  const toggleActive = async (user: CloudUser) => {
     await api(`/api/v2/users/${user.id}`, {
       method: "PATCH",
       body: JSON.stringify({ isActive: !user.isActive }),
@@ -89,7 +103,7 @@ export default function UsersPage() {
     load();
   };
 
-  const deleteUser = async (user: UserAdmin) => {
+  const deleteUser = async (user: CloudUser) => {
     await api(`/api/v2/users/${user.id}`, { method: "DELETE" });
     setDeleteTarget(null);
     load();
@@ -102,9 +116,9 @@ export default function UsersPage() {
     <div className="space-y-6">
       <div className={pageHeaderRowClass}>
         <div>
-          <h1 className="text-2xl font-bold">User Admin per sede</h1>
+          <h1 className="text-2xl font-bold">Utenti cloud</h1>
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-            Account locali per la gestione operativa di ogni punto vendita.
+            Tutti gli account (User Admin, Cassiere, Cameriere, Super Admin). Filtro per sede.
           </p>
         </div>
         <Button size={btnSize.inline} onClick={() => setShowCreate(true)}>
@@ -135,7 +149,7 @@ export default function UsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Elenco User Admin</CardTitle>
+          <CardTitle>Elenco utenti</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className={formRowEndGap3Class}>
@@ -166,7 +180,7 @@ export default function UsersPage() {
             <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
           ) : users.length === 0 ? (
             <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-              Nessun User Admin configurato. Clicca &quot;Crea User Admin&quot; per iniziare.
+              Nessun utente trovato. Clicca &quot;Crea User Admin&quot; per iniziare.
             </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))]">
@@ -175,49 +189,64 @@ export default function UsersPage() {
                   <tr className="border-b border-[hsl(var(--pg-border))] text-xs text-[hsl(var(--pg-muted-foreground))]">
                     <th className="px-6 py-3 font-medium">Nome</th>
                     <th className="px-3 py-3 font-medium">Email</th>
+                    <th className="px-3 py-3 font-medium">Ruolo</th>
                     <th className="px-3 py-3 font-medium">Sede</th>
                     <th className="px-3 py-3 font-medium">Stato</th>
                     <th className="px-6 py-3 font-medium text-right">Azioni</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id} className="border-b border-[hsl(var(--pg-border))]/50">
-                      <td className="px-6 py-3 font-medium">
-                        {u.firstName} {u.lastName}
-                      </td>
-                      <td className="px-3 py-3 text-[hsl(var(--pg-muted-foreground))]">{u.email}</td>
-                      <td className="px-3 py-3">{locationName(u.locationId)}</td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`text-xs font-medium uppercase ${
-                            u.isActive ? "text-green-600" : "text-red-500"
-                          }`}
-                        >
-                          {u.isActive ? "Attivo" : "Disattivo"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            size={btnSize.list}
-                            variant="outline"
-                            onClick={() => setToggleTarget(u)}
+                  {users.map((u) => {
+                    const isSelf = meId === u.id;
+                    return (
+                      <tr key={u.id} className="border-b border-[hsl(var(--pg-border))]/50">
+                        <td className="px-6 py-3 font-medium">
+                          {u.firstName} {u.lastName}
+                          {isSelf && (
+                            <span className="ml-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                              (tu)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-[hsl(var(--pg-muted-foreground))]">
+                          {u.email}
+                        </td>
+                        <td className="px-3 py-3">{ROLE_LABELS[u.role] ?? u.role}</td>
+                        <td className="px-3 py-3">{locationName(u.locationId)}</td>
+                        <td className="px-3 py-3">
+                          <span
+                            className={`text-xs font-medium uppercase ${
+                              u.isActive ? "text-green-600" : "text-red-500"
+                            }`}
                           >
-                            {u.isActive ? "Disattiva" : "Attiva"}
-                          </Button>
-                          <Button
-                            size={btnSize.list}
-                            variant="ghost"
-                            className="text-red-600"
-                            onClick={() => setDeleteTarget(u)}
-                          >
-                            Elimina
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {u.isActive ? "Attivo" : "Disattivo"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3">
+                          <div className="flex justify-end gap-1">
+                            {u.role !== "SUPER_ADMIN" && (
+                              <Button
+                                size={btnSize.list}
+                                variant="outline"
+                                onClick={() => setToggleTarget(u)}
+                              >
+                                {u.isActive ? "Disattiva" : "Attiva"}
+                              </Button>
+                            )}
+                            <Button
+                              size={btnSize.list}
+                              variant="ghost"
+                              className="text-red-600"
+                              disabled={isSelf}
+                              onClick={() => setDeleteTarget(u)}
+                            >
+                              Elimina
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -313,7 +342,7 @@ export default function UsersPage() {
       {deleteTarget && (
         <ConfirmModal
           title="Eliminazione definitiva"
-          message={`Rimuovere permanentemente ${deleteTarget.email}? Operazione irreversibile.`}
+          message={`Rimuovere permanentemente ${deleteTarget.email} (${ROLE_LABELS[deleteTarget.role]})? Operazione irreversibile.`}
           confirmLabel="Elimina"
           variant="danger"
           onConfirm={() => void deleteUser(deleteTarget)}

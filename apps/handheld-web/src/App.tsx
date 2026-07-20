@@ -4,6 +4,8 @@ import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal
 import { ConfirmModal } from "./components/ConfirmModal";
 import { PinPad } from "./components/PinPad";
 import { PinModal } from "./components/PinModal";
+import { PriceOverrideModal } from "./components/PriceOverrideModal";
+import { StornoQtyModal } from "./components/StornoQtyModal";
 import { edgeApi } from "./lib/api";
 import {
   buildCartLine,
@@ -24,6 +26,7 @@ import type {
   WorkspaceTab,
 } from "./lib/types";
 import { useEdgeWs } from "./lib/ws";
+import { CounterOrdersScreen } from "./screens/CounterOrdersScreen";
 import { MapScreen } from "./screens/MapScreen";
 import { TableWorkspace } from "./screens/TableWorkspace";
 import { VariantSheet } from "./components/VariantSheet";
@@ -78,6 +81,16 @@ export default function App() {
   const [confirmReleaseDessert, setConfirmReleaseDessert] = useState(false);
   const [confirmPayment, setConfirmPayment] = useState(false);
   const [confirmStorno, setConfirmStorno] = useState<SubmittedLine | null>(null);
+  const [stornoQtyTarget, setStornoQtyTarget] = useState<{
+    line: SubmittedLine;
+    maxQty: number;
+  } | null>(null);
+  const [priceOverrideTarget, setPriceOverrideTarget] = useState<{
+    kind: "cart" | "submitted";
+    lineId: string;
+    name: string;
+    unitPrice: number;
+  } | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showEditGuestsModal, setShowEditGuestsModal] = useState(false);
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
@@ -633,7 +646,9 @@ export default function App() {
             : l,
         );
       }
-      const courseHold = prev.some((l) => l.course === line.course && l.hold);
+      const courseHold = prev.some(
+        (l) => normalizeCourse(l.course) === normalizeCourse(line.course) && l.hold,
+      );
       return [...prev, courseHold ? { ...line, hold: true } : line];
     });
     setSelectedLineId(focusId);
@@ -847,7 +862,7 @@ export default function App() {
     }
   };
 
-  const executeStorno = async (line: SubmittedLine) => {
+  const executeStorno = async (line: SubmittedLine, quantity: number) => {
     if (!operator) return;
     try {
       await edgeApi(`/api/orders/${line.orderId}/storno`, {
@@ -856,19 +871,97 @@ export default function App() {
           lineId: line.lineId,
           operatorId: operator.id,
           operatorName: `${operator.firstName} ${operator.lastName}`,
+          quantity,
         }),
       });
       setSubmittedLines((prev) =>
         prev.map((l) =>
-          l.lineId === line.lineId ? { ...l, voidedQuantity: (l.voidedQuantity ?? 0) + 1 } : l,
+          l.lineId === line.lineId
+            ? { ...l, voidedQuantity: (l.voidedQuantity ?? 0) + quantity }
+            : l,
         ),
       );
       setConfirmStorno(null);
+      setStornoQtyTarget(null);
       setSelectedSubmittedId(null);
-      setMessage("Storno inviato — ticket ANNULLO stampato");
+      setMessage(
+        quantity > 1
+          ? `Storno di ${quantity}× inviato — ticket ANNULLO stampato`
+          : "Storno inviato — ticket ANNULLO stampato",
+      );
     } catch {
       setMessage("Storno non riuscito — riprova");
     }
+  };
+
+  const requestStorno = (line: SubmittedLine) => {
+    const remaining = line.quantity - (line.voidedQuantity ?? 0);
+    if (remaining > 1) {
+      setStornoQtyTarget({ line, maxQty: remaining });
+      return;
+    }
+    setConfirmStorno(line);
+  };
+
+  const applyPriceOverride = async (unitPrice: number) => {
+    if (!priceOverrideTarget || !operator || !activeTable) return;
+    const { kind, lineId, name } = priceOverrideTarget;
+
+    if (kind === "cart") {
+      setCart((prev) =>
+        prev.map((l) => (l.lineId === lineId ? { ...l, unitPrice } : l)),
+      );
+    }
+
+    try {
+      await edgeApi("/api/orders/line-price", {
+        method: "POST",
+        body: JSON.stringify({
+          tableId: activeTable.id,
+          lineId,
+          unitPrice,
+          operatorId: operator.id,
+          operatorName: `${operator.firstName} ${operator.lastName}`,
+        }),
+      });
+      if (kind === "submitted") {
+        setSubmittedLines((prev) =>
+          prev.map((l) => (l.lineId === lineId ? { ...l, unitPrice } : l)),
+        );
+      }
+      setPriceOverrideTarget(null);
+      setMessage(`Prezzo aggiornato: ${name} → € ${unitPrice.toFixed(2)}`);
+    } catch {
+      // Bozza locale: se la riga non è ancora sul server, l'update locale resta valido
+      if (kind === "cart") {
+        setPriceOverrideTarget(null);
+        setMessage(`Prezzo aggiornato in bozza: ${name} → € ${unitPrice.toFixed(2)}`);
+        return;
+      }
+      setMessage("Modifica prezzo non riuscita — riprova");
+    }
+  };
+
+  const openPriceOverride = (target: { kind: "cart" | "submitted"; lineId: string }) => {
+    if (target.kind === "cart") {
+      const line = cart.find((l) => l.lineId === target.lineId);
+      if (!line) return;
+      setPriceOverrideTarget({
+        kind: "cart",
+        lineId: line.lineId,
+        name: line.name,
+        unitPrice: line.unitPrice,
+      });
+      return;
+    }
+    const line = submittedLines.find((l) => l.lineId === target.lineId);
+    if (!line) return;
+    setPriceOverrideTarget({
+      kind: "submitted",
+      lineId: line.lineId,
+      name: line.name,
+      unitPrice: line.unitPrice,
+    });
   };
 
   const releaseLockIfHeld = () => {
@@ -1016,8 +1109,24 @@ export default function App() {
           message={`Annullare ${confirmStorno.name}? Verrà stampato il ticket ANNULLO in cucina.`}
           confirmLabel="Annulla piatto"
           variant="danger"
-          onConfirm={() => void executeStorno(confirmStorno)}
+          onConfirm={() => void executeStorno(confirmStorno, 1)}
           onCancel={() => setConfirmStorno(null)}
+        />
+      )}
+      {stornoQtyTarget && (
+        <StornoQtyModal
+          itemName={stornoQtyTarget.line.name}
+          maxQty={stornoQtyTarget.maxQty}
+          onConfirm={(qty) => void executeStorno(stornoQtyTarget.line, qty)}
+          onCancel={() => setStornoQtyTarget(null)}
+        />
+      )}
+      {priceOverrideTarget && (
+        <PriceOverrideModal
+          itemName={priceOverrideTarget.name}
+          currentPrice={priceOverrideTarget.unitPrice}
+          onConfirm={(price) => void applyPriceOverride(price)}
+          onCancel={() => setPriceOverrideTarget(null)}
         />
       )}
       {pendingNoteSave && (
@@ -1171,7 +1280,8 @@ export default function App() {
           onPreconto={() => setConfirmPayment(true)}
           onReleaseDessert={() => setConfirmReleaseDessert(true)}
           onDiscountLine={(lineId) => setConfirmDiscountLine(lineId)}
-          onStorno={(l) => setConfirmStorno(l)}
+          onStorno={requestStorno}
+          onPriceOverride={openPriceOverride}
           onEditVariants={handleEditVariants}
           onEditNote={handleEditNote}
           noteLineId={noteLineId}
@@ -1256,6 +1366,7 @@ export default function App() {
           guestsModalLoading={guestsModalLoading}
           guestsModalError={guestsModalError}
           onSelectTable={selectTable}
+          onOpenCounter={() => setScreen("counter")}
           onLogout={() => setLogoutConfirm(true)}
           onConfirmLogout={() => {
             setLogoutConfirm(false);
@@ -1268,6 +1379,22 @@ export default function App() {
             setGuestsModalError("");
             setUnlockOverridePin(undefined);
           }}
+        />
+        {modals}
+      </>
+    );
+  }
+
+  if (screen === "counter" && operator) {
+    return (
+      <>
+        <CounterOrdersScreen
+          operator={operator}
+          isOffline={isOffline}
+          message={message}
+          onBack={() => setScreen("map")}
+          onMessage={setMessage}
+          onOpenOrder={(table) => void openWorkspace(table, "comanda", { resetNavigation: true })}
         />
         {modals}
       </>

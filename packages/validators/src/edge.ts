@@ -75,6 +75,7 @@ export const orderLineSchema = z.object({
   quantity: z.number().int().positive(),
   unitPrice: z.number().positive(),
   basePrice: z.number().positive().optional(),
+  manualPrice: z.boolean().optional(),
   channel: z.enum(["TABLE", "TAKEAWAY", "DELIVERY"]).default("TABLE"),
   notes: z.string().optional(),
   variants: z.array(orderLineVariantSchema).default([]),
@@ -98,6 +99,14 @@ export const stornoLineSchema = z.object({
   operatorId: z.string().min(1),
   operatorName: z.string().min(1),
   quantity: z.number().int().positive().optional(),
+});
+
+export const setLinePriceSchema = z.object({
+  tableId: z.string().min(1),
+  lineId: z.string().uuid(),
+  unitPrice: z.number().positive(),
+  operatorId: z.string().min(1),
+  operatorName: z.string().min(1),
 });
 
 export const authorizeDiscountSchema = z.object({
@@ -236,7 +245,7 @@ export const createCounterOrderSchema = z
   });
 
 export const updateTableGuestsSchema = z.object({
-  guests: z.number().int().min(1).max(99),
+  guests: z.number().int().positive(),
   operatorId: z.string().min(1),
 });
 
@@ -255,4 +264,42 @@ export const mergeTablesSchema = z.object({
   operatorId: z.string().min(1),
   operatorName: z.string().min(1),
   overridePin: z.string().regex(/^[0-9]{4}$/).optional(),
+});
+
+const brokerClosureLineSchema = z.object({
+  broker: z.string().min(1),
+  cashAmount: z.number().min(0),
+  cardAmount: z.number().min(0),
+});
+
+const internalClosureExpenseSchema = z.object({
+  description: z.string().min(1),
+  amount: z.number().min(0),
+});
+
+const internalClosureExtraLineSchema = z.object({
+  label: z.string().min(1),
+  amount: z.number(),
+});
+
+export const internalClosureCompleteSchema = z.object({
+  closureDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  closureTotal: z.number().min(0),
+  cashWithdrawal: z.number().min(0),
+  posTotal: z.number().min(0),
+  brokers: z.array(brokerClosureLineSchema).default([]),
+  expenses: z.array(internalClosureExpenseSchema).default([]),
+  cashFund: z.number().min(0),
+  extraLines: z.array(internalClosureExtraLineSchema).default([]),
+  notes: z.string().optional(),
+  operatorId: z.string().min(1),
+  operatorName: z.string().min(1),
+});
+
+export const updateOrderLinePriceSchema = z.object({
+  tableId: z.string().min(1),
+  lineId: z.string().uuid(),
+  unitPrice: z.number().positive(),
+  operatorId: z.string().min(1),
+  operatorName: z.string().min(1),
 });

@@ -1,10 +1,12 @@
 import { users } from "@pizzaguys/db/schema";
 import { createUserAdminSchema, updateUserAdminSchema } from "@pizzaguys/validators";
 import bcrypt from "bcryptjs";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { writeAudit } from "../lib/audit.js";
 import { generateApiToken } from "../lib/tokens.js";
+
+const CLOUD_ROLES = ["USER_ADMIN", "CASHIER", "WAITER", "SUPER_ADMIN"] as const;
 
 async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
   if (request.user.role !== "SUPER_ADMIN") {
@@ -22,8 +24,11 @@ export async function userRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { locationId?: string } }>("/api/v2/users", guard, async (req) => {
     const rows = await app.db.query.users.findMany({
       where: req.query.locationId
-        ? and(eq(users.role, "USER_ADMIN"), eq(users.locationId, req.query.locationId))
-        : eq(users.role, "USER_ADMIN"),
+        ? and(
+            inArray(users.role, [...CLOUD_ROLES]),
+            eq(users.locationId, req.query.locationId),
+          )
+        : inArray(users.role, [...CLOUD_ROLES]),
       columns: {
         id: true,
         email: true,
@@ -35,6 +40,7 @@ export async function userRoutes(app: FastifyInstance) {
         createdAt: true,
         updatedAt: true,
       },
+      orderBy: (u, { asc }) => [asc(u.lastName), asc(u.firstName)],
     });
     return rows;
   });
@@ -98,6 +104,11 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }
 
+    const existing = await app.db.query.users.findFirst({
+      where: and(eq(users.id, req.params.id), inArray(users.role, [...CLOUD_ROLES])),
+    });
+    if (!existing) return reply.status(404).send({ error: "Utente non trovato" });
+
     const patch: Record<string, unknown> = { ...parsed.data, updatedAt: new Date() };
     if (parsed.data.pin) {
       patch.pinHash = await bcrypt.hash(parsed.data.pin, 12);
@@ -107,7 +118,7 @@ export async function userRoutes(app: FastifyInstance) {
     const [row] = await app.db
       .update(users)
       .set(patch)
-      .where(and(eq(users.id, req.params.id), eq(users.role, "USER_ADMIN")))
+      .where(eq(users.id, req.params.id))
       .returning({
         id: users.id,
         email: users.email,
@@ -139,22 +150,35 @@ export async function userRoutes(app: FastifyInstance) {
       }
 
       const existing = await app.db.query.users.findFirst({
-        where: and(eq(users.id, req.params.id), eq(users.role, "USER_ADMIN")),
+        where: and(eq(users.id, req.params.id), inArray(users.role, [...CLOUD_ROLES])),
       });
       if (!existing) return reply.status(404).send({ error: "Utente non trovato" });
+
+      if (existing.role === "SUPER_ADMIN") {
+        const superAdmins = await app.db.query.users.findMany({
+          where: and(eq(users.role, "SUPER_ADMIN"), eq(users.isActive, true)),
+          columns: { id: true },
+        });
+        if (superAdmins.length <= 1) {
+          return reply
+            .status(400)
+            .send({ error: "Deve restare almeno un Super Admin attivo" });
+        }
+      }
 
       await app.db.delete(users).where(eq(users.id, req.params.id));
 
       await writeAudit(app, {
         userId: req.user.sub,
         locationId: existing.locationId ?? undefined,
-        operation: "user_admin.delete",
+        operation: "user.delete",
         severity: "CRITICAL",
         previousState: {
           id: existing.id,
           email: existing.email,
           firstName: existing.firstName,
           lastName: existing.lastName,
+          role: existing.role,
         },
       });
 

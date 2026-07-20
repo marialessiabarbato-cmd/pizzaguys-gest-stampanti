@@ -1,18 +1,21 @@
 import type { CartLine, Category } from "./types";
 import { localized } from "./menu";
 
-/** Allineato all'API edge (course 1–4). */
+/** Allineato all'API edge (course 1–4). Ora = 0/1, Segue = 2+. */
 export const MARCHIA_OPTIONS = [
-  { course: 1, label: "SUBITO" },
+  { course: 1, label: "ORA" },
   { course: 2, label: "SEGUE → 1" },
   { course: 3, label: "SEGUE → 2" },
   { course: 4, label: "SEGUE → 3" },
 ] as const;
 
-/** Step portata in sala — allineati alla marcia Zucchetti. */
+/**
+ * Step portata in sala.
+ * Ora e Segue sono indipendenti: più piatti possono condividere la stessa portata.
+ */
 export const ORDER_STEPS = [
-  { course: 1, label: "Subito", shortLabel: "Subito", hint: "Via subito in cucina" },
-  { course: 2, label: "Segue >1", shortLabel: "Segue >1", hint: "In attesa" },
+  { course: 1, label: "Ora", shortLabel: "Ora", hint: "Via subito in cucina" },
+  { course: 2, label: "Segue >1", shortLabel: "Segue >1", hint: "In attesa — indipendente da Ora" },
   { course: 3, label: "Segue >2", shortLabel: "Segue >2", hint: "In attesa" },
   { course: 4, label: "Dolce", shortLabel: "Dolce", hint: "In coda — a fine pasto" },
 ] as const;
@@ -23,7 +26,7 @@ export function marchiaLabel(course: number): string {
   const c = normalizeCourse(course);
   const step = ORDER_STEPS.find((s) => s.course === c);
   if (step) return step.label;
-  if (c <= 1) return "Subito";
+  if (c <= 1) return "Ora";
   return `Segue >${c - 1}`;
 }
 
@@ -36,11 +39,19 @@ export function courseLabel(course: number): string {
   return stepLabel(course);
 }
 
-/** Migra bozze con course 0 (vecchio schema) a SUBITO. */
+/** Ora = course 0 o 1; Segue/Dolce = 2–4. */
 export function normalizeCourse(course: number): number {
   if (course < 1) return 1;
   if (course > 4) return 4;
   return course;
+}
+
+export function isOraCourse(course: number): boolean {
+  return normalizeCourse(course) <= 1;
+}
+
+export function isSegueCourse(course: number): boolean {
+  return normalizeCourse(course) >= 2;
 }
 
 export function defaultCourseForCategory(cat: Category): number {
