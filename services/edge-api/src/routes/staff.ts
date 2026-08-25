@@ -178,9 +178,7 @@ export async function staffRoutes(app: FastifyInstance) {
 
     const member = app.edgeDb.select().from(staff).where(eq(staff.id, shift.staffId)).get();
     const theoretical = getShiftTheoretical(req.params.id);
-    const openTables = getAllTableRuntime().filter(
-      (t) => t.status !== "FREE" && t.status !== "LOCKED",
-    );
+    const openTables = getAllTableRuntime().filter((t) => t.status !== "FREE");
 
     return {
       shiftId: shift.id,
@@ -209,9 +207,7 @@ export async function staffRoutes(app: FastifyInstance) {
     if (!shift) return reply.status(404).send({ error: "Turno non trovato" });
     if (shift.endedAt) return reply.status(409).send({ error: "Turno già chiuso" });
 
-    const openTables = getAllTableRuntime().filter(
-      (t) => t.status !== "FREE" && t.status !== "LOCKED",
-    );
+    const openTables = getAllTableRuntime().filter((t) => t.status !== "FREE");
     if (openTables.length > 0) {
       return reply.status(400).send({
         error: "Sala non chiusa — tavoli o conti ancora aperti",

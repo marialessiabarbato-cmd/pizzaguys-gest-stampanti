@@ -123,6 +123,15 @@ export function mergedTableLabel(table: LiveTable, allTables: LiveTable[]): stri
     .join(" + ");
 }
 
+/** Titolo compatto in header: "Tavolo 7 + 5" */
+export function compactMergedTableLabel(table: LiveTable, allTables: LiveTable[]): string {
+  const members = unionMembers(table, allTables);
+  if (members.length < 2) return formatTableLabel(table.label);
+  return members
+    .map((t, i) => (i === 0 ? formatTableLabel(t.label) : shortTableRef(t.label)))
+    .join(" + ");
+}
+
 export function hostTableLabel(
   table: LiveTable,
   allTables: LiveTable[],
@@ -162,36 +171,96 @@ export function filterMapVisibleTables<T extends { mergedIntoTableId?: string | 
   return tables.filter((t) => !t.mergedIntoTableId);
 }
 
+/** Coperti del gruppo: parti per tavolo fisico, es. [3, 2]. */
+export function unionGuestParts(table: LiveTable, allTables: LiveTable[]): number[] {
+  return unionMembers(table, allTables).map((m) => m.guests ?? 0);
+}
+
+/** Totale coperti (somma tavoli del gruppo). */
+export function unionGuestTotal(table: LiveTable, allTables: LiveTable[]): number {
+  return unionGuestParts(table, allTables).reduce((a, b) => a + b, 0);
+}
+
+/**
+ * Testo coperti per card/comanda.
+ * Unione con ripartizione: "3+2 cop." — singolo: "3 cop."
+ */
+export function formatUnionGuests(
+  table: LiveTable,
+  allTables: LiveTable[],
+  opts?: { suffix?: string; long?: boolean },
+): string {
+  const suffix = opts?.suffix ?? (opts?.long ? " coperti" : " cop.");
+  const parts = unionGuestParts(table, allTables);
+  const total = parts.reduce((a, b) => a + b, 0);
+  if (total <= 0) return "";
+  if (parts.length > 1 && parts.filter((p) => p > 0).length > 1) {
+    return `${parts.join("+")}${suffix}`;
+  }
+  return `${total}${suffix}`;
+}
+
+/** Etichetta membro unione con coperti, es. "Tavolo 1 · 9" o compatta "1 · 9". */
+export function unionMemberChipLabel(table: LiveTable, opts?: { compact?: boolean }): string {
+  const label = opts?.compact ? shortTableRef(table.label) : formatTableLabel(table.label);
+  const g = table.guests ?? 0;
+  return g > 0 ? `${label} · ${g}` : label;
+}
+
+/**
+ * Dettaglio coperti per comanda: "Tavolo 1 · 9 + Tavolo 4 · 3".
+ * Se le etichette coincidono restano distinguibili dai numeri.
+ */
+export function formatUnionGuestsDetail(
+  table: LiveTable,
+  allTables: LiveTable[],
+): string {
+  const members = unionMembers(table, allTables);
+  if (members.length < 2) {
+    return formatUnionGuests(table, allTables, { long: true });
+  }
+  const parts = members.map((m) => {
+    const g = m.guests ?? 0;
+    return g > 0 ? `${formatTableLabel(m.label)} · ${g}` : formatTableLabel(m.label);
+  });
+  const total = unionGuestTotal(table, allTables);
+  return `${parts.join(" + ")} (tot. ${total})`;
+}
+
+/** Allinea i metadati unione dal live list (activeTable può essere stale). */
+export function resolveLiveTable(
+  table: LiveTable,
+  allTables: LiveTable[],
+): LiveTable {
+  return allTables.find((t) => t.id === table.id) ?? table;
+}
+
 /** Testo compatto per le card tavolo sulla mappa cameriere */
 export function mapTableMeta(
   table: LiveTable,
   allTables: LiveTable[],
 ): { title: string; meta: string } {
   const title = formatTableLabel(table.label);
-  const guests = table.guests ?? 0;
-  const seats = tableSeats(table);
-
-  if (isUnionHost(table)) {
-    return {
-      title,
-      meta: guests > 0 ? `${guests} cop.` : `${seats} posti`,
-    };
+  const breakdown = formatUnionGuests(table, allTables);
+  if (breakdown) {
+    return { title, meta: breakdown };
   }
-
-  return {
-    title,
-    meta: guests > 0 ? `${guests} cop.` : `${Math.max(table.defaultGuests ?? 0, 0)} cop.`,
-  };
+  // Fallback se gli annessi non sono ancora nel live list client
+  if ((table.guestTotal ?? 0) > 0) {
+    return { title, meta: `${table.guestTotal} cop.` };
+  }
+  return { title, meta: "" };
 }
 
-export function seatSummary(table: LiveTable): string {
+export function seatSummary(table: LiveTable, allTables: LiveTable[] = []): string {
   const seats = tableSeats(table);
-  const guests = table.guests ?? 0;
+  const guestsLabel = formatUnionGuests(table, allTables.length ? allTables : [table], {
+    long: true,
+  });
   if (isUnionHost(table) && seats > table.defaultGuests) {
-    return guests > 0 ? `${guests} cop. · ${seats} posti` : `${seats} posti`;
+    return guestsLabel ? `${guestsLabel} · ${seats} posti` : `${seats} posti`;
   }
-  if (guests > 0) return `${guests} coperti`;
-  return `${Math.max(table.defaultGuests ?? 0, 0)} cop.`;
+  return guestsLabel;
 }
 
 export function tableCenter(t: LiveTable): { x: number; y: number } {

@@ -1,6 +1,7 @@
 import type { FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useState } from "react";
+import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
 
 export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   CASH: "CONTANTI",
@@ -56,8 +57,8 @@ export function PaymentMethodChangeModal({
   const canApply = nextMethod != null && nextMethod !== currentMethod;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-[hsl(var(--pg-background))] p-5 shadow-xl">
+    <OffCanvas widthClass="max-w-md" zClass="z-[60]" onClose={onCancel}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <h3 className="text-lg font-bold">Cambia metodo di pagamento</h3>
         <p className="mt-1 text-sm text-[hsl(var(--pg-muted-foreground))]">
           Correggi come è stato incassato il documento — es. la carta non è andata e il cliente
@@ -120,20 +121,19 @@ export function PaymentMethodChangeModal({
             </p>
           </div>
         )}
-
-        <div className="mt-5 flex gap-2">
-          <Button variant="outline" className="flex-1" disabled={loading} onClick={onCancel}>
-            Chiudi
-          </Button>
-          <Button
-            className="flex-1"
-            disabled={loading || !canApply}
-            onClick={() => nextMethod && onConfirm(nextMethod)}
-          >
-            {loading ? "Salvataggio..." : "Conferma modifica"}
-          </Button>
-        </div>
       </div>
-    </div>
+      <div className={offCanvasFooterClass}>
+        <Button variant="outline" className="min-h-12 flex-1" disabled={loading} onClick={onCancel}>
+          Chiudi
+        </Button>
+        <Button
+          className="min-h-12 flex-1"
+          disabled={loading || !canApply}
+          onClick={() => nextMethod && onConfirm(nextMethod)}
+        >
+          {loading ? "Salvataggio..." : "Conferma modifica"}
+        </Button>
+      </div>
+    </OffCanvas>
   );
 }

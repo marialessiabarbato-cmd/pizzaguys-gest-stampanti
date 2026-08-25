@@ -232,13 +232,6 @@ export async function executeTablePayment(
     );
   }
 
-  if (docType === "INVOICE" && (isRoman || isAnalytic)) {
-    return {
-      ok: false,
-      error: "La fattura è disponibile solo su pagamento intero del tavolo",
-      status: 400,
-    };
-  }
   if (docType === "INVOICE" && !params.invoiceCustomer) {
     return { ok: false, error: "Dati cliente obbligatori per fattura", status: 400 };
   }

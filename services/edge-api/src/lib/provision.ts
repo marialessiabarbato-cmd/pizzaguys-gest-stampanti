@@ -10,6 +10,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { cloudHandshake } from "./cloud.js";
 import { applyInvoiceCustomersFromSnapshot } from "./invoice-customers.js";
+import { applyStaffFromSnapshot } from "./staff-sync.js";
 import { setLockTimeoutMinutes } from "./runtime.js";
 
 const DEFAULT_PRINTERS = [
@@ -113,6 +114,7 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
   }
 
   applyInvoiceCustomersFromSnapshot(db, handshake.snapshot.invoiceCustomers);
+  applyStaffFromSnapshot(db, handshake.snapshot.staff);
 
   const categories = handshake.snapshot.categories ?? [];
   for (const cat of categories) {

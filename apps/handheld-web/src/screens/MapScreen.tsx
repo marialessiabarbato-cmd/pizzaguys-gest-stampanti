@@ -169,7 +169,7 @@ export function MapScreen({
                 {displayTables.map((table) => {
                   const unionHost = isUnionHost(table);
                   const annexedCount = table.linkedTableIds?.length ?? 0;
-                  const { title, meta } = mapTableMeta(table, salaTables);
+                  const { title, meta } = mapTableMeta(table, tables);
                   const labelWidth = table.width * scale;
                   const status = table.status;
 
@@ -202,9 +202,11 @@ export function MapScreen({
                         {title}
                       </span>
 
-                      <span className="max-w-full truncate text-[11px] font-medium leading-tight text-white/85">
-                        {meta}
-                      </span>
+                      {meta ? (
+                        <span className="max-w-full truncate text-[11px] font-medium leading-tight text-white/85">
+                          {meta}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}

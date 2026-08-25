@@ -1,5 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useMemo, useState } from "react";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 import { ConfirmModal } from "./ConfirmModal";
 import { PinModal } from "./PinModal";
 import { edgeApi } from "../lib/api";
@@ -186,16 +187,16 @@ export function TableTransferModal({
     : "";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/40 sm:items-center sm:justify-center">
-      <div className="flex max-h-[90vh] w-full flex-col rounded-t-2xl bg-[hsl(var(--pg-background))] shadow-xl sm:max-w-lg sm:rounded-2xl">
-        <div className="border-b border-[hsl(var(--pg-border))] px-4 py-3">
+    <>
+    <BottomSheet maxHeightClass="max-h-[90dvh]">
+        <div className="border-b border-[hsl(var(--pg-border))] px-4 pb-3 pt-1">
           <h2 className="text-lg font-bold">Sposta conto</h2>
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
             Da {sourceTable.label} — tocca dove spostare
           </p>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {transferLines.length > 0 && (
             <section>
               <label className="flex items-center gap-2 text-sm">
@@ -304,7 +305,7 @@ export function TableTransferModal({
           )}
         </div>
 
-        <div className="flex gap-2 border-t border-[hsl(var(--pg-border))] p-4">
+        <div className={bottomSheetFooterClass}>
           <Button variant="outline" className="min-h-12 flex-1" onClick={onClose}>
             Annulla
           </Button>
@@ -316,7 +317,7 @@ export function TableTransferModal({
             {loading ? "..." : targetId ? `Sposta su ${targetLabel}` : "Conferma"}
           </Button>
         </div>
-      </div>
+    </BottomSheet>
 
       {confirmOpen && (
         <ConfirmModal
@@ -340,6 +341,6 @@ export function TableTransferModal({
           error=""
         />
       )}
-    </div>
+    </>
   );
 }

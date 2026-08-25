@@ -112,6 +112,12 @@ export function CassaHeader({
 
         <div className="mx-1 hidden h-6 w-px bg-[hsl(var(--pg-border))] sm:block" aria-hidden />
 
+        {canManage && (
+          <Button variant="outline" className="h-9 px-3 text-sm" onClick={onInternalClosure}>
+            Chiusura interna
+          </Button>
+        )}
+
         <HeaderMenu label="Account" variant="ghost" align="right">
           <HeaderMenuItem onClick={onProfile}>Profilo</HeaderMenuItem>
           {canManage && (
@@ -122,12 +128,9 @@ export function CassaHeader({
           )}
           <HeaderMenuItem onClick={onAdmin}>Impostazioni</HeaderMenuItem>
           {canManage && (
-            <>
-              <HeaderMenuItem onClick={onInternalClosure}>Chiusura interna</HeaderMenuItem>
-              <HeaderMenuItem onClick={onClosureDay} danger>
-                Chiusura giornata
-              </HeaderMenuItem>
-            </>
+            <HeaderMenuItem onClick={onClosureDay} danger>
+              Chiusura giornata
+            </HeaderMenuItem>
           )}
           <HeaderMenuItem onClick={onLogout}>Esci</HeaderMenuItem>
         </HeaderMenu>

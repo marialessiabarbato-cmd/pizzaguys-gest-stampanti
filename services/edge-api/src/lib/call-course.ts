@@ -7,7 +7,7 @@ import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { broadcastKdsUpdate } from "./kds-broadcast.js";
 import {
   callCourse,
-  getTableRuntime,
+  getUnionGuestTotal,
   type KdsTicket,
 } from "./runtime.js";
 import { broadcast } from "./ws-hub.js";
@@ -33,8 +33,7 @@ export async function processCallCourse(
 ): Promise<{ ok: boolean; released: KdsTicket[]; printResults: unknown[] }> {
   const released = callCourse(tableId, course);
   const table = app.edgeDb.select().from(tables).where(eq(tables.id, tableId)).get();
-  const runtime = getTableRuntime(tableId);
-  const guestCount = runtime.guests ?? table?.defaultGuests ?? 2;
+  const guestCount = getUnionGuestTotal(tableId) || table?.defaultGuests || 2;
   const printerList = app.edgeDb.select().from(printers).all();
   const printResults: unknown[] = [];
 

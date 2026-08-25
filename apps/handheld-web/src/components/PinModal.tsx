@@ -1,5 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 import { PinPad } from "./PinPad";
 
 interface Props {
@@ -13,8 +14,8 @@ export function PinModal({ title, onComplete, onCancel, error }: Props) {
   const [pin, setPin] = useState("");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
+    <BottomSheet maxHeightClass="max-h-[85dvh]" zClass="z-[60]">
+      <div className="px-4 pb-2 pt-1">
         <h2 className="mb-4 text-center text-lg font-bold">{title}</h2>
         <PinPad
           pin={pin}
@@ -22,10 +23,12 @@ export function PinModal({ title, onComplete, onCancel, error }: Props) {
           onComplete={(v) => onComplete(v)}
           error={error}
         />
-        <Button variant="ghost" className="mt-4 w-full" onClick={onCancel}>
+      </div>
+      <div className={bottomSheetFooterClass}>
+        <Button variant="ghost" className="min-h-12 w-full" onClick={onCancel}>
           Annulla
         </Button>
       </div>
-    </div>
+    </BottomSheet>
   );
 }

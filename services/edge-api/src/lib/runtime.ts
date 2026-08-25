@@ -28,6 +28,9 @@ export interface OrderLine {
   discountToken?: string;
   discountPresetLabel?: string;
   voidedQuantity?: number;
+  /** Destinazione fisica in unione tavoli (conto sull'host). */
+  forTableId?: string;
+  forTableLabel?: string;
 }
 
 export interface TableOrder {
@@ -157,6 +160,29 @@ export function setTableUnionCapacity(tableId: string, capacity: number) {
   tableRuntime.set(tableId, { ...current, tableCapacity: capacity });
 }
 
+/** Host + annessi di un'unione (o solo il tavolo se non unito). */
+export function unionMemberIds(tableId: string): string[] {
+  const runtime = getTableRuntime(tableId);
+  const hostId = runtime.mergedIntoTableId ?? tableId;
+  const host = getTableRuntime(hostId);
+  return [hostId, ...(host.linkedTableIds ?? [])];
+}
+
+/** Somma coperti sui tavoli fisici del gruppo (conto unico, coperti separati). */
+export function getUnionGuestTotal(tableId: string): number {
+  return unionMemberIds(tableId).reduce((sum, id) => {
+    const m = getTableRuntime(id);
+    return sum + (m.guests ?? 0);
+  }, 0);
+}
+
+export function applyGuestsByTable(guestsByTable: Record<string, number>) {
+  for (const [id, guests] of Object.entries(guestsByTable)) {
+    if (!Number.isFinite(guests) || guests < 1) continue;
+    updateTableGuests(id, Math.floor(guests));
+  }
+}
+
 export function registerTableUnion(
   hostTableId: string,
   sourceTableIds: string[],
@@ -176,10 +202,14 @@ export function registerTableUnion(
   });
   for (const id of sourceTableIds) {
     if (id === hostTableId) continue;
+    const prev = getTableRuntime(id);
+    // Mantieni i coperti sul tavolo fisico (non sommare sull'host).
     tableRuntime.set(id, {
       tableId: id,
       status: "FREE",
       mergedIntoTableId: hostTableId,
+      guests: prev.guests,
+      chargedGuests: prev.chargedGuests,
     });
   }
 }
@@ -249,8 +279,17 @@ export function requestLock(
 }
 
 export function getChargedGuests(tableId: string): number | undefined {
-  const runtime = getTableRuntime(tableId);
-  return runtime.chargedGuests ?? runtime.guests;
+  let total = 0;
+  let any = false;
+  for (const id of unionMemberIds(tableId)) {
+    const m = getTableRuntime(id);
+    const g = m.chargedGuests ?? m.guests;
+    if (g != null && g > 0) {
+      total += g;
+      any = true;
+    }
+  }
+  return any ? total : undefined;
 }
 
 export function bumpChargedGuests(tableId: string, guests: number) {
@@ -444,6 +483,42 @@ export function hasActiveSplit(tableId: string): boolean {
   return romanSplits.has(tableId) || analyticSplits.has(tableId);
 }
 
+/** Annulla split non ancora incassato e riporta il tavolo a OCCUPIED. */
+export function cancelActiveSplit(
+  tableId: string,
+): { ok: true } | { ok: false; error: string } {
+  const roman = romanSplits.get(tableId);
+  const analytic = analyticSplits.get(tableId);
+  if (!roman && !analytic) {
+    return { ok: false, error: "Nessuno split attivo" };
+  }
+  if (roman && roman.paidShares > 0) {
+    return {
+      ok: false,
+      error: "Hai già incassato una quota: completa lo split o storna i documenti",
+    };
+  }
+  if (analytic?.checks.some((c) => c.paid)) {
+    return {
+      ok: false,
+      error: "Hai già incassato un conto: completa lo split o storna i documenti",
+    };
+  }
+
+  clearRomanSplit(tableId);
+  clearAnalyticSplit(tableId);
+  const current = getTableRuntime(tableId);
+  tableRuntime.set(tableId, {
+    ...current,
+    tableId,
+    status: "OCCUPIED",
+    lockedBy: undefined,
+    lockedByName: undefined,
+    lockedAt: undefined,
+  });
+  return { ok: true };
+}
+
 export function createPaymentRequest(params: {
   tableId: string;
   tableLabel: string;
@@ -619,14 +694,26 @@ export function setLineUnitPrice(
   tableId: string,
   lineId: string,
   unitPrice: number,
+  extras?: {
+    basePrice?: number;
+    variants?: OrderLineVariant[];
+  },
 ): { ok: boolean; line?: OrderLine; orderId?: string; error?: string } {
   if (!(unitPrice > 0)) return { ok: false, error: "Prezzo non valido" };
+
+  const patch = (line: OrderLine): OrderLine => ({
+    ...line,
+    unitPrice,
+    manualPrice: true,
+    ...(extras?.basePrice != null && extras.basePrice > 0 ? { basePrice: extras.basePrice } : {}),
+    ...(extras?.variants != null ? { variants: extras.variants } : {}),
+  });
 
   const draft = getOrderByTable(tableId);
   if (draft) {
     const line = draft.lines.find((l) => l.id === lineId);
     if (line) {
-      const updated = { ...line, unitPrice, manualPrice: true };
+      const updated = patch(line);
       orders.set(draft.id, {
         ...draft,
         lines: draft.lines.map((l) => (l.id === lineId ? updated : l)),
@@ -641,7 +728,7 @@ export function setLineUnitPrice(
     if (!line) continue;
     const remaining = line.quantity - (line.voidedQuantity ?? 0);
     if (remaining <= 0) return { ok: false, error: "Riga già stornata" };
-    const updated = { ...line, unitPrice, manualPrice: true };
+    const updated = patch(line);
     orders.set(order.id, {
       ...order,
       lines: order.lines.map((l) => (l.id === lineId ? updated : l)),
@@ -912,9 +999,18 @@ export function transferTableAccount(params: {
   sourceTableLabel: string;
   targetTableLabel: string;
   allowEmptyLink?: boolean;
+  /** Unione tavoli: sposta il conto ma non somma i coperti sull'host. */
+  preserveMemberGuests?: boolean;
 }): TransferTableResult {
-  const { sourceTableId, targetTableId, operatorId, operatorName, targetTableLabel, allowEmptyLink } =
-    params;
+  const {
+    sourceTableId,
+    targetTableId,
+    operatorId,
+    operatorName,
+    targetTableLabel,
+    allowEmptyLink,
+    preserveMemberGuests,
+  } = params;
 
   if (sourceTableId === targetTableId) {
     return { ok: false, error: "Sorgente e destinazione devono essere diversi" };
@@ -957,9 +1053,12 @@ export function transferTableAccount(params: {
       }
       return { ok: false, error: "Nessun conto o coperti da spostare sul tavolo sorgente" };
     }
-    mergeRuntimeGuests(sourceTableId, targetTableId);
-    tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
-    setTableOccupied(targetTableId);
+    if (!preserveMemberGuests) {
+      mergeRuntimeGuests(sourceTableId, targetTableId);
+      tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+    } else if (targetRuntime.status === "FREE") {
+      setTableOccupied(targetTableId);
+    }
     return {
       ok: true,
       movedLineIds: [],
@@ -1051,8 +1150,19 @@ export function transferTableAccount(params: {
   }
 
   if (isFullTransfer) {
-    mergeRuntimeGuests(sourceTableId, targetTableId);
-    tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+    if (!preserveMemberGuests) {
+      mergeRuntimeGuests(sourceTableId, targetTableId);
+      tableRuntime.set(sourceTableId, { tableId: sourceTableId, status: "FREE" });
+    } else {
+      // Unione: lascia i coperti sulla sorgente; registerTableUnion li conserverà.
+      const src = getTableRuntime(sourceTableId);
+      tableRuntime.set(sourceTableId, {
+        tableId: sourceTableId,
+        status: "FREE",
+        guests: src.guests,
+        chargedGuests: src.chargedGuests,
+      });
+    }
   } else {
     refreshSourceTableStatus(sourceTableId);
     const tgt = getTableRuntime(targetTableId);
@@ -1079,6 +1189,7 @@ export function mergeTablesInto(params: {
   operatorName: string;
   tableLabels: Map<string, string>;
   combinedCapacity?: number;
+  guestsByTable?: Record<string, number>;
 }): TransferTableResult & { mergedSources?: string[] } {
   const uniqueSources = [...new Set(params.sourceTableIds)].filter(
     (id) => id !== params.targetTableId,
@@ -1101,6 +1212,7 @@ export function mergeTablesInto(params: {
       sourceTableLabel: params.tableLabels.get(sourceId) ?? sourceId,
       targetTableLabel,
       allowEmptyLink: true,
+      preserveMemberGuests: true,
     });
     if (!result.ok) return result;
     allMoved.push(...result.movedLineIds);
@@ -1115,6 +1227,10 @@ export function mergeTablesInto(params: {
     );
   } else {
     registerTableUnion(params.targetTableId, mergedSources);
+  }
+
+  if (params.guestsByTable) {
+    applyGuestsByTable(params.guestsByTable);
   }
 
   return {

@@ -1,5 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { ALL_ORDER_STEPS } from "../lib/course";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 export function CourseOptionsModal({
   title = "Cambia portata",
@@ -13,8 +14,8 @@ export function CourseOptionsModal({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--pg-background))] p-5 shadow-xl">
+    <BottomSheet maxHeightClass="max-h-[80dvh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-1">
         <h2 className="mb-4 text-lg font-semibold">{title}</h2>
         <ul className="space-y-2">
           {ALL_ORDER_STEPS.map((opt) => (
@@ -39,10 +40,12 @@ export function CourseOptionsModal({
             </li>
           ))}
         </ul>
-        <Button variant="outline" className="mt-4 min-h-12 w-full" onClick={onCancel}>
+      </div>
+      <div className={bottomSheetFooterClass}>
+        <Button variant="outline" className="min-h-12 w-full" onClick={onCancel}>
           Annulla
         </Button>
       </div>
-    </div>
+    </BottomSheet>
   );
 }

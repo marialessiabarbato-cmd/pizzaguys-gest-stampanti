@@ -54,6 +54,7 @@ export default function UsersPage() {
     email: "",
     firstName: "",
     lastName: "",
+    role: "USER_ADMIN" as CloudRole,
     locationId: "",
     pin: "",
   });
@@ -77,17 +78,36 @@ export default function UsersPage() {
     load();
   }, [filterLocationId]);
 
+  const needsLocationAndPin = form.role !== "SUPER_ADMIN";
+
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
     try {
+      const body: Record<string, unknown> = {
+        email: form.email,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        role: form.role,
+      };
+      if (needsLocationAndPin) {
+        body.locationId = form.locationId;
+        body.pin = form.pin;
+      }
       const res = await api<{ password: string }>("/api/v2/users", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       setShowCreate(false);
       setPasswordReveal(res.password);
-      setForm({ email: "", firstName: "", lastName: "", locationId: "", pin: "" });
+      setForm({
+        email: "",
+        firstName: "",
+        lastName: "",
+        role: "USER_ADMIN",
+        locationId: "",
+        pin: "",
+      });
       load();
     } finally {
       setCreating(false);
@@ -122,7 +142,7 @@ export default function UsersPage() {
           </p>
         </div>
         <Button size={btnSize.inline} onClick={() => setShowCreate(true)}>
-          Crea User Admin
+          Crea utente
         </Button>
       </div>
 
@@ -180,7 +200,7 @@ export default function UsersPage() {
             <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
           ) : users.length === 0 ? (
             <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-              Nessun utente trovato. Clicca &quot;Crea User Admin&quot; per iniziare.
+              Nessun utente trovato. Clicca &quot;Crea utente&quot; per iniziare.
             </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))]">
@@ -260,16 +280,40 @@ export default function UsersPage() {
             <CardContent className="space-y-4 pt-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-semibold">Nuovo User Admin</h2>
+                  <h2 className="text-lg font-semibold">Nuovo utente</h2>
                   <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                    L&apos;utente accederà alla cassa della sede selezionata con email e PIN.
+                    {form.role === "SUPER_ADMIN"
+                      ? "Accesso al Cloud Hub con email e password."
+                      : "Accesso cassa/sala della sede con email e PIN (password temporanea in uscita)."}
                   </p>
                 </div>
-                <Button variant="ghost" type="button" size={btnSize.inline} onClick={() => setShowCreate(false)}>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  size={btnSize.inline}
+                  onClick={() => setShowCreate(false)}
+                >
                   ✕
                 </Button>
               </div>
               <form onSubmit={create} className={formGridClass}>
+                <label className={`md:col-span-2 ${stackedLabelClass}`}>
+                  Ruolo
+                  <select
+                    className={stackedSelectClass}
+                    value={form.role}
+                    onChange={(e) =>
+                      setForm({ ...form, role: e.target.value as CloudRole })
+                    }
+                    required
+                  >
+                    {(Object.keys(ROLE_LABELS) as CloudRole[]).map((role) => (
+                      <option key={role} value={role}>
+                        {ROLE_LABELS[role]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <input
                   className={inputFullClass}
                   placeholder="Email"
@@ -292,34 +336,43 @@ export default function UsersPage() {
                   onChange={(e) => setForm({ ...form, lastName: e.target.value })}
                   required
                 />
-                <select
-                  className={`w-full ${selectClass}`}
-                  value={form.locationId}
-                  onChange={(e) => setForm({ ...form, locationId: e.target.value })}
-                  required
-                >
-                  <option value="">Seleziona sede</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className={inputFullClass}
-                  placeholder="PIN (4 cifre)"
-                  pattern="[0-9]{4}"
-                  maxLength={4}
-                  value={form.pin}
-                  onChange={(e) => setForm({ ...form, pin: e.target.value })}
-                  required
-                />
+                {needsLocationAndPin && (
+                  <>
+                    <select
+                      className={`w-full ${selectClass}`}
+                      value={form.locationId}
+                      onChange={(e) => setForm({ ...form, locationId: e.target.value })}
+                      required
+                    >
+                      <option value="">Seleziona sede</option>
+                      {locations.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className={inputFullClass}
+                      placeholder="PIN (4 cifre)"
+                      pattern="[0-9]{4}"
+                      maxLength={4}
+                      value={form.pin}
+                      onChange={(e) => setForm({ ...form, pin: e.target.value })}
+                      required
+                    />
+                  </>
+                )}
                 <div className="flex justify-end gap-2 md:col-span-2">
-                  <Button type="button" variant="outline" size={btnSize.inline} onClick={() => setShowCreate(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size={btnSize.inline}
+                    onClick={() => setShowCreate(false)}
+                  >
                     Annulla
                   </Button>
                   <Button type="submit" size={btnSize.inline} disabled={creating}>
-                    {creating ? "Creazione..." : "Crea User Admin"}
+                    {creating ? "Creazione..." : `Crea ${ROLE_LABELS[form.role]}`}
                   </Button>
                 </div>
               </form>

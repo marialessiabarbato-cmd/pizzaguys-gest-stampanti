@@ -1,5 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 export function StornoQtyModal({
   itemName,
@@ -15,8 +16,8 @@ export function StornoQtyModal({
   const [qty, setQty] = useState(1);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--pg-background))] p-5 shadow-xl">
+    <BottomSheet maxHeightClass="max-h-[80dvh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-1">
         <h2 className="mb-1 text-lg font-semibold">Quantità da stornare</h2>
         <p className="mb-4 text-sm text-[hsl(var(--pg-muted-foreground))]">
           {itemName} — rimanenti {maxQty}
@@ -48,7 +49,7 @@ export function StornoQtyModal({
               key={n}
               type="button"
               onClick={() => setQty(n)}
-              className={`min-h-10 min-w-10 rounded-lg border px-2 text-sm font-semibold ${
+              className={`min-h-11 min-w-11 rounded-xl border px-2 text-sm font-semibold ${
                 qty === n
                   ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/15 text-[hsl(var(--pg-primary))]"
                   : "border-[hsl(var(--pg-border))]"
@@ -58,20 +59,20 @@ export function StornoQtyModal({
             </button>
           ))}
         </div>
-        <div className="mt-5 flex gap-2">
-          <Button type="button" variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
-            Annulla
-          </Button>
-          <Button
-            type="button"
-            className="min-h-12 flex-1"
-            variant="danger"
-            onClick={() => onConfirm(qty)}
-          >
-            Storna {qty}
-          </Button>
-        </div>
       </div>
-    </div>
+      <div className={bottomSheetFooterClass}>
+        <Button type="button" variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
+          Annulla
+        </Button>
+        <Button
+          type="button"
+          className="min-h-12 flex-1"
+          variant="danger"
+          onClick={() => onConfirm(qty)}
+        >
+          Storna {qty}
+        </Button>
+      </div>
+    </BottomSheet>
   );
 }

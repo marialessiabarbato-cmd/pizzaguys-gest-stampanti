@@ -179,6 +179,9 @@ def main() -> int:
             oid = created.get("id") or (created.get("order") or {}).get("id")
             if oid:
                 ok(f"delivery id={oid[:8]}…")
+                # Non lasciare slot OCCUPIED che blocca chiusura Z
+                code_del, deleted = req(EDGE, "DELETE", f"/api/pos/counter-orders/{oid}")
+                expect("cleanup delivery smoke", code_del, 200, deleted if isinstance(deleted, dict) else {})
 
     # Preconto + prezzo riga + storno qty (tavolo libero)
     print("\n--- Comanda / preconto / prezzo ---")

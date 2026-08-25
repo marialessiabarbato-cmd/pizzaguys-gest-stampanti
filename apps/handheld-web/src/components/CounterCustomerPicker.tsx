@@ -21,7 +21,7 @@ function CustomerRow({
   return (
     <button
       type="button"
-      className="flex w-full flex-col gap-0.5 border-t border-[hsl(var(--pg-border))]/50 px-3 py-2 text-left first:border-t-0 hover:bg-[hsl(var(--pg-muted))]/50"
+      className="flex w-full flex-col gap-0.5 border-t border-[hsl(var(--pg-border))]/50 px-3 py-2.5 text-left first:border-t-0 active:bg-[hsl(var(--pg-muted))]/50"
       onClick={() => onSelect(customer)}
     >
       <span className="text-sm font-medium">{customer.name}</span>
@@ -34,6 +34,7 @@ function CustomerRow({
   );
 }
 
+/** Stesso caricamento cliente della cassa: recenti + rubrica fiscale. */
 export function CounterCustomerPicker({
   recentCustomers = [],
   onSelect,
@@ -91,17 +92,17 @@ export function CounterCustomerPicker({
   const empty = filteredRecent.length === 0 && filteredRubrica.length === 0;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]">
+    <div className="overflow-hidden rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]">
       <div className="border-b border-[hsl(var(--pg-border))] p-2">
         <input
-          className="h-10 w-full rounded-md border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3 text-sm"
+          className="h-11 w-full rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3 text-sm"
           placeholder="Cerca nome, telefono o indirizzo…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      <div className="max-h-52 overflow-y-auto">
+      <div className="max-h-56 overflow-y-auto">
         {loading && empty ? (
           <p className="px-3 py-4 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
             Caricamento…

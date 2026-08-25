@@ -45,25 +45,31 @@ export function PaymentPad({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg bg-[hsl(var(--pg-muted))] p-4 text-center">
-        <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Ricevuto</p>
-        <p className="text-3xl font-bold tabular-nums">€ {formatAmount(amount)}</p>
+    <div className="flex min-h-0 flex-col gap-2">
+      <div className="grid shrink-0 grid-cols-2 gap-2">
+        <div className="rounded-lg bg-[hsl(var(--pg-muted))] px-3 py-2 text-center">
+          <p className="text-[11px] uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+            Ricevuto
+          </p>
+          <p className="text-xl font-bold tabular-nums leading-tight">€ {formatAmount(amount)}</p>
+        </div>
+        <div className="rounded-lg border-2 border-[hsl(var(--pg-primary))] px-3 py-2 text-center">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+            Resto
+          </p>
+          <p className="text-xl font-bold tabular-nums leading-tight text-[hsl(var(--pg-primary))]">
+            € {change.toFixed(2).replace(".", ",")}
+          </p>
+        </div>
       </div>
-      <div className="rounded-lg border-2 border-[hsl(var(--pg-primary))] p-4 text-center">
-        <p className="text-sm font-medium text-[hsl(var(--pg-muted-foreground))]">RESTO</p>
-        <p className="font-bold tabular-nums text-[36pt] leading-tight">
-          € {change.toFixed(2).replace(".", ",")}
-        </p>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid min-h-0 flex-1 grid-cols-3 gap-1.5 content-start">
         {KEYS.map((key) => (
           <Button
             key={key}
             type="button"
             size="lg"
             variant={key === "C" ? "outline" : "secondary"}
-            className="h-14 min-h-[48px] text-xl"
+            className="h-11 min-h-11 text-lg"
             onClick={() => press(key)}
           >
             {key}

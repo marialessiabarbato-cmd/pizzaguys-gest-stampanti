@@ -192,7 +192,16 @@ export function OpenTablesModal({
                     }}
                   >
                     <td className="max-w-[140px] truncate px-3 py-2">{row.lastOrderLabel ?? "—"}</td>
-                    <td className="px-3 py-2 font-semibold">{row.tableLabel}</td>
+                    <td className="px-3 py-2 font-semibold">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {row.tableLabel}
+                        {row.status === "LOCKED" ? (
+                          <span className="rounded bg-rose-600/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                            In uso
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 tabular-nums">{row.guests}</td>
                     <td className="px-3 py-2">{row.courseLabel}</td>
                     <td className="px-3 py-2">{row.operatorName}</td>

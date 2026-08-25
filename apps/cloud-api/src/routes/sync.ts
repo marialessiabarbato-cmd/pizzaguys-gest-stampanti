@@ -9,6 +9,7 @@ import {
   locations,
   productPrices,
   products,
+  users,
   variantGroups,
   variants,
 } from "@pizzaguys/db/schema";
@@ -17,7 +18,7 @@ import {
   invoiceCustomerSchema,
   invoiceCustomerProfileSyncSchema,
 } from "@pizzaguys/validators";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { writeAudit } from "../lib/audit.js";
@@ -28,6 +29,8 @@ const heartbeatSchema = z.object({
   apiToken: z.string().min(1),
   schemaVersion: z.number().int().min(0),
 });
+
+const LOCATION_STAFF_ROLES = ["USER_ADMIN", "CASHIER", "WAITER"] as const;
 
 async function buildCatalogSnapshot(
   app: FastifyInstance,
@@ -62,6 +65,21 @@ async function buildCatalogSnapshot(
   });
   const mealVoucherPresets = await app.db.query.locationMealVoucherPresets.findMany({
     where: eq(locationMealVoucherPresets.locationId, locationId),
+  });
+  const staffRows = await app.db.query.users.findMany({
+    where: and(
+      eq(users.locationId, locationId),
+      inArray(users.role, [...LOCATION_STAFF_ROLES]),
+      isNotNull(users.pinHash),
+    ),
+    columns: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      pinHash: true,
+      isActive: true,
+    },
   });
 
   return {
@@ -110,6 +128,16 @@ async function buildCatalogSnapshot(
         amount: Number(p.amount),
         sortOrder: p.sortOrder,
         isActive: p.isActive,
+      })),
+    staff: staffRows
+      .filter((u) => u.pinHash && u.role !== "SUPER_ADMIN")
+      .map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role as "USER_ADMIN" | "CASHIER" | "WAITER",
+        pinHash: u.pinHash!,
+        isActive: u.isActive,
       })),
     settings: {
       maxDiscountPercent: settings?.maxDiscountPercent ?? 20,

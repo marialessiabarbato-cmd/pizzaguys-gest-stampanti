@@ -87,3 +87,30 @@ export function filterTablesByRoom<T extends { isVirtual: boolean; roomId?: stri
   if (roomCount <= 1 || !roomId) return physical;
   return physical.filter((t) => t.roomId === roomId || !t.roomId);
 }
+
+type GuestTable = {
+  id: string;
+  guests?: number;
+  linkedTableIds?: string[];
+  mergedIntoTableId?: string | null;
+};
+
+export function formatUnionGuests(
+  table: GuestTable,
+  allTables: GuestTable[],
+  opts?: { suffix?: string },
+): string {
+  const suffix = opts?.suffix ?? " cop.";
+  const members = [table];
+  for (const id of table.linkedTableIds ?? []) {
+    const linked = allTables.find((t) => t.id === id);
+    if (linked) members.push(linked);
+  }
+  const parts = members.map((m) => m.guests ?? 0);
+  const total = parts.reduce((a, b) => a + b, 0);
+  if (total <= 0) return "";
+  if (parts.length > 1 && parts.filter((p) => p > 0).length > 1) {
+    return `${parts.join("+")}${suffix}`;
+  }
+  return `${total}${suffix}`;
+}

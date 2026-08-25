@@ -21,11 +21,13 @@ import {
   formatScheduledTime,
   getCounterOrder,
   listCounterOrders,
+  removeCounterOrder,
   resolveTableContext,
 } from "../lib/counter-order.js";
 import { executeTablePayment } from "../lib/payment.js";
 import { getMenuSnapshot } from "../lib/provision.js";
 import {
+  clearTableOrders,
   consumeDiscountToken,
   createDiscountToken,
   getAnalyticSplit,
@@ -45,6 +47,7 @@ import {
   upsertOrder,
   applyLineDiscount,
   applyTableDiscount,
+  cancelActiveSplit,
   clearTableDiscounts,
 } from "../lib/runtime.js";
 import { verifyManagerPin } from "../lib/staff-auth.js";
@@ -134,6 +137,19 @@ export async function posRoutes(app: FastifyInstance) {
         virtualType: order.channel === "TAKEAWAY" ? "ASPORTO" : "DELIVERY",
       },
     });
+  });
+
+  /** Annulla asporto/delivery non pagato (svuota eventuali righe e libera il slot). */
+  app.delete<{ Params: { id: string } }>("/api/pos/counter-orders/:id", async (req, reply) => {
+    const order = getCounterOrder(req.params.id);
+    if (!order) return reply.status(404).send({ error: "Ordine non trovato" });
+    if (order.paidAt) return reply.status(409).send({ error: "Ordine già pagato" });
+
+    clearTableOrders(req.params.id);
+    removeCounterOrder(req.params.id);
+    broadcastTableStatus(req.params.id, "FREE");
+
+    return { ok: true, id: req.params.id };
   });
 
   app.get<{ Params: { id: string } }>("/api/pos/tables/:id/bill", async (req, reply) => {
@@ -406,6 +422,20 @@ export async function posRoutes(app: FastifyInstance) {
     return {
       ok: true,
       bill: consolidateBillForTable(app.edgeDb,req.params.id),
+    };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/pos/tables/:id/split/cancel", async (req, reply) => {
+    const ctx = resolveTableContext(req.params.id, app.edgeDb);
+    if (!ctx) return reply.status(404).send({ error: "Tavolo non trovato" });
+
+    const result = cancelActiveSplit(req.params.id);
+    if (!result.ok) return reply.status(409).send({ error: result.error });
+
+    broadcastTableStatus(req.params.id, "OCCUPIED");
+    return {
+      ok: true,
+      bill: consolidateBillForTable(app.edgeDb, req.params.id),
     };
   });
 

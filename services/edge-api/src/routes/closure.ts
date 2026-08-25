@@ -78,9 +78,7 @@ async function writeDailyReportFiles(
 
 export async function closureRoutes(app: FastifyInstance) {
   app.get("/api/closure/pre-check", async () => {
-    const openTables = getAllTableRuntime().filter(
-      (t) => !["FREE", "LOCKED"].includes(t.status),
-    );
+    const openTables = getAllTableRuntime().filter((t) => t.status !== "FREE");
     const pendingPayments = getPendingPaymentRequests();
     const openShifts = app.edgeDb
       .select()

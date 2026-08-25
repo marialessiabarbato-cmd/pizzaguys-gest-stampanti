@@ -1,5 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 export function NoteModal({
   lineName,
@@ -15,8 +16,8 @@ export function NoteModal({
   const [note, setNote] = useState(initialNote ?? "");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-      <div className="w-full max-w-md rounded-2xl bg-[hsl(var(--pg-background))] p-5 shadow-xl">
+    <BottomSheet maxHeightClass="max-h-[75dvh]">
+      <div className="px-4 pb-2 pt-1">
         <h2 className="mb-1 text-lg font-semibold">Nota riga</h2>
         <p className="mb-4 text-sm text-[hsl(var(--pg-muted-foreground))]">{lineName}</p>
         <textarea
@@ -24,18 +25,17 @@ export function NoteModal({
           onChange={(e) => setNote(e.target.value)}
           placeholder="Es. ben cotta, senza cipolla..."
           rows={3}
-          className="mb-4 w-full resize-none rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2 text-sm"
-          autoFocus
+          className="w-full resize-none rounded-xl border border-[hsl(var(--pg-border))] px-3 py-3 text-base"
         />
-        <div className="flex gap-2">
-          <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
-            Annulla
-          </Button>
-          <Button className="min-h-12 flex-1" onClick={() => onSave(note.trim())}>
-            Salva
-          </Button>
-        </div>
       </div>
-    </div>
+      <div className={bottomSheetFooterClass}>
+        <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
+          Annulla
+        </Button>
+        <Button className="min-h-12 flex-1" onClick={() => onSave(note.trim())}>
+          Salva
+        </Button>
+      </div>
+    </BottomSheet>
   );
 }

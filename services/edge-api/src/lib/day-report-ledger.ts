@@ -534,7 +534,7 @@ export function buildDailyReportSnapshot(
   const openTables: DailyReportSnapshot["openTables"] = [];
   let openTablesTotal = 0;
   for (const rt of runtime) {
-    if (["FREE", "LOCKED"].includes(rt.status)) continue;
+    if (rt.status === "FREE") continue;
     const table = dbTables.find((t) => t.id === rt.tableId);
     if (!table) continue;
     const bill = consolidateBillForTable(db, rt.tableId);

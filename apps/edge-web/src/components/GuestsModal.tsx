@@ -1,10 +1,12 @@
 import { Button } from "@pizzaguys/ui";
 import { useMemo, useState } from "react";
 import { formatTableLabel } from "../lib/table-display";
+import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
 
 export type GuestsConfirmPayload = {
   guests: number;
   mergeTableIds: string[];
+  guestsByTable: Record<string, number>;
 };
 
 export interface GuestsModalTable {
@@ -16,6 +18,8 @@ export interface GuestsModalTable {
   guests?: number;
   defaultGuests?: number;
   tableCapacity?: number;
+  linkedTableIds?: string[];
+  mergedIntoTableId?: string;
 }
 
 const OCCUPIED = new Set(["OCCUPIED", "LOCKED", "BILL_REQUESTED"]);
@@ -75,41 +79,91 @@ export function GuestsModal({
   onCancel,
 }: Props) {
   const tables = Array.isArray(tablesProp) ? tablesProp : [];
-  const startValue =
-    initialGuests != null && initialGuests > 0
-      ? String(initialGuests)
-      : primaryTable.guests != null && primaryTable.guests > 0
-        ? String(primaryTable.guests)
-        : "";
+  const existingLinked = useMemo(() => {
+    if (primaryTable.linkedTableIds?.length) return [...primaryTable.linkedTableIds];
+    return tables
+      .filter((t) => t.mergedIntoTableId === primaryTable.id)
+      .map((t) => t.id);
+  }, [primaryTable.id, primaryTable.linkedTableIds, tables]);
 
-  const [guestsInput, setGuestsInput] = useState(startValue);
-  const [mergeEnabled, setMergeEnabled] = useState(false);
-  const [mergeIds, setMergeIds] = useState<string[]>([]);
+  const [step, setStep] = useState<"simple" | "merge">("simple");
+  const [mergeEnabled, setMergeEnabled] = useState(existingLinked.length > 0);
+  const [mergeIds, setMergeIds] = useState<string[]>(() => [...existingLinked]);
+  const [guestsByTable, setGuestsByTable] = useState<Record<string, number>>(() => {
+    const linked =
+      primaryTable.linkedTableIds?.length
+        ? primaryTable.linkedTableIds
+        : tables
+            .filter((t) => t.mergedIntoTableId === primaryTable.id)
+            .map((t) => t.id);
+    const init: Record<string, number> = {
+      [primaryTable.id]: Math.max(
+        1,
+        initialGuests != null && initialGuests > 0
+          ? initialGuests
+          : primaryTable.guests != null && primaryTable.guests > 0
+            ? primaryTable.guests
+            : 1,
+      ),
+    };
+    for (const id of linked) {
+      const t = tables.find((x) => x.id === id);
+      init[id] = t?.guests != null && t.guests > 0 ? t.guests : 1;
+    }
+    return init;
+  });
 
   const partners = useMemo(
-    () => mergePartnerPool(primaryTable, tables),
-    [primaryTable, tables],
+    () =>
+      mergePartnerPool(primaryTable, tables).filter(
+        (t) => !existingLinked.includes(t.id),
+      ),
+    [primaryTable, tables, existingLinked],
   );
 
-  const guests = Math.max(0, Math.floor(Number.parseInt(guestsInput, 10) || 0));
+  const involvedIds = useMemo(() => {
+    const extra = mergeEnabled ? mergeIds : existingLinked;
+    return [...new Set([primaryTable.id, ...extra])];
+  }, [mergeEnabled, mergeIds, primaryTable.id, existingLinked]);
+
+  const totalGuests = involvedIds.reduce(
+    (sum, id) => sum + Math.max(1, guestsByTable[id] ?? 1),
+    0,
+  );
+
+  const setMemberGuests = (id: string, value: number) => {
+    setGuestsByTable((prev) => ({ ...prev, [id]: Math.max(1, value) }));
+  };
 
   const toggleMerge = (id: string) => {
-    setMergeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setMergeIds((prev) => {
+      if (prev.includes(id)) {
+        setGuestsByTable((g) => {
+          const next = { ...g };
+          delete next[id];
+          return next;
+        });
+        return prev.filter((x) => x !== id);
+      }
+      const partner = tables.find((t) => t.id === id);
+      setGuestsByTable((g) => ({
+        ...g,
+        [id]: Math.max(1, partner ? guestsAt(partner) || 1 : 1),
+      }));
+      return [...prev, id];
+    });
   };
 
-  const enableMerge = (on: boolean) => {
-    setMergeEnabled(on);
-    if (!on) setMergeIds([]);
+  const openMergeStep = () => {
+    setMergeEnabled(true);
+    setStep("merge");
   };
 
-  const dec = () => {
-    const next = Math.max(1, guests - 1);
-    setGuestsInput(String(next));
-  };
-
-  const inc = () => {
-    const next = Math.max(1, guests + 1);
-    setGuestsInput(String(next));
+  const backToSimple = () => {
+    setStep("simple");
+    if (existingLinked.length === 0 && mergeIds.length === 0) {
+      setMergeEnabled(false);
+    }
   };
 
   const mergeLabels = mergeIds
@@ -120,130 +174,283 @@ export function GuestsModal({
     .filter(Boolean);
 
   const primaryLabel = formatTableLabel(primaryTable.label);
+  const showPerTable = involvedIds.length > 1;
+  const newMergeIds = mergeIds.filter((id) => !existingLinked.includes(id));
 
   const canSubmit =
-    !loading && guests >= 1 && (!mergeEnabled || mergeIds.length >= 1);
+    !loading &&
+    totalGuests >= 1 &&
+    (!mergeEnabled || mergeIds.length >= 1 || existingLinked.length > 0);
 
   const submitHint =
-    mergeEnabled && mergeIds.length === 0
+    step === "merge" &&
+    mergeEnabled &&
+    mergeIds.length === 0 &&
+    existingLinked.length === 0
       ? "Seleziona almeno un tavolo da unire"
-      : guests < 1
-        ? "Inserisci almeno 1 coperto"
-        : "";
+      : "";
+
+  const buildPayload = (): GuestsConfirmPayload => {
+    const byTable: Record<string, number> = {};
+    for (const id of involvedIds) {
+      byTable[id] = Math.max(1, guestsByTable[id] ?? 1);
+    }
+    return {
+      guests: Object.values(byTable).reduce((a, b) => a + b, 0),
+      mergeTableIds: newMergeIds,
+      guestsByTable: byTable,
+    };
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/40 sm:items-center sm:justify-center">
-      <div className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-2xl bg-[hsl(var(--pg-background))] shadow-xl sm:rounded-2xl">
-        <div className="border-b border-[hsl(var(--pg-border))] px-4 py-4">
-          <h2 className="text-center text-lg font-bold">Coperti</h2>
-          <p className="mt-1 text-center text-sm font-medium text-[hsl(var(--pg-muted-foreground))]">
-            {primaryLabel}
-            {mergeEnabled && mergeLabels.length > 0 ? ` + ${mergeLabels.join(" + ")}` : ""}
-          </p>
-        </div>
+    <OffCanvas widthClass="max-w-md" onClose={onCancel}>
+      <div className="shrink-0 border-b border-[hsl(var(--pg-border))] px-5 py-4">
+        <h2 className="text-lg font-bold">
+          {step === "merge" ? "Unisci tavoli" : "Coperti"}
+        </h2>
+        <p className="mt-1 text-sm font-medium text-[hsl(var(--pg-muted-foreground))]">
+          {primaryLabel}
+          {showPerTable && mergeLabels.length > 0 ? ` + ${mergeLabels.join(" + ")}` : ""}
+        </p>
+      </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          <div className="pb-1">
-            <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
-              Numero coperti
-            </p>
-            <div className="flex items-center justify-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-14 w-14 text-2xl"
-                onClick={dec}
-                disabled={guests <= 1 || loading}
-              >
-                −
-              </Button>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                className="h-14 w-24 rounded-xl border border-[hsl(var(--pg-border))] bg-transparent text-center text-3xl font-bold tabular-nums"
-                value={guestsInput}
-                disabled={loading}
-                placeholder="1"
-                onChange={(e) => setGuestsInput(e.target.value.replace(/[^\d]/g, ""))}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="h-14 w-14 text-2xl"
-                onClick={inc}
-                disabled={loading}
-              >
-                +
-              </Button>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            className={`h-11 w-full text-sm ${mergeEnabled ? "bg-[hsl(var(--pg-muted))]/40" : ""}`}
-            disabled={loading}
-            onClick={() => enableMerge(!mergeEnabled)}
-          >
-            Unisci con altri tavoli
-          </Button>
-
-          {mergeEnabled && (
-            <section className="space-y-3 border-t border-[hsl(var(--pg-border))] pt-3">
-              <p className="text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
-                Seleziona i tavoli da aggiungere a {primaryLabel}
-              </p>
-              {partners.length === 0 ? (
-                <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                  Nessun altro tavolo disponibile.
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        {step === "simple" && (
+          <>
+            {!showPerTable ? (
+              <div className="pb-1">
+                <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  Numero coperti
                 </p>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {partners.map((t) => {
-                    const selected = mergeIds.includes(t.id);
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        disabled={loading}
-                        onClick={() => toggleMerge(t.id)}
-                        className={`min-h-[56px] rounded-lg border px-1 py-2 text-sm font-semibold transition ${
-                          selected
-                            ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/15 text-[hsl(var(--pg-primary))] shadow-sm ring-1 ring-[hsl(var(--pg-primary))]/30"
-                            : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/25 text-[hsl(var(--pg-foreground))]"
+                <div className="flex items-center justify-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-14 w-14 text-2xl"
+                    onClick={() =>
+                      setMemberGuests(
+                        primaryTable.id,
+                        (guestsByTable[primaryTable.id] ?? 1) - 1,
+                      )
+                    }
+                    disabled={(guestsByTable[primaryTable.id] ?? 1) <= 1 || loading}
+                  >
+                    −
+                  </Button>
+                  <span className="min-w-[3rem] text-center text-3xl font-bold tabular-nums">
+                    {guestsByTable[primaryTable.id] ?? 1}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-14 w-14 text-2xl"
+                    onClick={() =>
+                      setMemberGuests(
+                        primaryTable.id,
+                        (guestsByTable[primaryTable.id] ?? 1) + 1,
+                      )
+                    }
+                    disabled={loading}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-center text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  Coperti per tavolo
+                </p>
+                <p className="text-center text-xs text-[hsl(var(--pg-muted-foreground))]">
+                  Conto unico · coperti separati
+                </p>
+                {involvedIds.map((id) => {
+                  const t =
+                    tables.find((x) => x.id === id) ??
+                    (id === primaryTable.id ? primaryTable : null);
+                  const label = t ? formatTableLabel(t.label) : id;
+                  const value = guestsByTable[id] ?? 1;
+                  return (
+                    <div
+                      key={id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {label}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-11 text-xl"
+                          onClick={() => setMemberGuests(id, value - 1)}
+                          disabled={value <= 1 || loading}
+                        >
+                          −
+                        </Button>
+                        <span className="min-w-[2rem] text-center text-xl font-bold tabular-nums">
+                          {value}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-11 text-xl"
+                          onClick={() => setMemberGuests(id, value + 1)}
+                          disabled={loading}
+                        >
+                          +
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-center text-sm font-semibold">
+                  Totale: {totalGuests} coperti
+                </p>
+              </div>
+            )}
+
+            {(partners.length > 0 || existingLinked.length > 0) && (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-12 w-full text-sm"
+                disabled={loading}
+                onClick={openMergeStep}
+              >
+                {existingLinked.length > 0
+                  ? "Modifica unione tavoli"
+                  : "Unisci con altri tavoli"}
+              </Button>
+            )}
+          </>
+        )}
+
+        {step === "merge" && (
+          <section className="space-y-3">
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+              Seleziona i tavoli da aggiungere a {primaryLabel}
+            </p>
+            {partners.length === 0 && existingLinked.length === 0 ? (
+              <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                Nessun altro tavolo disponibile.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {existingLinked.map((id) => {
+                  const t = tables.find((x) => x.id === id);
+                  return (
+                    <div
+                      key={id}
+                      className="min-h-[56px] rounded-lg border border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/15 px-1 py-2 text-sm font-semibold text-[hsl(var(--pg-primary))]"
+                    >
+                      ✓ {t ? formatTableLabel(t.label) : id}
+                      <span className="mt-0.5 block text-[11px] font-normal opacity-90">
+                        già unito
+                      </span>
+                    </div>
+                  );
+                })}
+                {partners.map((t) => {
+                  const selected = mergeIds.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => toggleMerge(t.id)}
+                      className={`min-h-[56px] rounded-lg border px-1 py-2 text-sm font-semibold transition ${
+                        selected
+                          ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/15 text-[hsl(var(--pg-primary))] shadow-sm ring-1 ring-[hsl(var(--pg-primary))]/30"
+                          : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/25 text-[hsl(var(--pg-foreground))]"
+                      }`}
+                    >
+                      {selected && <span className="mr-0.5">✓</span>}
+                      {formatTableLabel(t.label)}
+                      <span
+                        className={`mt-0.5 block text-[11px] font-normal ${
+                          selected ? "opacity-90" : "opacity-75"
                         }`}
                       >
-                        {selected && <span className="mr-0.5">✓</span>}
-                        {formatTableLabel(t.label)}
-                        <span
-                          className={`mt-0.5 block text-[9px] font-normal ${
-                            selected ? "opacity-90" : "opacity-75"
-                          }`}
-                        >
-                          {guestsAt(t)} cop.
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {mergeIds.length > 0 && (
-                <p className="text-center text-sm font-semibold text-[hsl(var(--pg-foreground))]">
-                  {guests >= 1 ? `${guests} coperti` : "—"} · gruppo {primaryLabel}
-                  {mergeLabels.length > 0 ? ` + ${mergeLabels.join(" + ")}` : ""}
+                        {guestsAt(t) || 1} cop.
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {showPerTable && (
+              <div className="space-y-3 border-t border-[hsl(var(--pg-border))] pt-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  Coperti per tavolo
                 </p>
-              )}
-            </section>
-          )}
+                {involvedIds.map((id) => {
+                  const t =
+                    tables.find((x) => x.id === id) ??
+                    (id === primaryTable.id ? primaryTable : null);
+                  const label = t ? formatTableLabel(t.label) : id;
+                  const value = guestsByTable[id] ?? 1;
+                  return (
+                    <div
+                      key={id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {label}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-11 text-xl"
+                          onClick={() => setMemberGuests(id, value - 1)}
+                          disabled={value <= 1 || loading}
+                        >
+                          −
+                        </Button>
+                        <span className="min-w-[2rem] text-center text-xl font-bold tabular-nums">
+                          {value}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-11 text-xl"
+                          onClick={() => setMemberGuests(id, value + 1)}
+                          disabled={loading}
+                        >
+                          +
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-center text-sm font-semibold">
+                  Totale: {totalGuests} coperti
+                </p>
+              </div>
+            )}
+          </section>
+        )}
 
-          {submitHint && (
-            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">{submitHint}</p>
-          )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
-        </div>
+        {submitHint && (
+          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">{submitHint}</p>
+        )}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+      </div>
 
-        <div className="flex gap-2 border-t border-[hsl(var(--pg-border))] p-4">
+      <div className={offCanvasFooterClass}>
+        {step === "merge" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-12 flex-1"
+            disabled={loading}
+            onClick={backToSimple}
+          >
+            Indietro
+          </Button>
+        ) : (
           <Button
             type="button"
             variant="ghost"
@@ -253,21 +460,16 @@ export function GuestsModal({
           >
             Annulla
           </Button>
-          <Button
-            type="button"
-            className="min-h-12 flex-1 font-semibold"
-            disabled={!canSubmit}
-            onClick={() =>
-              onConfirm({
-                guests: Math.max(1, guests),
-                mergeTableIds: mergeEnabled ? mergeIds : [],
-              })
-            }
-          >
-            {loading ? "..." : confirmLabel}
-          </Button>
-        </div>
+        )}
+        <Button
+          type="button"
+          className="min-h-12 flex-1 font-semibold"
+          disabled={!canSubmit}
+          onClick={() => onConfirm(buildPayload())}
+        >
+          {loading ? "..." : confirmLabel}
+        </Button>
       </div>
-    </div>
+    </OffCanvas>
   );
 }

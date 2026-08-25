@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { OffCanvas } from "@/components/OffCanvas";
 import { TableFilters, matchesSearch } from "@/components/TableFilters";
 import { EU_ALLERGENS, SALES_CHANNELS, VAT_RATES, localizedName } from "@/lib/constants";
 import { api } from "@/lib/api";
@@ -238,7 +239,6 @@ export default function MenuPage() {
   const [priceLocationId, setPriceLocationId] = useState("");
   const [bulkPercent, setBulkPercent] = useState("0");
   const [productSearch, setProductSearch] = useState("");
-  const [productHoldFilter, setProductHoldFilter] = useState("");
   const [variantGroupSearch, setVariantGroupSearch] = useState("");
   const [variantOptionSearch, setVariantOptionSearch] = useState("");
   const [variantTypeFilter, setVariantTypeFilter] = useState("");
@@ -248,19 +248,21 @@ export default function MenuPage() {
   const [importMessage, setImportMessage] = useState("");
   const variantImportRef = useRef<HTMLInputElement>(null);
   const [showCatForm, setShowCatForm] = useState(false);
-  const [showProdForm, setShowProdForm] = useState(false);
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editProdForm, setEditProdForm] = useState({
+  const [productPanel, setProductPanel] = useState<null | { mode: "create" } | { mode: "edit"; productId: string }>(
+    null,
+  );
+  const [prodForm, setProdForm] = useState({
     name: "",
     basePrice: "",
     allergenIds: [] as string[],
   });
   const [showGroupForm, setShowGroupForm] = useState(false);
-  const [showVariantForm, setShowVariantForm] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupForm, setEditGroupForm] = useState({ name: "", categoryIds: [] as string[] });
-  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
-  const [editVariantForm, setEditVariantForm] = useState({
+  const [variantPanel, setVariantPanel] = useState<
+    null | { mode: "create" } | { mode: "edit"; variantId: string }
+  >(null);
+  const [variantForm, setVariantForm] = useState({
     name: "",
     type: "ADD" as "ADD" | "REMOVE",
     priceDelta: "0",
@@ -280,18 +282,7 @@ export default function MenuPage() {
     hold: false,
     dessert: false,
   });
-  const [prodForm, setProdForm] = useState({
-    name: "",
-    basePrice: "",
-    allergenIds: [] as string[],
-  });
   const [groupForm, setGroupForm] = useState({ name: "", categoryIds: [] as string[] });
-  const [variantForm, setVariantForm] = useState({
-    groupId: "",
-    name: "",
-    type: "ADD" as "ADD" | "REMOVE",
-    priceDelta: "0",
-  });
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -363,6 +354,16 @@ export default function MenuPage() {
     void load();
   };
 
+  const closeProductPanel = () => {
+    setProductPanel(null);
+    setProdForm({ name: "", basePrice: "", allergenIds: [] });
+  };
+
+  const openNewProduct = () => {
+    setProdForm({ name: "", basePrice: "", allergenIds: [] });
+    setProductPanel({ mode: "create" });
+  };
+
   const createProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCatId) return;
@@ -375,39 +376,34 @@ export default function MenuPage() {
         allergenIds: prodForm.allergenIds,
       }),
     });
-    setProdForm({ name: "", basePrice: "", allergenIds: [] });
-    setShowProdForm(false);
+    closeProductPanel();
     void load();
   };
 
   const startEditProduct = (product: Product) => {
-    setShowProdForm(false);
-    setEditingProductId(product.id);
-    setEditProdForm({
+    setProdForm({
       name: localizedName(product.name),
       basePrice: String(Number(product.basePrice)),
       allergenIds: [...product.allergenIds],
     });
+    setProductPanel({ mode: "edit", productId: product.id });
   };
 
-  const cancelEditProduct = () => {
-    setEditingProductId(null);
-    setEditProdForm({ name: "", basePrice: "", allergenIds: [] });
-  };
+  const saveEditProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (productPanel?.mode !== "edit") return;
+    const price = Math.round(Number(prodForm.basePrice) * 100) / 100;
+    if (!prodForm.name.trim() || !Number.isFinite(price) || price <= 0) return;
 
-  const saveEditProduct = async (productId: string) => {
-    const price = Math.round(Number(editProdForm.basePrice) * 100) / 100;
-    if (!editProdForm.name.trim() || !Number.isFinite(price) || price <= 0) return;
-
-    await api(`/api/v2/products/${productId}`, {
+    await api(`/api/v2/products/${productPanel.productId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: { it: editProdForm.name.trim() },
+        name: { it: prodForm.name.trim() },
         basePrice: price,
-        allergenIds: editProdForm.allergenIds,
+        allergenIds: prodForm.allergenIds,
       }),
     });
-    cancelEditProduct();
+    closeProductPanel();
     void load();
   };
 
@@ -423,18 +419,22 @@ export default function MenuPage() {
     if (!deleteTarget) return;
     if (deleteTarget.kind === "category") {
       await api(`/api/v2/categories/${deleteTarget.id}`, { method: "DELETE" });
-      setShowProdForm(false);
+      closeProductPanel();
     } else if (deleteTarget.kind === "product") {
       await api(`/api/v2/products/${deleteTarget.id}`, { method: "DELETE" });
-      if (editingProductId === deleteTarget.id) cancelEditProduct();
+      if (productPanel?.mode === "edit" && productPanel.productId === deleteTarget.id) {
+        closeProductPanel();
+      }
     } else if (deleteTarget.kind === "variant_group") {
       await api(`/api/v2/variant-groups/${deleteTarget.id}`, { method: "DELETE" });
-      setShowVariantForm(false);
+      closeVariantPanel();
       if (editingGroupId === deleteTarget.id) cancelEditGroup();
       if (selectedGroupId === deleteTarget.id) setSelectedGroupId(null);
     } else {
       await api(`/api/v2/variants/${deleteTarget.id}`, { method: "DELETE" });
-      if (editingVariantId === deleteTarget.id) cancelEditVariant();
+      if (variantPanel?.mode === "edit" && variantPanel.variantId === deleteTarget.id) {
+        closeVariantPanel();
+      }
     }
     setDeleteTarget(null);
     void load();
@@ -478,52 +478,56 @@ export default function MenuPage() {
     void load();
   };
 
+  const closeVariantPanel = () => {
+    setVariantPanel(null);
+    setVariantForm({ name: "", type: "ADD", priceDelta: "0" });
+  };
+
+  const openNewVariant = () => {
+    setVariantForm({ name: "", type: "ADD", priceDelta: "0" });
+    setVariantPanel({ mode: "create" });
+  };
+
   const createVariant = async (e: React.FormEvent) => {
     e.preventDefault();
-    const groupId = variantForm.groupId || selectedGroupId;
-    if (!groupId) return;
+    if (!selectedGroupId) return;
     await api("/api/v2/variants", {
       method: "POST",
       body: JSON.stringify({
-        groupId,
+        groupId: selectedGroupId,
         name: { it: variantForm.name },
         type: variantForm.type,
         priceDelta: Math.round(Number(variantForm.priceDelta) * 100) / 100,
       }),
     });
-    setVariantForm({ groupId: "", name: "", type: "ADD", priceDelta: "0" });
-    setShowVariantForm(false);
+    closeVariantPanel();
     void load();
   };
 
   const startEditVariant = (variant: Variant) => {
-    setShowVariantForm(false);
-    setEditingVariantId(variant.id);
-    setEditVariantForm({
+    setVariantForm({
       name: localizedName(variant.name),
       type: variant.type,
       priceDelta: String(Number(variant.priceDelta)),
     });
+    setVariantPanel({ mode: "edit", variantId: variant.id });
   };
 
-  const cancelEditVariant = () => {
-    setEditingVariantId(null);
-    setEditVariantForm({ name: "", type: "ADD", priceDelta: "0" });
-  };
+  const saveEditVariant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (variantPanel?.mode !== "edit") return;
+    const priceDelta = Math.round(Number(variantForm.priceDelta) * 100) / 100;
+    if (!variantForm.name.trim() || !Number.isFinite(priceDelta) || priceDelta < 0) return;
 
-  const saveEditVariant = async (variantId: string) => {
-    const priceDelta = Math.round(Number(editVariantForm.priceDelta) * 100) / 100;
-    if (!editVariantForm.name.trim() || !Number.isFinite(priceDelta) || priceDelta < 0) return;
-
-    await api(`/api/v2/variants/${variantId}`, {
+    await api(`/api/v2/variants/${variantPanel.variantId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: { it: editVariantForm.name.trim() },
-        type: editVariantForm.type,
+        name: { it: variantForm.name.trim() },
+        type: variantForm.type,
         priceDelta,
       }),
     });
-    cancelEditVariant();
+    closeVariantPanel();
     void load();
   };
 
@@ -588,13 +592,8 @@ export default function MenuPage() {
 
   const filteredProducts = useMemo(() => {
     const inCategory = products.filter((p) => p.categoryId === selectedCatId);
-    return inCategory.filter((p) => {
-      if (!matchesSearch(localizedName(p.name), productSearch)) return false;
-      if (productHoldFilter === "hold" && !p.hold) return false;
-      if (productHoldFilter === "normal" && p.hold) return false;
-      return true;
-    });
-  }, [products, selectedCatId, productSearch, productHoldFilter]);
+    return inCategory.filter((p) => matchesSearch(localizedName(p.name), productSearch));
+  }, [products, selectedCatId, productSearch]);
 
   const filteredVariantGroups = useMemo(() => {
     return variantGroups.filter((g) =>
@@ -708,7 +707,7 @@ export default function MenuPage() {
                             onSelect={() => {
                               setSelectedCatId(cat.id);
                               setProductSearch("");
-                              cancelEditProduct();
+                              closeProductPanel();
                             }}
                           />
                         ))}
@@ -787,12 +786,10 @@ export default function MenuPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size={btnSize.inline}
-                      onClick={() => {
-                        cancelEditProduct();
-                        setShowProdForm((open) => !open);
-                      }}
+                      onClick={openNewProduct}
+                      disabled={!selectedCatId}
                     >
-                      {showProdForm ? "Chiudi form" : "+ Prodotto"}
+                      Nuovo prodotto
                     </Button>
                     <Button
                       size={btnSize.inline}
@@ -811,116 +808,43 @@ export default function MenuPage() {
                     search={productSearch}
                     onSearchChange={setProductSearch}
                     searchPlaceholder="Cerca prodotto…"
-                    filters={[
-                      {
-                        id: "hold",
-                        label: "Tipo",
-                        value: productHoldFilter,
-                        onChange: setProductHoldFilter,
-                        allLabel: "Tutti",
-                        options: [
-                          { value: "normal", label: "Normali" },
-                          { value: "hold", label: "In hold" },
-                        ],
-                      },
-                    ]}
                   />
                   {filteredProducts.map((p) => (
                     <div
                       key={p.id}
-                      className={`${listRowClass(editingProductId === p.id)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
+                      className={`${listRowClass(false)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
                     >
-                      {editingProductId === p.id ? (
-                        <div className="w-full space-y-2">
-                          <div className={formRowEndClass}>
-                            <input
-                              className={`min-w-[140px] flex-1 ${inputCompactClass}`}
-                              placeholder="Nome prodotto"
-                              value={editProdForm.name}
-                              onChange={(e) =>
-                                setEditProdForm((f) => ({ ...f, name: e.target.value }))
-                              }
-                            />
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              className={`w-24 ${inputCompactClass}`}
-                              placeholder="Prezzo"
-                              value={editProdForm.basePrice}
-                              onChange={(e) =>
-                                setEditProdForm((f) => ({ ...f, basePrice: e.target.value }))
-                              }
-                            />
-                            <Button
-                              type="button"
-                              size={btnSize.list}
-                              variant="outline"
-                              onClick={() => void saveEditProduct(p.id)}
-                            >
-                              Salva
-                            </Button>
-                            <Button
-                              type="button"
-                              size={btnSize.list}
-                              variant="outline"
-                              onClick={cancelEditProduct}
-                            >
-                              Annulla
-                            </Button>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {EU_ALLERGENS.map((a) => (
-                              <label key={a.id} className="flex items-center gap-1 text-xs">
-                                <input
-                                  type="checkbox"
-                                  checked={editProdForm.allergenIds.includes(a.id)}
-                                  onChange={(e) => {
-                                    const ids = e.target.checked
-                                      ? [...editProdForm.allergenIds, a.id]
-                                      : editProdForm.allergenIds.filter((id) => id !== a.id);
-                                    setEditProdForm((f) => ({ ...f, allergenIds: ids }));
-                                  }}
-                                />
-                                {a.label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="min-w-0">
-                            <p className="font-medium">{localizedName(p.name)}</p>
-                            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                              {euro(p.basePrice)}
-                              {p.allergenIds.length > 0 &&
-                                ` · ${p.allergenIds.length} ${p.allergenIds.length === 1 ? "allergene" : "allergeni"}`}
-                            </p>
-                          </div>
-                          <span className="flex shrink-0 gap-1">
-                            <Button
-                              size={btnSize.list}
-                              variant="outline"
-                              onClick={() => startEditProduct(p)}
-                            >
-                              Modifica
-                            </Button>
-                            <Button
-                              size={btnSize.list}
-                              variant="ghost"
-                              className="text-red-600"
-                              onClick={() => deleteProduct(p.id, localizedName(p.name))}
-                            >
-                              Elimina
-                            </Button>
-                          </span>
-                        </>
-                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium">{localizedName(p.name)}</p>
+                        <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                          {euro(p.basePrice)}
+                          {p.allergenIds.length > 0 &&
+                            ` · ${p.allergenIds.length} ${p.allergenIds.length === 1 ? "allergene" : "allergeni"}`}
+                        </p>
+                      </div>
+                      <span className="flex shrink-0 gap-1">
+                        <Button
+                          size={btnSize.list}
+                          variant="outline"
+                          onClick={() => startEditProduct(p)}
+                        >
+                          Modifica
+                        </Button>
+                        <Button
+                          size={btnSize.list}
+                          variant="ghost"
+                          className="text-red-600"
+                          onClick={() => deleteProduct(p.id, localizedName(p.name))}
+                        >
+                          Elimina
+                        </Button>
+                      </span>
                     </div>
                   ))}
                   {products.filter((p) => p.categoryId === selectedCatId).length === 0 && (
                     <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                      Nessun prodotto in questa categoria. Usa &quot;+ Prodotto&quot; per aggiungerne uno.
+                      Nessun prodotto in questa categoria. Usa &quot;Nuovo prodotto&quot; per
+                      aggiungerne uno.
                     </p>
                   )}
                   {products.filter((p) => p.categoryId === selectedCatId).length > 0 &&
@@ -938,65 +862,86 @@ export default function MenuPage() {
                 </CardContent>
               </Card>
             )}
-
-            {showProdForm && selectedCatId && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    Nuovo prodotto in {selectedCategory ? localizedName(selectedCategory.name) : "categoria"}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={createProduct} className="space-y-3">
-                    <input
-                      className={inputFullClass}
-                      placeholder="Nome prodotto"
-                      value={prodForm.name}
-                      onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })}
-                      required
-                    />
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      className={inputFullClass}
-                      placeholder="Prezzo base (€)"
-                      value={prodForm.basePrice}
-                      onChange={(e) => setProdForm({ ...prodForm, basePrice: e.target.value })}
-                      required
-                    />
-                    <div>
-                      <p className="mb-2 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
-                        Allergeni (opzionale)
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {EU_ALLERGENS.map((a) => (
-                          <label key={a.id} className="flex items-center gap-1 text-xs">
-                            <input
-                              type="checkbox"
-                              checked={prodForm.allergenIds.includes(a.id)}
-                              onChange={(e) => {
-                                const ids = e.target.checked
-                                  ? [...prodForm.allergenIds, a.id]
-                                  : prodForm.allergenIds.filter((id) => id !== a.id);
-                                setProdForm({ ...prodForm, allergenIds: ids });
-                              }}
-                            />
-                            {a.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <Button type="submit" size={btnSize.inline} disabled={!selectedCatId}>
-                      Aggiungi prodotto
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
       )}
+
+      <OffCanvas
+        open={productPanel != null && !!selectedCatId}
+        title={productPanel?.mode === "edit" ? "Modifica prodotto" : "Nuovo prodotto"}
+        description={
+          selectedCategory
+            ? `Categoria: ${localizedName(selectedCategory.name)}`
+            : undefined
+        }
+        onClose={closeProductPanel}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" size={btnSize.inline} onClick={closeProductPanel}>
+              Annulla
+            </Button>
+            <Button
+              type="submit"
+              form="product-offcanvas-form"
+              size={btnSize.inline}
+            >
+              {productPanel?.mode === "edit" ? "Salva" : "Aggiungi prodotto"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="product-offcanvas-form"
+          onSubmit={productPanel?.mode === "edit" ? saveEditProduct : createProduct}
+          className="space-y-4"
+        >
+          <label className="block text-sm">
+            Nome
+            <input
+              className={`mt-1 ${inputFullClass}`}
+              placeholder="Nome prodotto"
+              value={prodForm.name}
+              onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })}
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            Prezzo base (€)
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              className={`mt-1 ${inputFullClass}`}
+              placeholder="0,00"
+              value={prodForm.basePrice}
+              onChange={(e) => setProdForm({ ...prodForm, basePrice: e.target.value })}
+              required
+            />
+          </label>
+          <div>
+            <p className="mb-2 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
+              Allergeni (opzionale)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {EU_ALLERGENS.map((a) => (
+                <label key={a.id} className="flex items-center gap-1 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={prodForm.allergenIds.includes(a.id)}
+                    onChange={(e) => {
+                      const ids = e.target.checked
+                        ? [...prodForm.allergenIds, a.id]
+                        : prodForm.allergenIds.filter((id) => id !== a.id);
+                      setProdForm({ ...prodForm, allergenIds: ids });
+                    }}
+                  />
+                  {a.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </form>
+      </OffCanvas>
 
       {tab === "varianti" && (
         <div className="space-y-4">
@@ -1119,7 +1064,7 @@ export default function MenuPage() {
                             className="w-full text-left"
                             onClick={() => {
                               setSelectedGroupId(g.id);
-                              cancelEditVariant();
+                              closeVariantPanel();
                             }}
                           >
                             <p className="font-medium">{localizedName(g.name)}</p>
@@ -1196,13 +1141,10 @@ export default function MenuPage() {
                   </div>
                   <Button
                     size={btnSize.inline}
-                    onClick={() => {
-                      cancelEditVariant();
-                      setVariantForm((f) => ({ ...f, groupId: selectedGroup.id }));
-                      setShowVariantForm((open) => !open);
-                    }}
+                    onClick={openNewVariant}
+                    disabled={!selectedGroupId}
                   >
-                    {showVariantForm ? "Chiudi form" : "+ Variante"}
+                    Nuova variante
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-2">
@@ -1226,94 +1168,37 @@ export default function MenuPage() {
                   {filteredGroupVariants.map((v) => (
                     <div
                       key={v.id}
-                      className={`${listRowClass(editingVariantId === v.id)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
+                      className={`${listRowClass(false)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
                     >
-                      {editingVariantId === v.id ? (
-                        <div className="w-full space-y-2">
-                          <div className={formRowEndClass}>
-                            <input
-                              className={`min-w-[120px] flex-1 ${inputCompactClass}`}
-                              placeholder="Nome variante"
-                              value={editVariantForm.name}
-                              onChange={(e) =>
-                                setEditVariantForm((f) => ({ ...f, name: e.target.value }))
-                              }
-                            />
-                            <select
-                              className={`w-28 ${inputCompactClass}`}
-                              value={editVariantForm.type}
-                              onChange={(e) =>
-                                setEditVariantForm((f) => ({
-                                  ...f,
-                                  type: e.target.value as "ADD" | "REMOVE",
-                                }))
-                              }
-                            >
-                              <option value="ADD">Aggiunta</option>
-                              <option value="REMOVE">Rimozione</option>
-                            </select>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className={`w-24 ${inputCompactClass}`}
-                              placeholder="€"
-                              value={editVariantForm.priceDelta}
-                              disabled={editVariantForm.type === "REMOVE"}
-                              onChange={(e) =>
-                                setEditVariantForm((f) => ({ ...f, priceDelta: e.target.value }))
-                              }
-                            />
-                            <Button
-                              type="button"
-                              size={btnSize.list}
-                              variant="outline"
-                              onClick={() => void saveEditVariant(v.id)}
-                            >
-                              Salva
-                            </Button>
-                            <Button
-                              type="button"
-                              size={btnSize.list}
-                              variant="outline"
-                              onClick={cancelEditVariant}
-                            >
-                              Annulla
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="min-w-0">
-                            <p className="font-medium">{localizedName(v.name)}</p>
-                            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-                              {variantTypeLabel(v.type)} · {variantPriceLabel(v.type, v.priceDelta)}
-                            </p>
-                          </div>
-                          <span className="flex shrink-0 gap-1">
-                            <Button
-                              size={btnSize.list}
-                              variant="outline"
-                              onClick={() => startEditVariant(v)}
-                            >
-                              Modifica
-                            </Button>
-                            <Button
-                              size={btnSize.list}
-                              variant="ghost"
-                              className="text-red-600"
-                              onClick={() => deleteVariant(v.id, localizedName(v.name))}
-                            >
-                              Elimina
-                            </Button>
-                          </span>
-                        </>
-                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium">{localizedName(v.name)}</p>
+                        <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                          {variantTypeLabel(v.type)} · {variantPriceLabel(v.type, v.priceDelta)}
+                        </p>
+                      </div>
+                      <span className="flex shrink-0 gap-1">
+                        <Button
+                          size={btnSize.list}
+                          variant="outline"
+                          onClick={() => startEditVariant(v)}
+                        >
+                          Modifica
+                        </Button>
+                        <Button
+                          size={btnSize.list}
+                          variant="ghost"
+                          className="text-red-600"
+                          onClick={() => deleteVariant(v.id, localizedName(v.name))}
+                        >
+                          Elimina
+                        </Button>
+                      </span>
                     </div>
                   ))}
                   {groupVariants.length === 0 && (
                     <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                      Nessuna variante in questo gruppo. Usa &quot;+ Variante&quot; per aggiungerne una.
+                      Nessuna variante in questo gruppo. Usa &quot;Nuova variante&quot; per
+                      aggiungerne una.
                     </p>
                   )}
                 </CardContent>
@@ -1325,72 +1210,81 @@ export default function MenuPage() {
                 </CardContent>
               </Card>
             )}
-
-            {showVariantForm && selectedGroupId && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    Nuova variante in {selectedGroup ? localizedName(selectedGroup.name) : "gruppo"}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={createVariant} className="space-y-2">
-                    <select
-                      className={`w-full ${inputCompactClass}`}
-                      value={variantForm.groupId || selectedGroupId}
-                      onChange={(e) => setVariantForm({ ...variantForm, groupId: e.target.value })}
-                      required
-                    >
-                      {variantGroups.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {localizedName(g.name)}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className={inputFullClass}
-                      placeholder="Nome variante"
-                      value={variantForm.name}
-                      onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
-                      required
-                    />
-                    <select
-                      className={`w-full ${inputCompactClass}`}
-                      value={variantForm.type}
-                      onChange={(e) =>
-                        setVariantForm({
-                          ...variantForm,
-                          type: e.target.value as "ADD" | "REMOVE",
-                        })
-                      }
-                    >
-                      <option value="ADD">Aggiunta</option>
-                      <option value="REMOVE">Rimozione</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className={inputFullClass}
-                      placeholder="Supplemento prezzo (€)"
-                      value={variantForm.priceDelta}
-                      disabled={variantForm.type === "REMOVE"}
-                      onChange={(e) =>
-                        setVariantForm({ ...variantForm, priceDelta: e.target.value })
-                      }
-                    />
-                    <Button type="submit" size={btnSize.inline}>
-                      Aggiungi variante
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
         </div>
       )}
 
+      <OffCanvas
+        open={variantPanel != null && !!selectedGroupId}
+        title={variantPanel?.mode === "edit" ? "Modifica variante" : "Nuova variante"}
+        description={
+          selectedGroup ? `Gruppo: ${localizedName(selectedGroup.name)}` : undefined
+        }
+        onClose={closeVariantPanel}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size={btnSize.inline}
+              onClick={closeVariantPanel}
+            >
+              Annulla
+            </Button>
+            <Button type="submit" form="variant-offcanvas-form" size={btnSize.inline}>
+              {variantPanel?.mode === "edit" ? "Salva" : "Aggiungi variante"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="variant-offcanvas-form"
+          onSubmit={variantPanel?.mode === "edit" ? saveEditVariant : createVariant}
+          className="space-y-4"
+        >
+          <label className="block text-sm">
+            Nome
+            <input
+              className={`mt-1 ${inputFullClass}`}
+              placeholder="Nome variante"
+              value={variantForm.name}
+              onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            Tipo
+            <select
+              className={`mt-1 w-full ${selectClass}`}
+              value={variantForm.type}
+              onChange={(e) =>
+                setVariantForm({
+                  ...variantForm,
+                  type: e.target.value as "ADD" | "REMOVE",
+                  priceDelta: e.target.value === "REMOVE" ? "0" : variantForm.priceDelta,
+                })
+              }
+            >
+              <option value="ADD">Aggiunta</option>
+              <option value="REMOVE">Rimozione</option>
+            </select>
+          </label>
+          <label className="block text-sm">
+            Supplemento prezzo (€)
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className={`mt-1 ${inputFullClass}`}
+              placeholder="0,00"
+              value={variantForm.priceDelta}
+              disabled={variantForm.type === "REMOVE"}
+              onChange={(e) => setVariantForm({ ...variantForm, priceDelta: e.target.value })}
+            />
+          </label>
+        </form>
+      </OffCanvas>
       {tab === "prezzi" && (
         <Card>
           <CardHeader>

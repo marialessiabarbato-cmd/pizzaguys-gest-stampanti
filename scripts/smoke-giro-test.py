@@ -619,16 +619,43 @@ def test_edge_flows(ctx: dict) -> None:
     else:
         bad("edge pagamento fattura", str(pay))
 
-    # Pasto completo
+    # Pasto completo — solo con fattura (scontrino aggregato)
     t_meal = free_tables(1)
     if t_meal:
         tid = t_meal[0]["id"]
         create_order(tid, waiter, menu, submit=True)
-        pay = pay_table(tid, cashier, shift_id=shift_id, payment_method="POS", full_meal=True)
+        pay = pay_table(
+            tid,
+            cashier,
+            shift_id=shift_id,
+            payment_method="POS",
+            document_type="INVOICE",
+            invoice_customer={
+                "businessName": "Pasto Completo Test S.r.l.",
+                "vatNumber": "12345678901",
+                "sdiCode": "ABCDEFG",
+            },
+            full_meal=True,
+        )
         if pay["code"] == 200:
-            ok("edge pagamento pasto completo")
+            ok("edge pagamento pasto completo (fattura)")
         else:
             bad("edge pasto completo", str(pay))
+        # Regressione: su scontrino normale deve essere rifiutato
+        t_meal2 = free_tables(1)
+        if t_meal2:
+            tid2 = t_meal2[0]["id"]
+            create_order(tid2, waiter, menu, submit=True)
+            pay2 = pay_table(tid2, cashier, shift_id=shift_id, payment_method="POS", full_meal=True)
+            if pay2["code"] == 400:
+                ok("edge pasto completo bloccato su RECEIPT")
+            else:
+                bad("edge pasto completo RECEIPT", f"atteso 400, got {pay2}")
+            # cleanup se per caso pagato
+            if pay2["code"] == 200:
+                pass
+            else:
+                pay_table(tid2, cashier, shift_id=shift_id, payment_method="POS")
 
     # Pagamento misto buono + contanti
     t_mix = free_tables(1)
@@ -657,13 +684,33 @@ def test_edge_flows(ctx: dict) -> None:
     create_order(t_roman, waiter, menu, line_count=2, submit=True)
     code, roman = req(EDGE, "POST", f"/api/pos/tables/{t_roman}/split/roman", {"shares": 3})
     if expect_status("edge split romano", code, 200, roman):
-        for i in range(3):
-            pay = pay_table(t_roman, cashier, shift_id=shift_id, payment_method="POS", split_mode="ROMAN")
-            if pay["code"] != 200:
-                bad(f"edge split romano quota {i+1}", str(pay))
-                break
+        # Prima quota con POS + fattura (deve essere consentito)
+        pay = pay_table(
+            t_roman,
+            cashier,
+            shift_id=shift_id,
+            payment_method="POS",
+            split_mode="ROMAN",
+            document_type="INVOICE",
+            invoice_customer={
+                "businessName": "Quota Romana S.r.l.",
+                "vatNumber": "12345678901",
+                "sdiCode": "ABCDEFG",
+            },
+        )
+        if pay["code"] != 200 or not pay["body"].get("invoice"):
+            bad("edge split romano + fattura", str(pay))
         else:
-            ok("edge split romano 3 quote")
+            ok("edge split romano + fattura")
+            for i in range(2):
+                pay = pay_table(
+                    t_roman, cashier, shift_id=shift_id, payment_method="POS", split_mode="ROMAN",
+                )
+                if pay["code"] != 200:
+                    bad(f"edge split romano quota {i+2}", str(pay))
+                    break
+            else:
+                ok("edge split romano 3 quote")
 
     # Split analitico
     t_ana = free_tables(1)
@@ -916,22 +963,51 @@ def test_closure(ctx: dict) -> None:
     print("\n=== EDGE API — chiusura ===")
     cashier = ctx["cashier"]
 
-    # Chiudi tavoli aperti pagando o liberando
-    _, tables = req(EDGE, "GET", "/api/tables/live")
-    for t in tables:
-        if t.get("isVirtual"):
+    # Libera asporto/delivery residui (anche ephemeral, assenti da /tables/live)
+    _, counters = req(EDGE, "GET", "/api/pos/counter-orders")
+    for co in counters if isinstance(counters, list) else []:
+        cid = co.get("id")
+        if not cid:
             continue
-        if t.get("status") not in ("FREE", "LOCKED"):
-            _, bill = req(EDGE, "GET", f"/api/pos/tables/{t['id']}/bill")
-            if bill.get("total", 0) > 0:
-                pay_table(t["id"], cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+        _, bill = req(EDGE, "GET", f"/api/pos/tables/{cid}/bill")
+        if bill.get("total", 0) > 0:
+            pay = pay_table(cid, cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+            if pay["code"] != 200:
+                req(EDGE, "DELETE", f"/api/pos/counter-orders/{cid}")
+        else:
+            req(EDGE, "DELETE", f"/api/pos/counter-orders/{cid}")
 
-    # Chiudi turni aperti
+    # Chiudi tavoli sala aperti (inclusi LOCKED in mano cameriere e virtuali)
+    _, tables = req(EDGE, "GET", "/api/tables/live")
+    for t in tables if isinstance(tables, list) else []:
+        if t.get("status") == "FREE":
+            continue
+        tid = t["id"]
+        _, bill = req(EDGE, "GET", f"/api/pos/tables/{tid}/bill")
+        if bill.get("total", 0) > 0:
+            pay_table(tid, cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+        elif t.get("isVirtual") or bill.get("isVirtual"):
+            req(EDGE, "DELETE", f"/api/pos/counter-orders/{tid}")
+
+    # Fallback: eventuali residui segnalati dal pre-check
+    _, pre0 = req(EDGE, "GET", "/api/closure/pre-check")
+    for ot in (pre0.get("openTables") if isinstance(pre0, dict) else None) or []:
+        tid = ot.get("tableId")
+        if not tid:
+            continue
+        _, bill = req(EDGE, "GET", f"/api/pos/tables/{tid}/bill")
+        if bill.get("total", 0) > 0:
+            pay_table(tid, cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+        else:
+            req(EDGE, "DELETE", f"/api/pos/counter-orders/{tid}")
+
+    # Chiudi turni aperti (close-blind se possibile, altrimenti end forzato)
     _, shifts = req(EDGE, "GET", "/api/shifts")
     for s in shifts if isinstance(shifts, list) else []:
         if not s.get("endedAt"):
             sid = s["id"]
             code, summary = req(EDGE, "GET", f"/api/shifts/{sid}/summary")
+            closed = False
             if code == 200 and summary.get("canClose"):
                 code2, close = req(EDGE, "POST", f"/api/shifts/{sid}/close-blind", {
                     "cashDeclared": summary.get("theoretical", {}).get("cash", 0),
@@ -939,8 +1015,13 @@ def test_closure(ctx: dict) -> None:
                 })
                 if code2 == 200:
                     ok(f"edge chiusura turno {sid[:8]}")
+                    closed = True
+            if not closed:
+                code3, ended = req(EDGE, "POST", f"/api/shifts/{sid}/end")
+                if code3 == 200:
+                    ok(f"edge fine turno {sid[:8]}")
                 else:
-                    req(EDGE, "POST", f"/api/shifts/{sid}/end")
+                    warn("closure shift end", f"{sid[:8]} HTTP {code3} {ended}")
 
     code, pre = req(EDGE, "GET", "/api/closure/pre-check")
     if expect_status("edge closure pre-check", code, 200, pre):

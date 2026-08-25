@@ -7,6 +7,7 @@ import {
   getOrderByTable,
   getSubmittedOrdersByTable,
   getTableRuntime,
+  getUnionGuestTotal,
   type TableRuntime,
 } from "./runtime.js";
 import { getShiftTheoretical } from "./shift-ledger.js";
@@ -107,18 +108,20 @@ export function buildOpenTablesSnapshot(
     if (rt.mergedIntoTableId) continue;
     const table = dbTables.find((t) => t.id === rt.tableId);
     if (!table || table.isVirtual) continue;
-    if (rt.status === "FREE" || rt.status === "LOCKED") continue;
+    // LOCKED = in mano a un cameriere: resta visibile come tavolo aperto
+    if (rt.status === "FREE") continue;
 
     if (options?.filters?.roomId && table.roomId !== options.filters.roomId) continue;
 
     const bill = consolidateBillForTable(db, rt.tableId);
-    const guests = rt.guests ?? rt.chargedGuests ?? 0;
+    const guests = getUnionGuestTotal(rt.tableId);
     if (bill.total <= 0 && guests <= 0) continue;
 
     const draft = getOrderByTable(rt.tableId);
     const submitted = getSubmittedOrdersByTable(rt.tableId);
     const lastOrder = submitted[submitted.length - 1];
-    const operatorId = draft?.operatorId ?? lastOrder?.operatorId ?? null;
+    const operatorId =
+      draft?.operatorId ?? lastOrder?.operatorId ?? rt.lockedBy ?? null;
     const operatorName =
       draft?.operatorName ?? lastOrder?.operatorName ?? rt.lockedByName ?? "—";
 

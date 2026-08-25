@@ -54,12 +54,17 @@ export function variantsForProduct(product: Product, groups: VariantGroup[]): Va
   });
 }
 
-export function lineKey(productId: string, variants: VariantSelection[], course = 1): string {
+export function lineKey(
+  productId: string,
+  variants: VariantSelection[],
+  course = 1,
+  forTableId?: string,
+): string {
   const sig = variants
     .map((v) => v.variantId)
     .sort()
     .join(",");
-  return `${productId}:${normalizeCourse(course)}:${sig}`;
+  return `${productId}:${normalizeCourse(course)}:${forTableId ?? ""}:${sig}`;
 }
 
 export function buildCartLine(
@@ -69,6 +74,7 @@ export function buildCartLine(
   prices: MenuSnapshot["prices"],
   variants: VariantSelection[] = [],
   courseOverride?: number,
+  forTable?: { id: string; label: string } | null,
 ): CartLine | { error: string } {
   const basePrice = resolvePrice(product, channel, prices);
   const unitPrice = calculateLinePrice(
@@ -91,6 +97,9 @@ export function buildCartLine(
     hold: product.hold ?? defaultHoldForCourse(course, category),
     dessertDefer: product.dessert ?? category.dessert ?? false,
     allergenIds: product.allergenIds ?? [],
+    ...(forTable
+      ? { forTableId: forTable.id, forTableLabel: forTable.label }
+      : {}),
   };
 }
 

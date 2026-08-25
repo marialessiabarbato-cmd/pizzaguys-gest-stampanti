@@ -1,5 +1,5 @@
 import { Button } from "@pizzaguys/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { edgeApi } from "../lib/api";
 
 interface BrokerLine {
@@ -37,6 +37,10 @@ interface InternalClosureRecord extends InternalClosureDraft {
   createdAt: string;
 }
 
+type AddKind = "broker" | "expense" | "extra";
+
+const BROKER_PRESETS = ["Glovo", "Alfonsino", "Deliveroo", "Uber Eats"] as const;
+
 function euro(value: number) {
   return `€ ${value.toFixed(2).replace(".", ",")}`;
 }
@@ -70,6 +74,29 @@ function formatNotebook(record: InternalClosureDraft & { notes?: string }): stri
   return lines.join("\n");
 }
 
+function NotebookRow({
+  label,
+  children,
+  mute,
+}: {
+  label: string;
+  children: ReactNode;
+  mute?: boolean;
+}) {
+  return (
+    <div
+      className={`grid grid-cols-[9.5rem_minmax(0,1fr)] items-start gap-2 border-b border-dashed border-[hsl(var(--pg-border))] py-2.5 ${
+        mute ? "opacity-90" : ""
+      }`}
+    >
+      <div className="pt-2 text-xs font-bold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+        {label}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export function InternalClosureWizard({
   operatorId,
   operatorName,
@@ -90,6 +117,7 @@ export function InternalClosureWizard({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<InternalClosureRecord | null>(null);
   const [printMsg, setPrintMsg] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
 
   const loadDraft = useCallback(async () => {
     setLoading(true);
@@ -100,9 +128,9 @@ export function InternalClosureWizard({
       setCashWithdrawal(data.cashWithdrawal ? String(data.cashWithdrawal) : "");
       setCashFund(data.cashFund ? String(data.cashFund) : "");
       setNotes(data.notes ?? "");
-      setBrokers(data.brokers.length > 0 ? data.brokers : [{ broker: "", cashAmount: 0, cardAmount: 0 }]);
-      setExpenses(data.expenses.length > 0 ? data.expenses : []);
-      setExtraLines(data.extraLines.length > 0 ? data.extraLines : []);
+      setBrokers(data.brokers);
+      setExpenses(data.expenses);
+      setExtraLines(data.extraLines);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore caricamento bozza");
     } finally {
@@ -113,6 +141,20 @@ export function InternalClosureWizard({
   useEffect(() => {
     void loadDraft();
   }, [loadDraft]);
+
+  const addVoice = (kind: AddKind, brokerName = "") => {
+    if (kind === "broker") {
+      setBrokers((prev) => [
+        ...prev,
+        { broker: brokerName, cashAmount: 0, cardAmount: 0 },
+      ]);
+    } else if (kind === "expense") {
+      setExpenses((prev) => [...prev, { description: "", amount: 0 }]);
+    } else {
+      setExtraLines((prev) => [...prev, { label: "", amount: 0 }]);
+    }
+    setAddOpen(false);
+  };
 
   const complete = async () => {
     if (!draft) return;
@@ -182,27 +224,324 @@ export function InternalClosureWizard({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
-        <h2 className="mb-1 text-lg font-bold">Chiusura interna</h2>
-        <p className="mb-4 text-sm text-[hsl(var(--pg-muted-foreground))]">
-          Riepilogo operativo (non fiscale) in formato taccuino.
-        </p>
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-[hsl(var(--pg-background))] shadow-xl">
+        <header className="shrink-0 border-b border-[hsl(var(--pg-border))] px-5 py-4">
+          <h2 className="text-lg font-bold">Chiusura interna</h2>
+          <p className="mt-1 text-sm text-[hsl(var(--pg-muted-foreground))]">
+            Digitale del taccuino serale (non fiscale). Totale e POS dal sistema; prelievo, broker,
+            spese, altre voci e fondo li compili tu. Poi salva / stampa.
+          </p>
+        </header>
 
-        {saved ? (
-          <div className="space-y-4">
-            <p className="text-center text-lg font-bold text-green-600">Chiusura interna salvata</p>
-            <pre className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-              {formatNotebook(saved)}
-            </pre>
-            <div className="rounded-lg bg-[hsl(var(--pg-muted))]/40 px-4 py-3 text-sm">
-              {saved.emailedAt
-                ? `Email inviata il ${new Date(saved.emailedAt).toLocaleString("it-IT")}`
-                : "Email: non configurata (placeholder — email inviata quando attivo)"}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {saved ? (
+            <div className="space-y-4">
+              <p className="text-center text-lg font-bold text-green-600">Chiusura interna salvata</p>
+              <pre className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                {formatNotebook(saved)}
+              </pre>
+              <div className="rounded-lg bg-[hsl(var(--pg-muted))]/40 px-4 py-3 text-sm">
+                {saved.emailedAt
+                  ? `Email inviata il ${new Date(saved.emailedAt).toLocaleString("it-IT")}`
+                  : "Email: non configurata (placeholder — email inviata quando attivo)"}
+              </div>
+              {printMsg && <p className="text-sm text-green-700">{printMsg}</p>}
+              {error && <p className="text-sm text-red-500">{error}</p>}
             </div>
-            {printMsg && (
-              <p className="text-sm text-green-700">{printMsg}</p>
-            )}
-            {error && <p className="text-sm text-red-500">{error}</p>}
+          ) : !draft ? (
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+              {loading ? "Caricamento..." : error || "Nessuna bozza"}
+            </p>
+          ) : (
+            <div className="space-y-1">
+              <NotebookRow label="Data" mute>
+                <input
+                  className="w-full rounded-lg border bg-[hsl(var(--pg-muted))]/30 px-3 py-2 font-mono text-sm"
+                  value={draft.closureDate}
+                  readOnly
+                />
+              </NotebookRow>
+
+              <NotebookRow label="Chiusura tot" mute>
+                <input
+                  className="w-full rounded-lg border bg-[hsl(var(--pg-muted))]/30 px-3 py-2 font-mono text-sm tabular-nums"
+                  value={euro(draft.closureTotal)}
+                  readOnly
+                />
+                <p className="mt-1 text-[11px] text-[hsl(var(--pg-muted-foreground))]">
+                  Calcolato dagli incassi della giornata
+                </p>
+              </NotebookRow>
+
+              <NotebookRow label="Prelievo cont">
+                <input
+                  className="w-full rounded-lg border px-3 py-2 font-mono text-sm tabular-nums"
+                  value={cashWithdrawal}
+                  onChange={(e) => setCashWithdrawal(e.target.value)}
+                  placeholder="0,00"
+                  inputMode="decimal"
+                />
+              </NotebookRow>
+
+              <NotebookRow label="POS" mute>
+                <input
+                  className="w-full rounded-lg border bg-[hsl(var(--pg-muted))]/30 px-3 py-2 font-mono text-sm tabular-nums"
+                  value={euro(draft.posTotal)}
+                  readOnly
+                />
+              </NotebookRow>
+
+              {brokers.map((b, i) => (
+                <NotebookRow key={`b-${i}`} label={b.broker.trim() || "Broker"}>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      placeholder="Nome (es. Glovo, Alfonsino…)"
+                      value={b.broker}
+                      onChange={(e) =>
+                        setBrokers((prev) =>
+                          prev.map((row, idx) =>
+                            idx === i ? { ...row, broker: e.target.value } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <label className="text-xs">
+                        Cont €
+                        <input
+                          className="mt-0.5 w-full rounded-lg border px-2 py-2 font-mono text-sm tabular-nums"
+                          placeholder="0"
+                          inputMode="decimal"
+                          value={b.cashAmount || ""}
+                          onChange={(e) =>
+                            setBrokers((prev) =>
+                              prev.map((row, idx) =>
+                                idx === i
+                                  ? { ...row, cashAmount: parseEuro(e.target.value) }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="text-xs">
+                        Carta €
+                        <input
+                          className="mt-0.5 w-full rounded-lg border px-2 py-2 font-mono text-sm tabular-nums"
+                          placeholder="0"
+                          inputMode="decimal"
+                          value={b.cardAmount || ""}
+                          onChange={(e) =>
+                            setBrokers((prev) =>
+                              prev.map((row, idx) =>
+                                idx === i
+                                  ? { ...row, cardAmount: parseEuro(e.target.value) }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="mt-4 h-9 px-2"
+                        aria-label="Rimuovi broker"
+                        onClick={() => setBrokers((prev) => prev.filter((_, idx) => idx !== i))}
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  </div>
+                </NotebookRow>
+              ))}
+
+              {expenses.map((e, i) => (
+                <NotebookRow key={`e-${i}`} label="Spese">
+                  <div className="grid grid-cols-[1fr_6.5rem_auto] gap-2">
+                    <input
+                      className="rounded-lg border px-3 py-2 text-sm"
+                      placeholder="Descrizione (es. limoni Conad)"
+                      value={e.description}
+                      onChange={(ev) =>
+                        setExpenses((prev) =>
+                          prev.map((row, idx) =>
+                            idx === i ? { ...row, description: ev.target.value } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <input
+                      className="rounded-lg border px-2 py-2 font-mono text-sm tabular-nums"
+                      placeholder="€"
+                      inputMode="decimal"
+                      value={e.amount || ""}
+                      onChange={(ev) =>
+                        setExpenses((prev) =>
+                          prev.map((row, idx) =>
+                            idx === i ? { ...row, amount: parseEuro(ev.target.value) } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-9 px-2"
+                      aria-label="Rimuovi spesa"
+                      onClick={() => setExpenses((prev) => prev.filter((_, idx) => idx !== i))}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                </NotebookRow>
+              ))}
+
+              {extraLines.map((x, i) => (
+                <NotebookRow key={`x-${i}`} label="Altro">
+                  <div className="grid grid-cols-[1fr_6.5rem_auto] gap-2">
+                    <input
+                      className="rounded-lg border px-3 py-2 text-sm"
+                      placeholder="Etichetta voce libera"
+                      value={x.label}
+                      onChange={(ev) =>
+                        setExtraLines((prev) =>
+                          prev.map((row, idx) =>
+                            idx === i ? { ...row, label: ev.target.value } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <input
+                      className="rounded-lg border px-2 py-2 font-mono text-sm tabular-nums"
+                      placeholder="€"
+                      inputMode="decimal"
+                      value={x.amount || ""}
+                      onChange={(ev) =>
+                        setExtraLines((prev) =>
+                          prev.map((row, idx) =>
+                            idx === i ? { ...row, amount: parseEuro(ev.target.value) } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-9 px-2"
+                      aria-label="Rimuovi voce"
+                      onClick={() => setExtraLines((prev) => prev.filter((_, idx) => idx !== i))}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                </NotebookRow>
+              ))}
+
+              <div className="relative py-3">
+                <Button
+                  type="button"
+                  variant="default"
+                  className="h-11 w-full text-sm font-semibold"
+                  onClick={() => setAddOpen((v) => !v)}
+                >
+                  + Aggiungi voce al taccuino
+                </Button>
+                {addOpen && (
+                  <div className="absolute inset-x-0 top-[calc(100%-0.25rem)] z-10 rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-3 shadow-lg">
+                    <p className="mb-2 text-xs font-semibold uppercase text-[hsl(var(--pg-muted-foreground))]">
+                      Tipo voce
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10"
+                        onClick={() => addVoice("broker")}
+                      >
+                        Broker / delivery
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10"
+                        onClick={() => addVoice("expense")}
+                      >
+                        Spesa
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10"
+                        onClick={() => addVoice("extra")}
+                      >
+                        Altra voce
+                      </Button>
+                    </div>
+                    <p className="mb-1.5 mt-3 text-xs font-semibold uppercase text-[hsl(var(--pg-muted-foreground))]">
+                      Broker rapidi
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {BROKER_PRESETS.map((name) => {
+                        const already = brokers.some(
+                          (b) => b.broker.trim().toLowerCase() === name.toLowerCase(),
+                        );
+                        return (
+                          <Button
+                            key={name}
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-2.5 text-xs"
+                            disabled={already}
+                            onClick={() => addVoice("broker", name)}
+                          >
+                            + {name}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <NotebookRow label="Fondo cassa">
+                <input
+                  className="w-full rounded-lg border px-3 py-2 font-mono text-sm tabular-nums"
+                  value={cashFund}
+                  onChange={(e) => setCashFund(e.target.value)}
+                  placeholder="0,00"
+                  inputMode="decimal"
+                />
+              </NotebookRow>
+
+              <NotebookRow label="Note">
+                <textarea
+                  className="min-h-[64px] w-full rounded-lg border px-3 py-2 text-sm"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Opzionale"
+                />
+              </NotebookRow>
+
+              {previewPayload && (
+                <div className="mt-4">
+                  <p className="mb-1 text-xs font-semibold uppercase text-[hsl(var(--pg-muted-foreground))]">
+                    Anteprima taccuino
+                  </p>
+                  <pre className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+                    {formatNotebook(previewPayload)}
+                  </pre>
+                </div>
+              )}
+
+              {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
+            </div>
+          )}
+        </div>
+
+        <footer className="shrink-0 border-t border-[hsl(var(--pg-border))] px-5 py-3">
+          {saved ? (
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -216,251 +555,17 @@ export function InternalClosureWizard({
                 OK
               </Button>
             </div>
-          </div>
-        ) : !draft ? (
-          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-            {loading ? "Caricamento..." : error || "Nessuna bozza"}
-          </p>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm">
-                Data
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2"
-                  value={draft.closureDate}
-                  readOnly
-                />
-              </label>
-              <label className="block text-sm">
-                Chiusura tot
-                <input
-                  className="mt-1 w-full rounded-lg border bg-[hsl(var(--pg-muted))]/30 px-3 py-2 tabular-nums"
-                  value={euro(draft.closureTotal)}
-                  readOnly
-                />
-              </label>
-              <label className="block text-sm">
-                Prelievo contanti (€)
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 tabular-nums"
-                  value={cashWithdrawal}
-                  onChange={(e) => setCashWithdrawal(e.target.value)}
-                  placeholder="0"
-                />
-              </label>
-              <label className="block text-sm">
-                POS
-                <input
-                  className="mt-1 w-full rounded-lg border bg-[hsl(var(--pg-muted))]/30 px-3 py-2 tabular-nums"
-                  value={euro(draft.posTotal)}
-                  readOnly
-                />
-              </label>
-              <label className="block text-sm sm:col-span-2">
-                Fondo cassa (€)
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 tabular-nums"
-                  value={cashFund}
-                  onChange={(e) => setCashFund(e.target.value)}
-                  placeholder="0"
-                />
-              </label>
-            </div>
-
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Broker / delivery</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  onClick={() =>
-                    setBrokers((prev) => [...prev, { broker: "", cashAmount: 0, cardAmount: 0 }])
-                  }
-                >
-                  + Broker
-                </Button>
-              </div>
-              {brokers.map((b, i) => (
-                <div key={i} className="grid grid-cols-[1fr_5rem_5rem_auto] gap-2">
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm"
-                    placeholder="Nome"
-                    value={b.broker}
-                    onChange={(e) =>
-                      setBrokers((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, broker: e.target.value } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm tabular-nums"
-                    placeholder="Cont"
-                    value={b.cashAmount || ""}
-                    onChange={(e) =>
-                      setBrokers((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, cashAmount: parseEuro(e.target.value) } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm tabular-nums"
-                    placeholder="Carta"
-                    value={b.cardAmount || ""}
-                    onChange={(e) =>
-                      setBrokers((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, cardAmount: parseEuro(e.target.value) } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-9 px-2"
-                    onClick={() => setBrokers((prev) => prev.filter((_, idx) => idx !== i))}
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ))}
-            </section>
-
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Spese</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  onClick={() =>
-                    setExpenses((prev) => [...prev, { description: "", amount: 0 }])
-                  }
-                >
-                  + Spesa
-                </Button>
-              </div>
-              {expenses.map((e, i) => (
-                <div key={i} className="grid grid-cols-[1fr_6rem_auto] gap-2">
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm"
-                    placeholder="Descrizione"
-                    value={e.description}
-                    onChange={(ev) =>
-                      setExpenses((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, description: ev.target.value } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm tabular-nums"
-                    placeholder="€"
-                    value={e.amount || ""}
-                    onChange={(ev) =>
-                      setExpenses((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, amount: parseEuro(ev.target.value) } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-9 px-2"
-                    onClick={() => setExpenses((prev) => prev.filter((_, idx) => idx !== i))}
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ))}
-            </section>
-
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Righe extra</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  onClick={() => setExtraLines((prev) => [...prev, { label: "", amount: 0 }])}
-                >
-                  + Riga
-                </Button>
-              </div>
-              {extraLines.map((x, i) => (
-                <div key={i} className="grid grid-cols-[1fr_6rem_auto] gap-2">
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm"
-                    placeholder="Etichetta"
-                    value={x.label}
-                    onChange={(ev) =>
-                      setExtraLines((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, label: ev.target.value } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    className="rounded-lg border px-2 py-2 text-sm tabular-nums"
-                    placeholder="€"
-                    value={x.amount || ""}
-                    onChange={(ev) =>
-                      setExtraLines((prev) =>
-                        prev.map((row, idx) =>
-                          idx === i ? { ...row, amount: parseEuro(ev.target.value) } : row,
-                        ),
-                      )
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-9 px-2"
-                    onClick={() => setExtraLines((prev) => prev.filter((_, idx) => idx !== i))}
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ))}
-            </section>
-
-            <label className="block text-sm">
-              Note
-              <textarea
-                className="mt-1 min-h-[72px] w-full rounded-lg border px-3 py-2"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </label>
-
-            {previewPayload && (
-              <pre className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
-                {formatNotebook(previewPayload)}
-              </pre>
-            )}
-
-            {error && <p className="text-sm text-red-500">{error}</p>}
-
+          ) : (
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={onClose} disabled={loading}>
                 Annulla
               </Button>
-              <Button className="flex-1" disabled={loading} onClick={() => void complete()}>
+              <Button className="flex-1" disabled={loading || !draft} onClick={() => void complete()}>
                 {loading ? "Salvataggio..." : "Salva chiusura interna"}
               </Button>
             </div>
-          </div>
-        )}
+          )}
+        </footer>
       </div>
     </div>
   );

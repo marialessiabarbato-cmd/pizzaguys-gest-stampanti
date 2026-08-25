@@ -1,5 +1,6 @@
 import { Button } from "@pizzaguys/ui";
 import { useMemo, useState } from "react";
+import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
 import { ConfirmModal } from "./ConfirmModal";
 import { PinModal } from "./PinModal";
 import { edgeApi } from "../lib/api";
@@ -211,27 +212,27 @@ export function TableTransferModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-[hsl(var(--pg-background))] shadow-xl">
-        <div className="border-b border-[hsl(var(--pg-border))] px-4 py-3">
+    <>
+    <OffCanvas widthClass="max-w-lg" onClose={onClose}>
+        <div className="shrink-0 border-b border-[hsl(var(--pg-border))] px-5 py-4">
           <h2 className="text-lg font-bold">Sposta / unisci tavoli</h2>
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
             Tavolo attuale: {sourceTable.label}
           </p>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
           <div className="flex gap-2">
             <Button
               variant={mode === "transfer" ? "default" : "outline"}
-              className="h-10 flex-1"
+              className="min-h-11 flex-1"
               onClick={() => switchMode("transfer")}
             >
               Sposta conto
             </Button>
             <Button
               variant={mode === "merge" ? "default" : "outline"}
-              className="h-10 flex-1"
+              className="min-h-11 flex-1"
               onClick={() => switchMode("merge")}
             >
               Unisci tavoli
@@ -374,15 +375,19 @@ export function TableTransferModal({
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="flex gap-2 border-t border-[hsl(var(--pg-border))] p-4">
-          <Button variant="outline" className="h-11 flex-1" onClick={onClose}>
+        <div className={offCanvasFooterClass}>
+          <Button variant="outline" className="min-h-12 flex-1" onClick={onClose}>
             Annulla
           </Button>
-          <Button className="h-11 flex-1" disabled={!canSubmit} onClick={() => setConfirmOpen(true)}>
+          <Button
+            className="min-h-12 flex-1"
+            disabled={!canSubmit}
+            onClick={() => setConfirmOpen(true)}
+          >
             Conferma
           </Button>
         </div>
-      </div>
+    </OffCanvas>
 
       {confirmOpen && (
         <ConfirmModal
@@ -406,6 +411,6 @@ export function TableTransferModal({
           error=""
         />
       )}
-    </div>
+    </>
   );
 }

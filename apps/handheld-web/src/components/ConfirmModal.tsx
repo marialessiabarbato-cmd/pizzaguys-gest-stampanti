@@ -1,4 +1,5 @@
 import { Button } from "@pizzaguys/ui";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 export function ConfirmModal({
   title,
@@ -18,23 +19,23 @@ export function ConfirmModal({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
-        <h2 className="mb-2 text-lg font-bold">{title}</h2>
-        <p className="mb-6 text-sm text-[hsl(var(--pg-muted-foreground))]">{message}</p>
-        <div className="flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>
-            {cancelLabel}
-          </Button>
-          <Button
-            className="flex-1"
-            variant={variant === "danger" ? "danger" : "default"}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </Button>
-        </div>
+    <BottomSheet maxHeightClass="max-h-[70dvh]" zClass="z-[60]">
+      <div className="px-4 pb-2 pt-1">
+        <h2 className="text-lg font-bold">{title}</h2>
+        <p className="mt-2 text-sm text-[hsl(var(--pg-muted-foreground))]">{message}</p>
       </div>
-    </div>
+      <div className={bottomSheetFooterClass}>
+        <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+        <Button
+          className="min-h-12 flex-1"
+          variant={variant === "danger" ? "danger" : "default"}
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </BottomSheet>
   );
 }

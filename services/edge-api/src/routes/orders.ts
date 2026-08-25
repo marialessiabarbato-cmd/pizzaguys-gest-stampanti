@@ -30,6 +30,8 @@ import {
   getOrderByTable,
   getSubmittedOrdersByTable,
   getTableRuntime,
+  getUnionGuestTotal,
+  applyGuestsByTable,
   markOrderSubmitted,
   recordKdsCancellation,
   rebuildKdsTicketsForOrder,
@@ -39,6 +41,7 @@ import {
   setTableOccupied,
   releaseDessertQueue,
   stornoLine,
+  unionMemberIds,
   updateTableGuests,
   type OrderLine,
   type TableOrder,
@@ -74,6 +77,38 @@ type MenuSnapshot = {
 
 function variantLabels(line: OrderLine): string[] {
   return (line.variants ?? []).map((v) => (v.type === "REMOVE" ? `NO ${v.name}` : v.name));
+}
+
+function kitchenTicketTableLabel(
+  edgeDb: FastifyInstance["edgeDb"],
+  order: TableOrder,
+): string {
+  const labels = [
+    ...new Set(
+      order.lines
+        .map((l) => l.forTableLabel?.trim())
+        .filter((x): x is string => !!x && x.length > 0),
+    ),
+  ];
+  if (labels.length === 1) return labels[0]!;
+  return resolveOrderTableLabel(edgeDb, order.tableId);
+}
+
+function kitchenLineGuests(orderTableId: string, order: TableOrder): number {
+  const forIds = [
+    ...new Set(order.lines.map((l) => l.forTableId).filter((x): x is string => !!x)),
+  ];
+  if (forIds.length === 1) {
+    const g = getTableRuntime(forIds[0]!).guests;
+    if (g && g > 0) return g;
+  }
+  return getUnionGuestTotal(orderTableId) || 0;
+}
+
+function kitchenLineName(line: OrderLine): string {
+  if (!line.forTableLabel) return line.name;
+  const short = line.forTableLabel.replace(/^tavolo\s*/i, "").trim() || line.forTableLabel;
+  return `[${short}] ${line.name}`;
 }
 
 function resolveOrderTableLabel(edgeDb: FastifyInstance["edgeDb"], tableId: string): string {
@@ -140,6 +175,7 @@ export async function orderRoutes(app: FastifyInstance) {
         lockedBy: runtime.lockedBy,
         lockedByName: runtime.lockedByName,
         guests: runtime.guests,
+        guestTotal: getUnionGuestTotal(t.id),
         tableCapacity: runtime.tableCapacity,
         linkedTableIds: runtime.linkedTableIds,
         mergedIntoTableId: runtime.mergedIntoTableId,
@@ -164,25 +200,43 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!operator) return reply.status(401).send({ error: "Operatore non valido" });
 
     const runtime = getTableRuntime(req.params.id);
-    if (runtime.status === "FREE") {
+    const isLinkedMember = !!runtime.mergedIntoTableId;
+    if (runtime.status === "FREE" && !isLinkedMember) {
       return reply.status(409).send({ error: "Tavolo non aperto" });
     }
 
     const capacity = effectiveCapacityForTable(app.edgeDb, req.params.id);
-    const guestsParsed = parseGuestCount(parsed.data.guests, capacity);
-    if (!guestsParsed.ok) {
-      return reply.status(400).send({ error: guestsParsed.error });
+
+    if (parsed.data.guestsByTable) {
+      const hostId = runtime.mergedIntoTableId ?? req.params.id;
+      const allowed = new Set(unionMemberIds(hostId));
+      for (const memberId of Object.keys(parsed.data.guestsByTable)) {
+        if (!allowed.has(memberId) && memberId !== req.params.id) {
+          return reply.status(400).send({
+            error: `Tavolo ${memberId} non fa parte del gruppo`,
+          });
+        }
+      }
+      applyGuestsByTable(parsed.data.guestsByTable);
+    } else if (parsed.data.guests != null) {
+      const guestsParsed = parseGuestCount(parsed.data.guests, capacity);
+      if (!guestsParsed.ok) {
+        return reply.status(400).send({ error: guestsParsed.error });
+      }
+      updateTableGuests(req.params.id, guestsParsed.guests!);
     }
 
-    updateTableGuests(req.params.id, guestsParsed.guests!);
     const updated = getTableRuntime(req.params.id);
-    broadcastTableStatus(req.params.id, updated.status);
-
+    const hostId = updated.mergedIntoTableId ?? req.params.id;
+    broadcastTableStatus(hostId, getTableRuntime(hostId).status);
     return {
-      ok: true,
       tableId: req.params.id,
       guests: updated.guests,
+      guestTotal: getUnionGuestTotal(hostId),
       tableCapacity: updated.tableCapacity ?? table.defaultGuests,
+      guestsByTable: Object.fromEntries(
+        unionMemberIds(hostId).map((id) => [id, getTableRuntime(id).guests ?? 0]),
+      ),
     };
   });
 
@@ -231,7 +285,7 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const runtime = getTableRuntime(req.params.id);
     // LOCKED is excluded from totalActiveGuests — count these covers as additional.
-    const venueCheck = checkVenueCapacity(app.edgeDb, runtime.guests ?? 0);
+    const venueCheck = checkVenueCapacity(app.edgeDb, getUnionGuestTotal(req.params.id));
     broadcast({
       type: "TABLE_LOCKED_BROADCAST",
       payload: {
@@ -240,6 +294,7 @@ export async function orderRoutes(app: FastifyInstance) {
         operatorName: body.operatorName,
         status: "LOCKED",
         guests: runtime.guests,
+        guestTotal: getUnionGuestTotal(req.params.id),
       },
       timestamp: new Date().toISOString(),
       messageId: randomUUID(),
@@ -251,6 +306,7 @@ export async function orderRoutes(app: FastifyInstance) {
       lockedBy: runtime.lockedBy,
       lockedByName: runtime.lockedByName,
       guests: runtime.guests,
+      guestTotal: getUnionGuestTotal(req.params.id),
       tableCapacity: runtime.tableCapacity ?? table?.defaultGuests,
       linkedTableIds: runtime.linkedTableIds,
       openedAt: runtime.openedAt ?? null,
@@ -327,6 +383,8 @@ export async function orderRoutes(app: FastifyInstance) {
       dessertDefer: l.dessertDefer,
       discountPercent: l.discountPercent,
       discountToken: l.discountToken,
+      forTableId: l.forTableId,
+      forTableLabel: l.forTableLabel,
     }));
 
     const validation = validateOrderLines(lines, maxDiscount);
@@ -368,8 +426,13 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, order.tableId)).get();
     const counter = getCounterOrder(order.tableId);
-    const runtime = getTableRuntime(order.tableId);
-    const guestCount = counter ? 1 : runtime.guests ?? table?.defaultGuests ?? 2;
+    const guestCount = counter
+      ? 1
+      : kitchenLineGuests(order.tableId, order) ||
+        getUnionGuestTotal(order.tableId) ||
+        table?.defaultGuests ||
+        2;
+    const ticketTableLabel = kitchenTicketTableLabel(app.edgeDb, order);
     const routing = app.edgeDb.select().from(categoryRouting).all();
     const printerList = app.edgeDb.select().from(printers).all();
 
@@ -392,12 +455,12 @@ export async function orderRoutes(app: FastifyInstance) {
       const hold = activeLines.some((l) => l.hold);
       const payload = buildKitchenTicket({
         workCenter: center,
-        tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
+        tableLabel: ticketTableLabel,
         guests: guestCount,
         operatorName: order.operatorName,
         hold,
         lines: activeLines.map((l) => ({
-          name: l.name,
+          name: kitchenLineName(l),
           quantity: l.quantity,
           variants: variantLabels(l),
         })),
@@ -407,13 +470,13 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     markOrderSubmitted(order.id);
-    rebuildKdsTicketsForOrder(
-      getOrder(order.id)!,
-      resolveOrderTableLabel(app.edgeDb, order.tableId),
-    );
+    rebuildKdsTicketsForOrder(getOrder(order.id)!, ticketTableLabel);
     broadcastKdsUpdate();
     setTableOccupied(order.tableId);
-    bumpChargedGuests(order.tableId, guestCount);
+    for (const memberId of unionMemberIds(order.tableId)) {
+      const g = getTableRuntime(memberId).guests;
+      if (g && g > 0) bumpChargedGuests(memberId, g);
+    }
 
     return {
       ok: true,
@@ -421,7 +484,7 @@ export async function orderRoutes(app: FastifyInstance) {
       kdsTickets: getKdsSnapshot().tickets,
       orderId: order.id,
       tableId: order.tableId,
-      tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
+      tableLabel: ticketTableLabel,
     };
   });
 
@@ -512,6 +575,10 @@ export async function orderRoutes(app: FastifyInstance) {
       parsed.data.tableId,
       parsed.data.lineId,
       parsed.data.unitPrice,
+      {
+        basePrice: parsed.data.basePrice,
+        variants: parsed.data.variants,
+      },
     );
     if (!result.ok) return reply.status(400).send({ error: result.error });
 
@@ -523,6 +590,8 @@ export async function orderRoutes(app: FastifyInstance) {
         tableId: parsed.data.tableId,
         lineId: parsed.data.lineId,
         unitPrice: parsed.data.unitPrice,
+        basePrice: parsed.data.basePrice,
+        variants: parsed.data.variants,
         operatorName: parsed.data.operatorName.trim(),
         orderId: result.orderId,
       },
@@ -547,8 +616,7 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, parsed.data.tableId)).get();
-    const runtime = getTableRuntime(parsed.data.tableId);
-    const guestCount = runtime.guests ?? table?.defaultGuests ?? 2;
+    const guestCount = getUnionGuestTotal(parsed.data.tableId) || table?.defaultGuests || 2;
     const released = releaseDessertQueue(parsed.data.tableId);
 
     const routing = app.edgeDb.select().from(categoryRouting).all();

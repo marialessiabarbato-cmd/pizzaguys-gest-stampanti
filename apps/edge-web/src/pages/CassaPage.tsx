@@ -2,6 +2,7 @@ import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, Locat
 import { Button, useTheme } from "@pizzaguys/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
+import { OffCanvas, offCanvasFooterClass } from "../components/OffCanvas";
 import { CassaHeader } from "../components/CassaHeader";
 import { TableMapViewport } from "../components/TableMapViewport";
 import { ComandaPanel } from "../components/ComandaPanel";
@@ -30,6 +31,7 @@ import {
   TABLE_STATUS_LABELS,
   filterTablesByRoom,
   formatTableLabel,
+  formatUnionGuests,
   tableLabelFontClass,
 } from "../lib/table-display";
 import { useEdgeWs } from "../lib/ws";
@@ -58,6 +60,8 @@ interface LiveTable {
   guests?: number;
   defaultGuests?: number;
   tableCapacity?: number;
+  linkedTableIds?: string[];
+  mergedIntoTableId?: string;
   openedAt?: string | null;
   isVirtual: boolean;
   virtualType: string | null;
@@ -169,6 +173,7 @@ export function CassaPage({
   const [selectedTable, setSelectedTable] = useState<LiveTable | null>(null);
   const [bill, setBill] = useState<TableBill | null>(null);
   const [message, setMessage] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const [loading, setLoading] = useState(false);
   const [lockPending, setLockPending] = useState<string | null>(null);
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
@@ -211,12 +216,15 @@ export function CassaPage({
   const [confirmClosure, setConfirmClosure] = useState(false);
   const [confirmShiftClose, setConfirmShiftClose] = useState(false);
   const [confirmClosePanel, setConfirmClosePanel] = useState(false);
+  const [confirmCancelSplit, setConfirmCancelSplit] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profilePin, setProfilePin] = useState("");
   const [profilePinConfirm, setProfilePinConfirm] = useState("");
   const [profilePinError, setProfilePinError] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [contoMoreOpen, setContoMoreOpen] = useState(false);
+  const [payPrepareOpen, setPayPrepareOpen] = useState(false);
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
@@ -618,13 +626,15 @@ export function CassaPage({
             operatorName: `${operator.firstName} ${operator.lastName}`,
             sourceTableIds: payload.mergeTableIds,
             targetTableId: table.id,
+            guestsByTable: payload.guestsByTable,
           }),
         });
         const live = await edgeApi<LiveTable[]>("/api/tables/live");
         setTables(live);
         target = live.find((t) => t.id === table.id) ?? target;
       }
-      const lock = await acquireTableLock(target, undefined, payload.guests);
+      const hostGuests = payload.guestsByTable[table.id] ?? payload.guests;
+      const lock = await acquireTableLock(target, undefined, hostGuests);
       if (lock.venueCapacityWarning) setVenueCapacityWarning(lock.venueCapacityWarning);
       setPendingGuestsTable(null);
       setSelectedTable({
@@ -632,13 +642,13 @@ export function CassaPage({
         status: "LOCKED",
         lockedBy: lock.lockedBy ?? operator.id,
         lockedByName: lock.lockedByName ?? `${operator.firstName} ${operator.lastName}`,
-        guests: lock.guests ?? payload.guests,
+        guests: lock.guests ?? hostGuests,
         openedAt: lock.openedAt ?? target.openedAt,
       });
       setPanelTab("conto");
       setMessage(
-        payload.mergeTableIds.length > 0
-          ? `Tavoli uniti · ${payload.guests} coperti`
+        Object.keys(payload.guestsByTable).length > 1
+          ? `Tavoli uniti · ${Object.values(payload.guestsByTable).join("+")} cop. (tot. ${payload.guests})`
           : `Tavolo aperto · ${payload.guests} coperti`,
       );
       loadTables();
@@ -663,22 +673,42 @@ export function CassaPage({
             operatorName: `${operator.firstName} ${operator.lastName}`,
             sourceTableIds: payload.mergeTableIds,
             targetTableId: selectedTable.id,
+            guestsByTable: payload.guestsByTable,
           }),
         });
       }
-      const row = await edgeApi<{ guests: number; tableCapacity?: number }>(
-        `/api/tables/${selectedTable.id}/guests`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ guests: payload.guests, operatorId: operator.id }),
-        },
-      );
-      setSelectedTable({ ...selectedTable, guests: row.guests, tableCapacity: row.tableCapacity });
+      const row = await edgeApi<{
+        guests: number;
+        guestTotal?: number;
+        tableCapacity?: number;
+        guestsByTable?: Record<string, number>;
+      }>(`/api/tables/${selectedTable.id}/guests`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          guestsByTable: payload.guestsByTable,
+          guests: payload.guestsByTable[selectedTable.id] ?? payload.guests,
+          operatorId: operator.id,
+        }),
+      });
       setShowEditGuestsModal(false);
+      const parts = Object.values(payload.guestsByTable).filter((g) => g > 0);
+      const total = row.guestTotal ?? parts.reduce((a, b) => a + b, 0);
+      const live = await edgeApi<LiveTable[]>("/api/tables/live");
+      if (Array.isArray(live)) {
+        setTables(live);
+        const updated = live.find((t) => t.id === selectedTable.id);
+        if (updated) setSelectedTable(updated);
+      } else {
+        setSelectedTable({
+          ...selectedTable,
+          guests: row.guestsByTable?.[selectedTable.id] ?? row.guests,
+          tableCapacity: row.tableCapacity,
+        });
+      }
       setMessage(
-        payload.mergeTableIds.length > 0
-          ? `Tavoli uniti · ${row.guests} coperti`
-          : `Coperti aggiornati: ${row.guests}`,
+        parts.length > 1
+          ? `Coperti aggiornati: ${parts.join("+")} · tot. ${total}`
+          : `Coperti aggiornati: ${total}`,
       );
       loadTables();
       void loadBill(selectedTable.id);
@@ -810,6 +840,27 @@ export function CassaPage({
     }
   };
 
+  const handleCancelSplit = async () => {
+    if (!selectedTable) return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const result = await edgeApi<{ bill: TableBill }>(
+        `/api/pos/tables/${selectedTable.id}/split/cancel`,
+        { method: "POST" },
+      );
+      setBill(result.bill);
+      setAnalyticCheckId(undefined);
+      if (workspace === "payment") setWorkspace("main");
+      loadTables();
+      setMessage("Split annullato — puoi pagare il conto intero");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore annullamento split");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleStartRomanSplit = async () => {
     if (!selectedTable || !bill) return;
     const shares = Number.parseInt(romanShares, 10);
@@ -929,6 +980,11 @@ export function CassaPage({
   const isRomanPay = Boolean(bill?.romanSplit && bill.romanSplit.remainingShares > 0);
   const isAnalyticPay = Boolean(analyticCheckId && analyticCheck && !analyticCheck.paid);
   const hasAnalyticSplit = Boolean(bill?.analyticSplit);
+  const hasActiveSplitUi = Boolean(bill?.romanSplit || hasAnalyticSplit);
+  const splitAlreadyPaid = Boolean(
+    (bill?.romanSplit && bill.romanSplit.paidShares > 0) ||
+      bill?.analyticSplit?.checks.some((c) => c.paid),
+  );
 
   const openPayment = (requestId?: string, checkId?: string) => {
     setPaymentMethod("CASH");
@@ -941,6 +997,8 @@ export function CassaPage({
     setRemainderCashAmount("");
     setPaymentRequestId(requestId);
     setAnalyticCheckId(checkId);
+    setPaymentError("");
+    setMessage("");
     setWorkspace("payment");
   };
 
@@ -972,7 +1030,7 @@ export function CassaPage({
     if (paymentMethod === "MEAL_VOUCHER") {
       const voucher = parsePaymentAmount(mealVoucherAmount);
       if (voucher <= 0 || voucher > amount + 0.001) {
-        setMessage("Importo buono non valido");
+        setPaymentError("Importo buono non valido");
         return;
       }
       const remainder = Math.round((amount - voucher) * 100) / 100;
@@ -980,7 +1038,7 @@ export function CassaPage({
         if (remainderMethod === "CASH") {
           const received = parsePaymentAmount(remainderCashAmount);
           if (received < remainder) {
-            setMessage("Importo contanti insufficiente per il saldo");
+            setPaymentError("Importo contanti insufficiente per il saldo");
             return;
           }
           paymentBody.paymentSplits = [
@@ -1000,7 +1058,7 @@ export function CassaPage({
     } else if (paymentMethod === "CASH") {
       const received = parsePaymentAmount(cashAmount);
       if (received < amount) {
-        setMessage("Importo insufficiente");
+        setPaymentError("Importo insufficiente");
         return;
       }
       paymentBody.paymentMethod = paymentMethod;
@@ -1011,6 +1069,7 @@ export function CassaPage({
 
     setLoading(true);
     setMessage("");
+    setPaymentError("");
     try {
       const result = await edgeApi<{
         change?: number;
@@ -1065,12 +1124,14 @@ export function CassaPage({
       } else {
         setBill(result.bill);
         setMessage(
-          `Quota ${result.paidShares}/${result.totalShares} pagata — scontrino ${result.receipt.id}`,
+          result.invoice
+            ? `Quota ${result.paidShares}/${result.totalShares} — fattura n. ${result.invoice.invoiceNumber}`
+            : `Quota ${result.paidShares}/${result.totalShares} pagata — scontrino ${result.receipt.id}`,
         );
       }
       loadTables();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Errore pagamento");
+      setPaymentError(err instanceof Error ? err.message : "Errore pagamento");
     } finally {
       setLoading(false);
     }
@@ -1079,7 +1140,10 @@ export function CassaPage({
   const allPhysicalTables = useMemo(() => tables.filter((t) => !t.isVirtual), [tables]);
 
   const filteredTables = useMemo(
-    () => filterTablesByRoom(tables, selectedRoomId || null, rooms.length),
+    () =>
+      filterTablesByRoom(tables, selectedRoomId || null, rooms.length).filter(
+        (t) => !t.mergedIntoTableId,
+      ),
     [tables, selectedRoomId, rooms.length],
   );
   const displayTables = useMemo(() => {
@@ -1240,7 +1304,7 @@ export function CassaPage({
         </div>
       )}
 
-      {message && (
+      {message && workspace !== "payment" && (
         <p className="shrink-0 bg-[hsl(var(--pg-muted))] px-4 py-2 text-sm">{message}</p>
       )}
 
@@ -1322,8 +1386,12 @@ export function CassaPage({
               remainderCashAmount={remainderCashAmount}
               onRemainderCashAmount={setRemainderCashAmount}
               loading={loading}
+              error={paymentError}
               onConfirm={() => void handlePay()}
-              onCancel={() => setWorkspace("main")}
+              onCancel={() => {
+                setPaymentError("");
+                setWorkspace("main");
+              }}
             />
           </section>
         ) : (
@@ -1397,11 +1465,11 @@ export function CassaPage({
                       >
                         {formatTableLabel(t.label)}
                       </span>
-                      <span className="text-[10px] font-medium opacity-90">
-                        {(t.guests ?? t.defaultGuests ?? 0) > 0
-                          ? `${t.guests ?? t.defaultGuests} cop.`
-                          : "0 cop."}
-                      </span>
+                      {(formatUnionGuests(t, tables) || "") && (
+                        <span className="text-[10px] font-medium opacity-90">
+                          {formatUnionGuests(t, tables)}
+                        </span>
+                      )}
                       {t.status !== "FREE" && t.openedAt && (
                         <span className="text-[9px] font-medium tabular-nums opacity-85">
                           {formatOpenedElapsed(t.openedAt, nowMs)}
@@ -1603,9 +1671,9 @@ export function CassaPage({
               <div className="border-b border-[hsl(var(--pg-border))] p-4">
                 {!showCounterOrders && (
                   <>
-                    <div className="mb-2 flex gap-2">
+                    <div className="mb-3 flex gap-2">
                       <Button
-                        className="h-8 flex-1 text-xs"
+                        className="min-h-11 flex-1 text-sm"
                         variant={panelTab === "conto" ? "default" : "outline"}
                         onClick={() => setPanelTab("conto")}
                       >
@@ -1613,7 +1681,7 @@ export function CassaPage({
                       </Button>
                       {canComanda && (
                         <Button
-                          className="h-8 flex-1 text-xs"
+                          className="min-h-11 flex-1 text-sm"
                           variant={panelTab === "comanda" ? "default" : "outline"}
                           onClick={() => void enterComanda()}
                         >
@@ -1621,35 +1689,44 @@ export function CassaPage({
                         </Button>
                       )}
                     </div>
-                    <h2 className="text-lg font-bold">{bill.tableLabel}</h2>
-                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-                      {selectedTable.status}
-                      {(selectedTable.guests ?? 0) > 0 && (
-                        <span> · {selectedTable.guests} cop.</span>
-                      )}
-                      {bill.counterOrder?.scheduledLabel && (
-                        <span> · {bill.counterOrder.scheduledLabel}</span>
-                      )}
-                      {bill.romanSplit && (
-                        <span>
-                          {" "}
-                          · Split {bill.romanSplit.paidShares}/{bill.romanSplit.shares}
-                        </span>
-                      )}
-                    </p>
-                    {!showCounterOrders && !selectedTable.isVirtual && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="mt-2 h-8 text-xs"
-                        onClick={() => {
-                          setGuestsModalError("");
-                          setShowEditGuestsModal(true);
-                        }}
-                      >
-                        Modifica coperti
-                      </Button>
-                    )}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h2 className="truncate text-lg font-bold leading-tight">
+                          {bill.tableLabel}
+                        </h2>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold text-white ${
+                              TABLE_STATUS_COLORS[selectedTable.status] ?? "bg-gray-500"
+                            }`}
+                          >
+                            {TABLE_STATUS_LABELS[selectedTable.status] ?? selectedTable.status}
+                          </span>
+                          {!selectedTable.isVirtual && (
+                            <button
+                              type="button"
+                              className="rounded-full border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/40 px-2.5 py-0.5 text-xs font-semibold text-[hsl(var(--pg-foreground))] underline-offset-2 hover:underline"
+                              onClick={() => {
+                                setGuestsModalError("");
+                                setShowEditGuestsModal(true);
+                              }}
+                            >
+                              {formatUnionGuests(selectedTable, tables) || "Imposta coperti"}
+                            </button>
+                          )}
+                          {bill.counterOrder?.scheduledLabel && (
+                            <span className="text-[hsl(var(--pg-muted-foreground))]">
+                              {bill.counterOrder.scheduledLabel}
+                            </span>
+                          )}
+                          {bill.romanSplit && (
+                            <span className="text-[hsl(var(--pg-muted-foreground))]">
+                              Split {bill.romanSplit.paidShares}/{bill.romanSplit.shares}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                     {bill.counterOrder && (
                       <div className="mt-2 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
                         {bill.counterOrder.customerName && (
@@ -1668,7 +1745,7 @@ export function CassaPage({
                 {showCounterOrders && (
                   <div className="flex gap-2">
                     <Button
-                      className="h-8 flex-1 text-xs"
+                      className="min-h-11 flex-1 text-sm"
                       variant={panelTab === "conto" ? "default" : "outline"}
                       onClick={() => setPanelTab("conto")}
                     >
@@ -1676,7 +1753,7 @@ export function CassaPage({
                     </Button>
                     {canComanda && (
                       <Button
-                        className="h-8 flex-1 text-xs"
+                        className="min-h-11 flex-1 text-sm"
                         variant={panelTab === "comanda" ? "default" : "outline"}
                         onClick={() => void enterComanda()}
                       >
@@ -1710,34 +1787,33 @@ export function CassaPage({
                     onPayCheck={(checkId) => openPayment(undefined, checkId)}
                   />
                 ) : (
-                  <>
-                    <ul className="space-y-2">
-                      {bill.lines.map((line) => (
-                        <li key={line.id}>
-                          <button
+                  <ul className="space-y-2">
+                    {bill.lines.map((line) => (
+                      <li key={line.id}>
+                        <div className="flex min-h-12 w-full items-center justify-between gap-2 border-b border-[hsl(var(--pg-border))]/50 pb-2 text-sm">
+                          <span className="min-w-0 flex-1">
+                            {line.quantity}× {line.name}
+                            {line.discountPercent ? ` (−${line.discountPercent}%)` : ""}
+                          </span>
+                          <span className="shrink-0 font-medium tabular-nums">
+                            € {line.lineTotal.toFixed(2)}
+                          </span>
+                          <Button
                             type="button"
-                            className="flex w-full justify-between gap-2 border-b border-[hsl(var(--pg-border))]/50 pb-2 text-left text-sm active:bg-[hsl(var(--pg-muted))]"
+                            variant="outline"
+                            className="min-h-10 shrink-0 px-3 text-xs"
                             onClick={() => setDiscountLine(line)}
                           >
-                            <span>
-                              {line.quantity}× {line.name}
-                              {line.discountPercent ? ` (−${line.discountPercent}%)` : ""}
-                            </span>
-                            <span className="shrink-0 font-medium tabular-nums">
-                              € {line.lineTotal.toFixed(2)}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
-                      Tap riga per sconto (PIN oltre {pinDiscountThreshold}%)
-                    </p>
-                  </>
+                            Sconto
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
 
-              <div className="space-y-3 border-t border-[hsl(var(--pg-border))] p-4">
+              <div className="shrink-0 space-y-3 border-t border-[hsl(var(--pg-border))] p-4">
                 <div className="flex justify-between text-xl font-bold">
                   <span>Totale</span>
                   <span className="tabular-nums">€ {bill.total.toFixed(2)}</span>
@@ -1750,75 +1826,208 @@ export function CassaPage({
                   </p>
                 )}
 
-                {!bill.romanSplit && !hasAnalyticSplit && bill.lines.length > 0 && (
-                  <>
-                    <DiscountPresetsBar
-                      presets={discountPresets}
-                      hasDiscounts={hasBillDiscounts}
-                      loading={loading}
-                      onApply={handlePresetClick}
-                      onClear={() => void clearDiscountPresets()}
-                    />
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min={2}
-                        max={20}
-                        value={romanShares}
-                        onChange={(e) => setRomanShares(e.target.value)}
-                        className="w-16 rounded border border-[hsl(var(--pg-border))] px-2 py-2 text-center"
-                      />
-                      <Button
-                        className="flex-1"
-                        variant="outline"
-                        disabled={loading}
-                        onClick={() => setConfirmRomanSplit(true)}
-                      >
-                        Split romano
-                      </Button>
-                    </div>
-                    <AnalyticSplitPanel
-                      bill={bill}
-                      onUpdated={() => selectedTable && void loadBill(selectedTable.id)}
-                      onPayCheck={(checkId) => openPayment(undefined, checkId)}
-                    />
-                  </>
-                )}
-
-                <Button
-                  className="h-12 w-full text-base"
-                  variant="outline"
-                  disabled={
-                    loading ||
-                    bill.lines.length === 0 ||
-                    selectedTable.status === "SPLIT_IN_PROGRESS" ||
-                    isCounterOrderSelected
-                  }
-                  onClick={() => setShowTransferModal(true)}
-                >
-                  SPOSTA / UNISCI TAVOLI
-                </Button>
-                <Button
-                  className="h-12 w-full text-base"
-                  variant="outline"
-                  disabled={loading || bill.lines.length === 0}
-                  onClick={() => setConfirmPrebill(true)}
-                >
-                  STAMPA PRECONTO
-                </Button>
-                {!hasAnalyticSplit && (
+                <div className="grid grid-cols-3 gap-2">
                   <Button
-                    className="h-14 w-full text-lg"
-                    disabled={loading || bill.lines.length === 0}
-                    onClick={() => openPayment(paymentRequestId)}
+                    variant="outline"
+                    className="min-h-14 text-base"
+                    onClick={() => setContoMoreOpen(true)}
                   >
-                    {isRomanPay ? `PAGA QUOTA € ${payAmount.toFixed(2)}` : "PAGA"}
+                    Altro
                   </Button>
-                )}
-                <Button variant="ghost" className="w-full" onClick={() => setConfirmClosePanel(true)}>
-                  Chiudi pannello
-                </Button>
+                  <Button
+                    variant="outline"
+                    className="min-h-14 text-base"
+                    disabled={loading || bill.lines.length === 0}
+                    onClick={() => setConfirmPrebill(true)}
+                  >
+                    Preconto
+                  </Button>
+                  {!hasAnalyticSplit ? (
+                    <Button
+                      className="min-h-14 text-lg"
+                      disabled={loading || bill.lines.length === 0}
+                      onClick={() => {
+                        if (isRomanPay || bill.romanSplit) {
+                          openPayment(paymentRequestId);
+                          return;
+                        }
+                        setPayPrepareOpen(true);
+                      }}
+                    >
+                      {isRomanPay ? `PAGA € ${payAmount.toFixed(2)}` : "PAGA"}
+                    </Button>
+                  ) : (
+                    <Button
+                      className="min-h-14 text-sm"
+                      variant="outline"
+                      disabled={loading || splitAlreadyPaid}
+                      title={
+                        splitAlreadyPaid
+                          ? "Hai già incassato un conto: termina lo split"
+                          : "Torna al pagamento intero"
+                      }
+                      onClick={() => setConfirmCancelSplit(true)}
+                    >
+                      Annulla split
+                    </Button>
+                  )}
+                </div>
               </div>
+
+              {payPrepareOpen && (
+                <OffCanvas widthClass="max-w-md" onClose={() => setPayPrepareOpen(false)}>
+                  <div className="shrink-0 border-b border-[hsl(var(--pg-border))] px-5 py-4">
+                    <h3 className="text-lg font-semibold">Prepara pagamento</h3>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      {bill.tableLabel} · € {bill.total.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+                    <section className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                        Sconti
+                      </p>
+                      <DiscountPresetsBar
+                        presets={discountPresets}
+                        hasDiscounts={hasBillDiscounts}
+                        loading={loading}
+                        onApply={(preset) => handlePresetClick(preset)}
+                        onClear={() => void clearDiscountPresets()}
+                      />
+                      {discountPresets.length === 0 && !hasBillDiscounts && (
+                        <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                          Nessuno sconto preset. Usa «Sconto» sulle singole righe.
+                        </p>
+                      )}
+                    </section>
+
+                    <section className="space-y-2 border-t border-[hsl(var(--pg-border))] pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                        Split romano
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min={2}
+                          max={20}
+                          value={romanShares}
+                          onChange={(e) => setRomanShares(e.target.value)}
+                          className="min-h-12 w-16 rounded-xl border border-[hsl(var(--pg-border))] px-2 text-center text-base"
+                          aria-label="Quote split romano"
+                        />
+                        <Button
+                          className="min-h-12 flex-1"
+                          variant="outline"
+                          disabled={loading}
+                          onClick={() => {
+                            setPayPrepareOpen(false);
+                            setConfirmRomanSplit(true);
+                          }}
+                        >
+                          Split romano
+                        </Button>
+                      </div>
+                    </section>
+
+                    <section className="space-y-2 border-t border-[hsl(var(--pg-border))] pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                        Split analitico
+                      </p>
+                      <AnalyticSplitPanel
+                        bill={bill}
+                        onUpdated={() => {
+                          setPayPrepareOpen(false);
+                          selectedTable && void loadBill(selectedTable.id);
+                        }}
+                        onPayCheck={(checkId) => {
+                          setPayPrepareOpen(false);
+                          openPayment(undefined, checkId);
+                        }}
+                      />
+                    </section>
+                  </div>
+                  <div className={offCanvasFooterClass}>
+                    <Button
+                      variant="outline"
+                      className="min-h-12 flex-1"
+                      onClick={() => setPayPrepareOpen(false)}
+                    >
+                      Annulla
+                    </Button>
+                    <Button
+                      className="min-h-12 flex-1"
+                      disabled={loading || bill.lines.length === 0}
+                      onClick={() => {
+                        setPayPrepareOpen(false);
+                        openPayment(paymentRequestId);
+                      }}
+                    >
+                      Continua a pagare
+                    </Button>
+                  </div>
+                </OffCanvas>
+              )}
+
+              {contoMoreOpen && (
+                <OffCanvas widthClass="max-w-md" onClose={() => setContoMoreOpen(false)}>
+                  <div className="shrink-0 border-b border-[hsl(var(--pg-border))] px-5 py-4">
+                    <h3 className="text-lg font-semibold">Azioni conto</h3>
+                    <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      {bill.tableLabel}
+                    </p>
+                  </div>
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+                    {hasActiveSplitUi && (
+                      <Button
+                        className="min-h-12 w-full text-base"
+                        variant="outline"
+                        disabled={loading || splitAlreadyPaid}
+                        onClick={() => {
+                          setContoMoreOpen(false);
+                          setConfirmCancelSplit(true);
+                        }}
+                      >
+                        Annulla split
+                      </Button>
+                    )}
+                    <Button
+                      className="min-h-12 w-full text-base"
+                      variant="outline"
+                      disabled={
+                        loading ||
+                        bill.lines.length === 0 ||
+                        selectedTable.status === "SPLIT_IN_PROGRESS" ||
+                        isCounterOrderSelected
+                      }
+                      onClick={() => {
+                        setContoMoreOpen(false);
+                        setShowTransferModal(true);
+                      }}
+                    >
+                      Sposta / unisci tavoli
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="min-h-12 w-full"
+                      onClick={() => {
+                        setContoMoreOpen(false);
+                        setConfirmClosePanel(true);
+                      }}
+                    >
+                      Chiudi pannello
+                    </Button>
+                  </div>
+                  <div className={offCanvasFooterClass}>
+                    <Button
+                      variant="outline"
+                      className="min-h-12 w-full"
+                      onClick={() => setContoMoreOpen(false)}
+                    >
+                      Chiudi
+                    </Button>
+                  </div>
+                </OffCanvas>
+              )}
             </>
           ) : selectedTable ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
@@ -1928,6 +2137,20 @@ export function CassaPage({
         />
       )}
 
+      {confirmCancelSplit && (
+        <ConfirmModal
+          title="Annullare lo split?"
+          message="Il conto torna intero. Potrai pagare tutto insieme o scegliere di nuovo lo split."
+          confirmLabel="Annulla split"
+          variant="danger"
+          onConfirm={() => {
+            setConfirmCancelSplit(false);
+            void handleCancelSplit();
+          }}
+          onCancel={() => setConfirmCancelSplit(false)}
+        />
+      )}
+
       {confirmStartShift && (
         <ConfirmModal
           title="Avviare turno cassa?"
@@ -1986,13 +2209,20 @@ export function CassaPage({
       )}
 
       {showProfileModal && operator && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-md rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] shadow-xl">
-            <div className="flex items-center justify-between border-b border-[hsl(var(--pg-border))] px-4 py-3">
+        <OffCanvas
+          widthClass="max-w-md"
+          onClose={() => {
+            setShowProfileModal(false);
+            setProfilePin("");
+            setProfilePinConfirm("");
+            setProfilePinError("");
+          }}
+        >
+            <div className="flex shrink-0 items-center justify-between border-b border-[hsl(var(--pg-border))] px-5 py-4">
               <h2 className="text-base font-semibold">Profilo</h2>
               <button
                 type="button"
-                className="rounded px-2 py-1 text-sm text-[hsl(var(--pg-muted-foreground))] hover:bg-[hsl(var(--pg-muted))]/50"
+                className="min-h-10 rounded px-2 py-1 text-sm text-[hsl(var(--pg-muted-foreground))] hover:bg-[hsl(var(--pg-muted))]/50"
                 onClick={() => {
                   setShowProfileModal(false);
                   setProfilePin("");
@@ -2005,7 +2235,7 @@ export function CassaPage({
               </button>
             </div>
 
-            <div className="space-y-4 px-4 py-4">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
               <div className="rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[hsl(var(--pg-primary))]/15 text-sm font-bold text-[hsl(var(--pg-primary))]">
@@ -2033,7 +2263,7 @@ export function CassaPage({
                 <div className="inline-flex rounded-lg border border-[hsl(var(--pg-border))] p-1">
                   <button
                     type="button"
-                    className={`h-8 rounded-md px-3 text-sm ${
+                    className={`min-h-10 rounded-md px-3 text-sm ${
                       theme === "light"
                         ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                         : "text-[hsl(var(--pg-muted-foreground))]"
@@ -2044,7 +2274,7 @@ export function CassaPage({
                   </button>
                   <button
                     type="button"
-                    className={`h-8 rounded-md px-3 text-sm ${
+                    className={`min-h-10 rounded-md px-3 text-sm ${
                       theme === "dark"
                         ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                         : "text-[hsl(var(--pg-muted-foreground))]"
@@ -2059,7 +2289,7 @@ export function CassaPage({
               <div className="space-y-2">
                 <p className="text-sm font-medium">Modifica codice di sblocco</p>
                 <input
-                  className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-sm"
+                  className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-base"
                   placeholder="Nuovo PIN (4 cifre)"
                   pattern="[0-9]{4}"
                   maxLength={4}
@@ -2070,7 +2300,7 @@ export function CassaPage({
                   }}
                 />
                 <input
-                  className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-sm"
+                  className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-base"
                   placeholder="Conferma PIN"
                   pattern="[0-9]{4}"
                   maxLength={4}
@@ -2084,9 +2314,10 @@ export function CassaPage({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-[hsl(var(--pg-border))] px-4 py-3">
+            <div className={offCanvasFooterClass}>
               <Button
                 variant="outline"
+                className="min-h-12 flex-1"
                 onClick={() => {
                   setShowProfileModal(false);
                   setProfilePin("");
@@ -2096,12 +2327,15 @@ export function CassaPage({
               >
                 Chiudi
               </Button>
-              <Button onClick={() => void handleProfilePinReset()} disabled={profileSaving}>
+              <Button
+                className="min-h-12 flex-1"
+                onClick={() => void handleProfilePinReset()}
+                disabled={profileSaving}
+              >
                 {profileSaving ? "Salvataggio..." : "Salva PIN"}
               </Button>
             </div>
-          </div>
-        </div>
+        </OffCanvas>
       )}
 
       {showClosureWizard && operator && (

@@ -1,4 +1,5 @@
 import { Button } from "@pizzaguys/ui";
+import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
 
 export function ConfirmModal({
   title,
@@ -18,23 +19,23 @@ export function ConfirmModal({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
-        <h2 className="mb-2 text-lg font-bold">{title}</h2>
-        <p className="mb-6 text-sm text-[hsl(var(--pg-muted-foreground))]">{message}</p>
-        <div className="flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>
-            {cancelLabel}
-          </Button>
-          <Button
-            className="flex-1"
-            variant={variant === "danger" ? "danger" : "default"}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </Button>
-        </div>
+    <OffCanvas widthClass="max-w-sm" zClass="z-[60]" onClose={onCancel}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <h2 className="text-lg font-bold">{title}</h2>
+        <p className="mt-2 text-sm text-[hsl(var(--pg-muted-foreground))]">{message}</p>
       </div>
-    </div>
+      <div className={offCanvasFooterClass}>
+        <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+        <Button
+          className="min-h-12 flex-1"
+          variant={variant === "danger" ? "danger" : "default"}
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </OffCanvas>
   );
 }

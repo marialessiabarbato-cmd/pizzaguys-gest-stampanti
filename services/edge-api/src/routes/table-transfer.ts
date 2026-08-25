@@ -255,6 +255,7 @@ export async function tableTransferRoutes(app: FastifyInstance) {
       operatorName: parsed.data.operatorName,
       tableLabels: labels,
       combinedCapacity,
+      guestsByTable: parsed.data.guestsByTable,
     });
 
     if (!result.ok) return reply.status(409).send({ error: result.error });

@@ -1,6 +1,7 @@
 import type { LocationDiscountPreset } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useState } from "react";
+import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
 import { PinModal } from "./PinModal";
 
 const FALLBACK_PRESETS = [5, 10, 15, 20, 25, 30];
@@ -48,8 +49,8 @@ export function DiscountModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--pg-background))] p-6 shadow-xl">
+    <OffCanvas widthClass="max-w-md" onClose={onCancel}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <h2 className="mb-1 text-lg font-bold">Sconto riga</h2>
         <p className="mb-4 text-sm text-[hsl(var(--pg-muted-foreground))]">{lineName}</p>
 
@@ -60,7 +61,7 @@ export function DiscountModal({
                   key={p.id}
                   type="button"
                   onClick={() => setPercent(p.percent)}
-                  className={`rounded-lg border px-3 py-2 text-sm ${
+                  className={`min-h-11 rounded-xl border px-4 py-2 text-sm font-semibold ${
                     percent === p.percent
                       ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                       : "border-[hsl(var(--pg-border))]"
@@ -74,7 +75,7 @@ export function DiscountModal({
                   key={p}
                   type="button"
                   onClick={() => setPercent(p)}
-                  className={`rounded-lg border px-3 py-2 text-sm ${
+                  className={`min-h-11 rounded-xl border px-4 py-2 text-sm font-semibold ${
                     percent === p
                       ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                       : "border-[hsl(var(--pg-border))]"
@@ -93,7 +94,7 @@ export function DiscountModal({
             max={maxPercent}
             value={percent}
             onChange={(e) => setPercent(Number(e.target.value))}
-            className="mt-1 w-full rounded-lg border border-[hsl(var(--pg-border))] px-3 py-2 text-lg"
+            className="mt-1 min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2 text-lg"
           />
         </label>
 
@@ -104,16 +105,15 @@ export function DiscountModal({
         )}
 
         {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-
-        <div className="flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>
-            Annulla
-          </Button>
-          <Button className="flex-1" onClick={handleApply}>
-            Applica
-          </Button>
-        </div>
       </div>
-    </div>
+      <div className={offCanvasFooterClass}>
+        <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
+          Annulla
+        </Button>
+        <Button className="min-h-12 flex-1" onClick={handleApply}>
+          Applica
+        </Button>
+      </div>
+    </OffCanvas>
   );
 }

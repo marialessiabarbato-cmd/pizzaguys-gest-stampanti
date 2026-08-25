@@ -22,6 +22,8 @@ export interface LiveTable {
   roomId?: string | null;
   /** Capienza effettiva dopo unione tavoli */
   tableCapacity?: number;
+  /** Somma coperti del gruppo (host + annessi) */
+  guestTotal?: number;
   /** Tavoli uniti su questo (host) */
   linkedTableIds?: string[];
   /** Unito in un altro tavolo */
@@ -103,6 +105,9 @@ export interface CartLine {
   discountPercent?: number;
   discountToken?: string;
   allergenIds: string[];
+  /** Destinazione fisica in unione (conto unico sull'host). */
+  forTableId?: string;
+  forTableLabel?: string;
 }
 
 export interface SubmittedLine {
@@ -111,7 +116,11 @@ export interface SubmittedLine {
   name: string;
   quantity: number;
   unitPrice: number;
+  basePrice?: number;
+  variants?: VariantSelection[];
   voidedQuantity?: number;
+  forTableId?: string;
+  forTableLabel?: string;
 }
 
 export type Screen = "pin" | "map" | "table" | "counter";

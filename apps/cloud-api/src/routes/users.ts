@@ -1,12 +1,31 @@
-import { users } from "@pizzaguys/db/schema";
+import { locations, users } from "@pizzaguys/db/schema";
 import { createUserAdminSchema, updateUserAdminSchema } from "@pizzaguys/validators";
 import bcrypt from "bcryptjs";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 import { writeAudit } from "../lib/audit.js";
+import { bumpSchemaVersion } from "../lib/schema-version.js";
 import { generateApiToken } from "../lib/tokens.js";
 
 const CLOUD_ROLES = ["USER_ADMIN", "CASHIER", "WAITER", "SUPER_ADMIN"] as const;
+const STAFF_ROLES = ["USER_ADMIN", "CASHIER", "WAITER"] as const;
+
+const importStaffSchema = z.object({
+  locationId: z.string().uuid(),
+  staff: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        role: z.enum(STAFF_ROLES),
+        pinHash: z.string().min(10),
+        isActive: z.boolean().default(true),
+      }),
+    )
+    .min(1),
+});
 
 async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
   if (request.user.role !== "SUPER_ADMIN") {
@@ -16,6 +35,15 @@ async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
 
 function randomPassword() {
   return `Pg${generateApiToken().slice(0, 12)}!`;
+}
+
+async function bumpForLocation(app: FastifyInstance, locationId: string | null | undefined) {
+  if (!locationId) return;
+  const location = await app.db.query.locations.findFirst({
+    where: eq(locations.id, locationId),
+    columns: { brandId: true },
+  });
+  if (location) await bumpSchemaVersion(app, location.brandId);
 }
 
 export async function userRoutes(app: FastifyInstance) {
@@ -45,7 +73,79 @@ export async function userRoutes(app: FastifyInstance) {
     return rows;
   });
 
-  app.post("/api/v2/users", guard, async (req, reply) => {
+  /** Importa staff edge (stesso id + pinHash) come utenti cloud della sede. */
+  app.post(
+    "/api/v2/users/import-staff",
+    { preHandler: [app.authenticate, requireSuperAdmin] },
+    async (req, reply) => {
+      const parsed = importStaffSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+      }
+
+      const location = await app.db.query.locations.findFirst({
+        where: eq(locations.id, parsed.data.locationId),
+      });
+      if (!location) return reply.status(404).send({ error: "Sede non trovata" });
+
+      let created = 0;
+      let updated = 0;
+
+      for (const member of parsed.data.staff) {
+        const existing = await app.db.query.users.findFirst({
+          where: eq(users.id, member.id),
+        });
+
+        if (existing) {
+          await app.db
+            .update(users)
+            .set({
+              firstName: member.firstName,
+              lastName: member.lastName,
+              role: member.role,
+              locationId: parsed.data.locationId,
+              pinHash: member.pinHash,
+              isActive: member.isActive,
+              updatedAt: new Date(),
+            })
+            .where(eq(users.id, member.id));
+          updated += 1;
+          continue;
+        }
+
+        const email = `staff.${member.id.slice(0, 8)}@${location.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "")}.pizzaguys.local`;
+        const passwordHash = await bcrypt.hash(randomPassword(), 12);
+
+        await app.db.insert(users).values({
+          id: member.id,
+          email,
+          passwordHash,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          role: member.role,
+          locationId: parsed.data.locationId,
+          pinHash: member.pinHash,
+          isActive: member.isActive,
+        });
+        created += 1;
+      }
+
+      await bumpSchemaVersion(app, location.brandId);
+      await writeAudit(app, {
+        userId: req.user.sub,
+        locationId: location.id,
+        operation: "user.import_staff",
+        nextState: { created, updated, locationId: location.id },
+      });
+
+      return { ok: true, created, updated, locationId: location.id };
+    },
+  );
+
+  app.post("/api/v2/users", { preHandler: [app.authenticate, requireSuperAdmin] }, async (req, reply) => {
     const parsed = createUserAdminSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -58,9 +158,11 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.status(409).send({ error: "Email già registrata" });
     }
 
+    const role = parsed.data.role;
+    const locationId = role === "SUPER_ADMIN" ? null : (parsed.data.locationId ?? null);
     const password = parsed.data.password ?? randomPassword();
     const passwordHash = await bcrypt.hash(password, 12);
-    const pinHash = await bcrypt.hash(parsed.data.pin, 12);
+    const pinHash = parsed.data.pin ? await bcrypt.hash(parsed.data.pin, 12) : null;
 
     const [row] = await app.db
       .insert(users)
@@ -69,8 +171,8 @@ export async function userRoutes(app: FastifyInstance) {
         passwordHash,
         firstName: parsed.data.firstName,
         lastName: parsed.data.lastName,
-        role: "USER_ADMIN",
-        locationId: parsed.data.locationId,
+        role,
+        locationId,
         pinHash,
       })
       .returning({
@@ -84,11 +186,13 @@ export async function userRoutes(app: FastifyInstance) {
         createdAt: users.createdAt,
       });
 
+    await bumpForLocation(app, locationId);
+
     await writeAudit(app, {
       userId: req.user.sub,
-      locationId: parsed.data.locationId,
-      operation: "user_admin.create",
-      nextState: { id: row?.id, email: row?.email },
+      locationId: locationId ?? undefined,
+      operation: "user.create",
+      nextState: { id: row?.id, email: row?.email, role: row?.role },
     });
 
     return reply.status(201).send({
@@ -131,6 +235,8 @@ export async function userRoutes(app: FastifyInstance) {
 
     if (!row) return reply.status(404).send({ error: "Utente non trovato" });
 
+    await bumpForLocation(app, row.locationId ?? existing.locationId);
+
     await writeAudit(app, {
       userId: req.user.sub,
       locationId: row.locationId ?? undefined,
@@ -167,6 +273,7 @@ export async function userRoutes(app: FastifyInstance) {
       }
 
       await app.db.delete(users).where(eq(users.id, req.params.id));
+      await bumpForLocation(app, existing.locationId);
 
       await writeAudit(app, {
         userId: req.user.sub,

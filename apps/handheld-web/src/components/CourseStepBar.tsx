@@ -20,18 +20,18 @@ export function CourseStepBar({
   const activeStep = ORDER_STEPS.find((s) => s.course === activeCourse);
 
   return (
-    <div className="shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 px-3 py-2">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-[hsl(var(--pg-muted-foreground))]">
+    <div className="shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 px-3 py-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--pg-muted-foreground))]">
           Portata
         </p>
         {activeStep && (
-          <p className="truncate text-[10px] text-[hsl(var(--pg-muted-foreground))]">
+          <p className="truncate text-xs text-[hsl(var(--pg-muted-foreground))]">
             {activeStep.hint}
           </p>
         )}
       </div>
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-4 gap-1.5">
         {ORDER_STEPS.map((step) => {
           const active = activeCourse === step.course;
           const count = countByCourse(step.course);
@@ -41,16 +41,16 @@ export function CourseStepBar({
               type="button"
               disabled={disabled}
               onClick={() => onSelect(step.course)}
-              className={`relative flex min-h-10 flex-col items-center justify-center rounded-lg border px-1 py-1.5 text-center transition disabled:opacity-40 ${
+              className={`relative flex min-h-12 flex-col items-center justify-center rounded-xl border px-1 py-2 text-center transition disabled:opacity-40 ${
                 active
                   ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10 text-[hsl(var(--pg-primary))]"
                   : "border-transparent bg-transparent text-[hsl(var(--pg-muted-foreground))]"
               }`}
             >
-              <span className="text-[10px] font-semibold leading-tight sm:text-xs">{step.shortLabel}</span>
+              <span className="text-xs font-semibold leading-tight sm:text-sm">{step.shortLabel}</span>
               {count > 0 && (
                 <span
-                  className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                  className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold ${
                     active
                       ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                       : "bg-[hsl(var(--pg-muted))] text-[hsl(var(--pg-foreground))]"

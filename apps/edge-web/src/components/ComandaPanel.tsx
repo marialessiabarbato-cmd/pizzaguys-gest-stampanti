@@ -14,6 +14,7 @@ import {
   resolvePrice,
   variantsForProduct,
 } from "../lib/order-menu";
+import { isOraCourse, ORDER_STEPS, normalizeCourse } from "../lib/course";
 import type { CartLine, MenuSnapshot, Product, VariantSelection } from "../lib/order-types";
 
 interface Operator {
@@ -276,7 +277,7 @@ export function ComandaPanel({
       method: "POST",
       body: JSON.stringify({ tableId: table.id, course }),
     });
-    setMessage(`CHIAMA PORTATA ${course}`);
+    setMessage(`CHIAMA ${ORDER_STEPS.find((s) => s.course === course)?.label ?? `P${course}`}`);
   };
 
   const leave = async () => {
@@ -410,7 +411,7 @@ export function ComandaPanel({
                         ✕
                       </button>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
+                    <div className="mt-2 flex flex-wrap gap-1.5">
                       {(() => {
                         const product = products.find((p) => p.id === l.productId);
                         if (!product || variantsForProduct(product, menu.variantGroups ?? []).length === 0) {
@@ -420,47 +421,61 @@ export function ComandaPanel({
                           <button
                             type="button"
                             onClick={() => editLineVariants(l)}
-                            className="min-h-8 rounded bg-[hsl(var(--pg-muted))] px-2 text-xs font-medium"
+                            className="min-h-11 rounded-xl bg-[hsl(var(--pg-muted))] px-3 text-sm font-medium"
                           >
                             Modifica
                           </button>
                         );
                       })()}
-                      {[1, 2, 3, 4].map((c) => (
+                      {ORDER_STEPS.map((step) => {
+                        const active = normalizeCourse(l.course) === step.course;
+                        return (
+                          <button
+                            key={step.course}
+                            type="button"
+                            title={step.hint}
+                            onClick={() =>
+                              setCart((prev) =>
+                                prev.map((x) =>
+                                  x.lineId === l.lineId
+                                    ? {
+                                        ...x,
+                                        course: step.course,
+                                        hold: isOraCourse(step.course)
+                                          ? false
+                                          : x.hold || true,
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className={`min-h-11 min-w-[2.75rem] rounded-xl px-2.5 text-sm font-semibold ${
+                              active
+                                ? "bg-[hsl(var(--pg-primary))] text-white"
+                                : "bg-[hsl(var(--pg-muted))]"
+                            }`}
+                          >
+                            {step.shortLabel}
+                          </button>
+                        );
+                      })}
+                      {!isOraCourse(l.course) && (
                         <button
-                          key={c}
                           type="button"
                           onClick={() =>
                             setCart((prev) =>
                               prev.map((x) =>
-                                x.lineId === l.lineId ? { ...x, course: c } : x,
+                                x.lineId === l.lineId ? { ...x, hold: !x.hold } : x,
                               ),
                             )
                           }
-                          className={`min-h-8 min-w-8 rounded px-2 text-xs ${
-                            l.course === c
-                              ? "bg-[hsl(var(--pg-primary))] text-white"
-                              : "bg-[hsl(var(--pg-muted))]"
+                          className={`min-h-11 rounded-xl px-3 text-sm font-semibold ${
+                            l.hold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-muted))]"
                           }`}
                         >
-                          P{c}
+                          {l.hold ? "HOLD" : "Via"}
                         </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCart((prev) =>
-                            prev.map((x) =>
-                              x.lineId === l.lineId ? { ...x, hold: !x.hold } : x,
-                            ),
-                          )
-                        }
-                        className={`min-h-8 rounded px-2 text-xs ${
-                          l.hold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-muted))]"
-                        }`}
-                      >
-                        HOLD
-                      </button>
+                      )}
                     </div>
                   </li>
                 ))
@@ -469,15 +484,15 @@ export function ComandaPanel({
 
             <div className="mt-3 shrink-0 space-y-3 border-t border-[hsl(var(--pg-border))] pt-3">
               <ComandaHelp />
-              <div className="flex flex-wrap gap-1">
-                {[1, 2, 3, 4].map((c) => (
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                {ORDER_STEPS.map((step) => (
                   <Button
-                    key={c}
-                    className="h-9 flex-1 min-w-[3rem] text-xs"
+                    key={step.course}
+                    className="min-h-11 px-1 text-xs font-semibold"
                     variant="outline"
-                    onClick={() => void callCourse(c)}
+                    onClick={() => void callCourse(step.course)}
                   >
-                    Chiama P{c}
+                    {step.callLabel}
                   </Button>
                 ))}
               </div>

@@ -23,6 +23,17 @@ export interface MenuSnapshot {
   invoiceCustomers?: import("./domain.js").InvoiceCustomerProfile[];
   discountPresets?: import("./domain.js").LocationDiscountPreset[];
   mealVoucherPresets?: import("./domain.js").LocationMealVoucherPreset[];
+  /** Operatori sede (USER_ADMIN / CASHIER / WAITER) → staff edge */
+  staff?: SnapshotStaff[];
+}
+
+export interface SnapshotStaff {
+  id: string;
+  firstName: string;
+  lastName: string;
+  role: "USER_ADMIN" | "CASHIER" | "WAITER";
+  pinHash: string;
+  isActive: boolean;
 }
 
 export interface SnapshotCategory {

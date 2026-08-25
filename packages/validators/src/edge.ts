@@ -84,6 +84,9 @@ export const orderLineSchema = z.object({
   dessertDefer: z.boolean().default(false),
   discountPercent: z.number().min(0).max(100).optional(),
   discountToken: z.string().optional(),
+  /** Tavolo fisico di destinazione in un gruppo unito (conto sull'host). */
+  forTableId: z.string().min(1).optional(),
+  forTableLabel: z.string().min(1).optional(),
 });
 
 export const upsertOrderSchema = z.object({
@@ -105,6 +108,17 @@ export const setLinePriceSchema = z.object({
   tableId: z.string().min(1),
   lineId: z.string().uuid(),
   unitPrice: z.number().positive(),
+  basePrice: z.number().positive().optional(),
+  variants: z
+    .array(
+      z.object({
+        variantId: z.string().min(1),
+        name: z.string().min(1),
+        type: z.enum(["ADD", "REMOVE"]),
+        priceDelta: z.number(),
+      }),
+    )
+    .optional(),
   operatorId: z.string().min(1),
   operatorName: z.string().min(1),
 });
@@ -244,10 +258,16 @@ export const createCounterOrderSchema = z
     }
   });
 
-export const updateTableGuestsSchema = z.object({
-  guests: z.number().int().positive(),
-  operatorId: z.string().min(1),
-});
+export const updateTableGuestsSchema = z
+  .object({
+    guests: z.number().int().positive().optional(),
+    /** Coperti per tavolo fisico nel gruppo unito (host + annessi). */
+    guestsByTable: z.record(z.string().min(1), z.number().int().positive()).optional(),
+    operatorId: z.string().min(1),
+  })
+  .refine((d) => d.guests != null || (d.guestsByTable != null && Object.keys(d.guestsByTable).length > 0), {
+    message: "guests o guestsByTable richiesti",
+  });
 
 export const transferTableSchema = z.object({
   sourceTableId: z.string().min(1),
@@ -264,6 +284,8 @@ export const mergeTablesSchema = z.object({
   operatorId: z.string().min(1),
   operatorName: z.string().min(1),
   overridePin: z.string().regex(/^[0-9]{4}$/).optional(),
+  /** Coperti distinti per ogni tavolo del gruppo (conto unico, coperti separati). */
+  guestsByTable: z.record(z.string().min(1), z.number().int().positive()).optional(),
 });
 
 const brokerClosureLineSchema = z.object({

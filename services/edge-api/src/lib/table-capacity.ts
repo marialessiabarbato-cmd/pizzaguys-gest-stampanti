@@ -1,10 +1,16 @@
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { edgeState } from "@pizzaguys/edge-db";
 import { eq } from "drizzle-orm";
-import { getAllTableRuntime, getTableRuntime } from "./runtime.js";
+import { getAllTableRuntime, getTableRuntime, getUnionGuestTotal } from "./runtime.js";
 
 export function guestCountForTable(tableId: string): number {
   const runtime = getTableRuntime(tableId);
+  if (runtime.mergedIntoTableId) {
+    return runtime.guests ?? runtime.chargedGuests ?? 0;
+  }
+  if (runtime.linkedTableIds?.length) {
+    return getUnionGuestTotal(tableId);
+  }
   return runtime.guests ?? runtime.chargedGuests ?? 0;
 }
 
@@ -91,8 +97,9 @@ export function getVenueMaxGuests(edgeDb: EdgeDatabase): number {
 
 export function totalActiveGuests(): number {
   return getAllTableRuntime()
+    .filter((t) => !t.mergedIntoTableId)
     .filter((t) => !["FREE", "LOCKED"].includes(t.status))
-    .reduce((sum, t) => sum + (t.guests ?? t.chargedGuests ?? 0), 0);
+    .reduce((sum, t) => sum + getUnionGuestTotal(t.tableId), 0);
 }
 
 export function checkVenueCapacity(
