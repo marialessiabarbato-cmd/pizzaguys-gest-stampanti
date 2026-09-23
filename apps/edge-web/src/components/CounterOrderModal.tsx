@@ -268,7 +268,6 @@ export function CounterOrderModal({
           </div>
           {form.channel === "DELIVERY" && (
             <>
-              <Field label="Indirizzo" value={form.address} onChange={(v) => setField("address", v)} />
               {brokers.length > 0 && (
                 <div>
                   <label className="mb-1 block text-sm font-medium">Broker</label>
@@ -286,6 +285,7 @@ export function CounterOrderModal({
                   </select>
                 </div>
               )}
+              <Field label="Indirizzo" value={form.address} onChange={(v) => setField("address", v)} />
             </>
           )}
           <Field label="Telefono" value={form.phone} onChange={(v) => setField("phone", v)} />

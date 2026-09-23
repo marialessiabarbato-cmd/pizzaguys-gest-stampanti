@@ -944,7 +944,8 @@ export default function App() {
         await saveDraft(activeTable.id, remaining, operator.id);
       } else {
         await clearDraft(activeTable.id);
-        send("RELEASE_TABLE_LOCK", { tableId: activeTable.id, operatorId: operator.id });
+        // Il lock resta all'operatore che ha appena inviato (lo gestisce il backend
+        // in /api/orders/:id/submit) — niente banner "Prendi" per lui.
       }
 
       const tableId = activeTable.id;

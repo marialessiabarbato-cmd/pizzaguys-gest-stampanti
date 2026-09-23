@@ -453,11 +453,6 @@ export function CounterOrdersScreen({
 
               {form.channel === "DELIVERY" && (
                 <>
-                  <Field
-                    label="Indirizzo"
-                    value={form.address}
-                    onChange={(v) => setField("address", v)}
-                  />
                   {brokers.length > 0 && (
                     <div>
                       <label className="mb-1 block text-sm font-medium">Broker</label>
@@ -475,6 +470,11 @@ export function CounterOrdersScreen({
                       </select>
                     </div>
                   )}
+                  <Field
+                    label="Indirizzo"
+                    value={form.address}
+                    onChange={(v) => setField("address", v)}
+                  />
                 </>
               )}
 

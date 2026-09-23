@@ -1,11 +1,26 @@
 import { z } from "zod";
 
+export const partnerEmailsSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (value) =>
+      value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)
+        .every((e) => z.string().email().safeParse(e).success),
+    "Email soci non valide — separale con una virgola",
+  );
+
 export const createLocationSchema = z.object({
   name: z.string().min(1).max(120),
   address: z.string().min(1).max(255),
   vatNumber: z.string().regex(/^[0-9]{11}$/, "Partita IVA non valida (11 cifre)"),
   fiscalCode: z.string().max(16).optional(),
   managerEmail: z.string().email(),
+  sendClosureEmail: z.boolean().optional(),
+  partnerEmails: partnerEmailsSchema.optional(),
 });
 
 export type CreateLocationInput = z.infer<typeof createLocationSchema>;
@@ -13,6 +28,8 @@ export type CreateLocationInput = z.infer<typeof createLocationSchema>;
 export const updateLocationSchema = z.object({
   coverChargeAmount: z.number().min(0).max(100).optional(),
   maxGuestCapacity: z.number().int().min(0).max(10000).optional(),
+  sendClosureEmail: z.boolean().optional(),
+  partnerEmails: partnerEmailsSchema.optional(),
 });
 
 export type UpdateLocationInput = z.infer<typeof updateLocationSchema>;

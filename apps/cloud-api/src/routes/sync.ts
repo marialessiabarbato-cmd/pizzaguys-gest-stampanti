@@ -21,9 +21,11 @@ import {
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
+import { extractDailyReportFromReceipts } from "@pizzaguys/types";
 import { writeAudit } from "../lib/audit.js";
 import { bumpSchemaVersion } from "../lib/schema-version.js";
 import { hashApiToken } from "../lib/tokens.js";
+import { sendClosureEmailIfEnabled } from "../lib/closure-email.js";
 
 const heartbeatSchema = z.object({
   apiToken: z.string().min(1),
@@ -375,6 +377,22 @@ export async function syncRoutes(app: FastifyInstance) {
       { locationId: location.id, closureDate: parsed.data.closureDate },
       "Daily closure persisted",
     );
+
+    try {
+      const sent = await sendClosureEmailIfEnabled({
+        location,
+        closureDate: parsed.data.closureDate,
+        dailyReport: extractDailyReportFromReceipts(parsed.data.receipts),
+      });
+      if (sent) {
+        app.log.info(
+          { locationId: location.id, recipients: sent.recipients, mode: sent.mode },
+          "Closure email sent",
+        );
+      }
+    } catch (err) {
+      app.log.error({ err, locationId: location.id }, "Closure email failed");
+    }
 
     return reply.status(200).send({ ok: true, receivedAt: receivedAtIso });
   });

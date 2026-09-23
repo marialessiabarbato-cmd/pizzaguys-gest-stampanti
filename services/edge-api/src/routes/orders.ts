@@ -478,6 +478,22 @@ export async function orderRoutes(app: FastifyInstance) {
     rebuildKdsTicketsForOrder(getOrder(order.id)!, ticketTableLabel);
     broadcastKdsUpdate();
     setTableOccupied(order.tableId);
+    // Chi ha appena inviato l'ordine resta in controllo del tavolo: evita che
+    // ricompaia il banner "Prendi" per lo stesso operatore subito dopo SPEDITO.
+    requestLock(order.tableId, order.operatorId, order.operatorName, true);
+    broadcast({
+      type: "TABLE_LOCKED_BROADCAST",
+      payload: {
+        tableId: order.tableId,
+        operatorId: order.operatorId,
+        operatorName: order.operatorName,
+        status: "LOCKED",
+        guests: getTableRuntime(order.tableId).guests,
+        guestTotal: getUnionGuestTotal(order.tableId),
+      },
+      timestamp: new Date().toISOString(),
+      messageId: randomUUID(),
+    });
     for (const memberId of unionMemberIds(order.tableId)) {
       const g = getTableRuntime(memberId).guests;
       if (g && g > 0) bumpChargedGuests(memberId, g);

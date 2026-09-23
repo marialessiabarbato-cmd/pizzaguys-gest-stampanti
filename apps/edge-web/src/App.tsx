@@ -8,6 +8,7 @@ import { ProvisionPage } from "./pages/ProvisionPage";
 import { RoutingPage } from "./pages/RoutingPage";
 import { SalaPage } from "./pages/SalaPage";
 import { StaffPage } from "./pages/StaffPage";
+import { SupportPage } from "./pages/SupportPage";
 
 interface Status {
   status: string;
@@ -63,6 +64,7 @@ export default function App() {
     stampanti: <PrintersPage />,
     routing: <RoutingPage />,
     staff: <StaffPage />,
+    supporto: <SupportPage />,
   }[page];
 
   return (

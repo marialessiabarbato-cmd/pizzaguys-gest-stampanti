@@ -22,6 +22,8 @@ interface LocationDetail {
   vatNumber: string;
   fiscalCode: string | null;
   managerEmail: string;
+  sendClosureEmail: boolean;
+  partnerEmails: string | null;
   coverChargeAmount: number;
   maxGuestCapacity: number;
   healthStatus: string;
@@ -60,6 +62,8 @@ export default function LocationDetailPage() {
   const [tokenReveal, setTokenReveal] = useState<string | null>(null);
   const [coverCharge, setCoverCharge] = useState("0");
   const [maxGuestCapacity, setMaxGuestCapacity] = useState("0");
+  const [sendClosureEmail, setSendClosureEmail] = useState(false);
+  const [partnerEmails, setPartnerEmails] = useState("");
 
   const load = useCallback(async () => {
     if (!locationId) return;
@@ -70,6 +74,8 @@ export default function LocationDetailPage() {
       setLocation(row);
       setCoverCharge(String(row.coverChargeAmount));
       setMaxGuestCapacity(String(row.maxGuestCapacity ?? 0));
+      setSendClosureEmail(row.sendClosureEmail);
+      setPartnerEmails(row.partnerEmails ?? "");
     } catch (err) {
       setLocation(null);
       setError(err instanceof Error ? err.message : "Errore caricamento");
@@ -109,6 +115,15 @@ export default function LocationDetailPage() {
     await api(`/api/v2/locations/${location.id}`, {
       method: "PATCH",
       body: JSON.stringify({ maxGuestCapacity: capacity }),
+    });
+    await load();
+  };
+
+  const saveClosureEmail = async () => {
+    if (!location) return;
+    await api(`/api/v2/locations/${location.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ sendClosureEmail, partnerEmails }),
     });
     await load();
   };
@@ -259,6 +274,37 @@ export default function LocationDetailPage() {
                   ? "Illimitata"
                   : `${location.maxGuestCapacity} coperti`}
               </span>
+            </div>
+          </div>
+
+          <div className="border-t border-[hsl(var(--pg-border))] pt-4">
+            <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={sendClosureEmail}
+                onChange={(e) => setSendClosureEmail(e.target.checked)}
+              />
+              Invia email di riepilogo alla chiusura giornaliera
+            </label>
+            <p className="mb-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
+              Va al manager ({location.managerEmail}) e alle email soci indicate qui sotto.
+            </p>
+            <div className={formRowEndGap3Class}>
+              <input
+                className={`flex-1 ${inputClass}`}
+                placeholder="Email soci (separate da virgola)"
+                value={partnerEmails}
+                onChange={(e) => setPartnerEmails(e.target.value)}
+                disabled={!sendClosureEmail}
+              />
+              <Button
+                type="button"
+                size={btnSize.inline}
+                variant="outline"
+                onClick={() => void saveClosureEmail()}
+              >
+                Salva
+              </Button>
             </div>
           </div>
 

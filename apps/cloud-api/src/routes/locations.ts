@@ -15,6 +15,8 @@ function formatLocationRow(l: typeof locations.$inferSelect) {
     vatNumber: l.vatNumber,
     fiscalCode: l.fiscalCode,
     managerEmail: l.managerEmail,
+    sendClosureEmail: l.sendClosureEmail,
+    partnerEmails: l.partnerEmails,
     coverChargeAmount: Number(l.coverChargeAmount ?? 0),
     maxGuestCapacity: Number(l.maxGuestCapacity ?? 0),
     schemaVersion: l.schemaVersion,
@@ -60,6 +62,8 @@ export async function locationRoutes(app: FastifyInstance) {
         vatNumber: parsed.data.vatNumber,
         fiscalCode: parsed.data.fiscalCode,
         managerEmail: parsed.data.managerEmail,
+        sendClosureEmail: parsed.data.sendClosureEmail ?? false,
+        partnerEmails: parsed.data.partnerEmails,
         apiTokenHash: hashApiToken(rawToken),
       })
       .returning();
@@ -98,6 +102,12 @@ export async function locationRoutes(app: FastifyInstance) {
         ...(parsed.data.maxGuestCapacity != null
           ? { maxGuestCapacity: parsed.data.maxGuestCapacity }
           : {}),
+        ...(parsed.data.sendClosureEmail != null
+          ? { sendClosureEmail: parsed.data.sendClosureEmail }
+          : {}),
+        ...(parsed.data.partnerEmails != null
+          ? { partnerEmails: parsed.data.partnerEmails }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(locations.id, req.params.id))
@@ -118,10 +128,14 @@ export async function locationRoutes(app: FastifyInstance) {
       previousState: {
         coverChargeAmount: existing.coverChargeAmount,
         maxGuestCapacity: existing.maxGuestCapacity,
+        sendClosureEmail: existing.sendClosureEmail,
+        partnerEmails: existing.partnerEmails,
       },
       nextState: {
         coverChargeAmount: updated?.coverChargeAmount,
         maxGuestCapacity: updated?.maxGuestCapacity,
+        sendClosureEmail: updated?.sendClosureEmail,
+        partnerEmails: updated?.partnerEmails,
       },
     });
 
@@ -129,6 +143,8 @@ export async function locationRoutes(app: FastifyInstance) {
       id: updated?.id,
       coverChargeAmount: Number(updated?.coverChargeAmount ?? 0),
       maxGuestCapacity: Number(updated?.maxGuestCapacity ?? 0),
+      sendClosureEmail: updated?.sendClosureEmail ?? false,
+      partnerEmails: updated?.partnerEmails ?? null,
     };
   });
 

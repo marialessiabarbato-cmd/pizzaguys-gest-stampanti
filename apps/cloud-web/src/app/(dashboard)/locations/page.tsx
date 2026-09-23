@@ -40,6 +40,8 @@ export default function LocationsPage() {
     address: "",
     vatNumber: "",
     managerEmail: "",
+    sendClosureEmail: false,
+    partnerEmails: "",
   });
 
   const load = () =>
@@ -60,7 +62,14 @@ export default function LocationsPage() {
         body: JSON.stringify(form),
       });
       setShowCreate(false);
-      setForm({ name: "", address: "", vatNumber: "", managerEmail: "" });
+      setForm({
+        name: "",
+        address: "",
+        vatNumber: "",
+        managerEmail: "",
+        sendClosureEmail: false,
+        partnerEmails: "",
+      });
       sessionStorage.setItem(`pg_location_token_${res.location.id}`, res.apiToken);
       router.push(`/locations/${res.location.id}`);
     } finally {
@@ -177,6 +186,22 @@ export default function LocationsPage() {
                   onChange={(e) => setForm({ ...form, managerEmail: e.target.value })}
                   required
                 />
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.sendClosureEmail}
+                    onChange={(e) => setForm({ ...form, sendClosureEmail: e.target.checked })}
+                  />
+                  Invia email di riepilogo alla chiusura giornaliera
+                </label>
+                {form.sendClosureEmail && (
+                  <input
+                    className={inputFullClass}
+                    placeholder="Email soci (separate da virgola)"
+                    value={form.partnerEmails}
+                    onChange={(e) => setForm({ ...form, partnerEmails: e.target.value })}
+                  />
+                )}
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
                     Annulla

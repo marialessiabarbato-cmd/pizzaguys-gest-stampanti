@@ -123,6 +123,7 @@ export function AnalyticSplitPanel({
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [checkCountInput, setCheckCountInput] = useState("2");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const lineMap = useMemo(() => new Map(bill.lines.map((l) => [l.id, l])), [bill.lines]);
@@ -188,23 +189,31 @@ export function AnalyticSplitPanel({
   };
 
   if (!split) {
+    const checkCount = Number.parseInt(checkCountInput, 10);
+    const checkCountValid = Number.isInteger(checkCount) && checkCount >= 2 && checkCount <= 20;
     return (
       <div className="space-y-2">
         <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
           Dividi il conto assegnando le righe a più conti.
         </p>
         <div className="flex gap-2">
-          {[2, 3, 4].map((n) => (
-            <Button
-              key={n}
-              variant="outline"
-              className="flex-1"
-              disabled={saving || bill.lines.length === 0}
-              onClick={() => void startSplit(n)}
-            >
-              {n} conti
-            </Button>
-          ))}
+          <input
+            type="number"
+            min={2}
+            max={20}
+            value={checkCountInput}
+            onChange={(e) => setCheckCountInput(e.target.value)}
+            className="h-10 w-16 rounded-lg border border-[hsl(var(--pg-border))] px-2 text-center text-base"
+            aria-label="Numero di conti"
+          />
+          <Button
+            variant="outline"
+            className="flex-1"
+            disabled={saving || bill.lines.length === 0 || !checkCountValid}
+            onClick={() => void startSplit(checkCount)}
+          >
+            Dividi in {checkCountValid ? checkCount : "—"} conti
+          </Button>
         </div>
       </div>
     );

@@ -90,6 +90,27 @@ export async function cloudInvoiceSync(
   return res.json() as Promise<{ ok: boolean; receivedAt: string; cloudStatus: string }>;
 }
 
+export async function cloudReportIssue(
+  apiToken: string,
+  payload: { message: string; appName?: string; operatorName?: string },
+) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/support/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Invio segnalazione fallito (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; mode: string }>;
+}
+
 export async function cloudCustomerProfileSync(
   apiToken: string,
   payload: Record<string, unknown>,

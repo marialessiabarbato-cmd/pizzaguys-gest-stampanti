@@ -10,6 +10,7 @@ import { locationRoutes } from "./routes/locations.js";
 import { menuRoutes } from "./routes/menu.js";
 import { priceRoutes } from "./routes/prices.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { supportRoutes } from "./routes/support.js";
 import { startNightlyReportWorker } from "./lib/nightly-worker.js";
 import { reportRoutes } from "./routes/reports.js";
 import { invoiceRoutes } from "./routes/invoices.js";
@@ -53,6 +54,7 @@ await invoiceRoutes(app);
 await invoiceCustomerProfileRoutes(app);
 await locationDiscountPresetRoutes(app);
 await locationMealVoucherPresetRoutes(app);
+await supportRoutes(app);
 
 startNightlyReportWorker(app);
 

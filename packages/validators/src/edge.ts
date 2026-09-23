@@ -325,3 +325,9 @@ export const updateOrderLinePriceSchema = z.object({
   operatorId: z.string().min(1),
   operatorName: z.string().min(1),
 });
+
+export const supportReportSchema = z.object({
+  message: z.string().min(1).max(4000),
+  appName: z.string().max(60).optional(),
+  operatorName: z.string().max(120).optional(),
+});

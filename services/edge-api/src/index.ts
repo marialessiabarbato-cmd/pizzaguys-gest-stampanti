@@ -15,6 +15,7 @@ import { tableTransferRoutes } from "./routes/table-transfer.js";
 import { staffRoutes } from "./routes/staff.js";
 import { reservationRoutes } from "./routes/reservations.js";
 import { statusRoutes } from "./routes/status.js";
+import { supportRoutes } from "./routes/support.js";
 import { registerWebSocket } from "./ws.js";
 
 const PORT = Number(process.env.EDGE_API_PORT ?? 4100);
@@ -43,6 +44,7 @@ await fiscalDocumentRoutes(app);
 await printerRoutes(app);
 await staffRoutes(app);
 await reservationRoutes(app);
+await supportRoutes(app);
 registerWebSocket(app, clients);
 
 startHeartbeatLoop(app);
