@@ -19,6 +19,7 @@ export class MockHardwareBridge implements HardwareBridge {
     printerId: string,
     payload: Buffer,
     label = "ticket",
+    _target?: import("./types.js").PrintTarget,
   ): Promise<PrintResult> {
     try {
       await mkdir(this.config.printDir, { recursive: true });

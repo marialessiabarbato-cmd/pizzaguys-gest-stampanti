@@ -465,7 +465,12 @@ export async function orderRoutes(app: FastifyInstance) {
           variants: variantLabels(l),
         })),
       });
-      const result = await hardware.printEscPos(printer?.id ?? center.toLowerCase(), payload, order.id);
+      const result = await hardware.printEscPos(
+        printer?.id ?? center.toLowerCase(),
+        payload,
+        order.id,
+        printer ? { host: printer.host, port: printer.port } : undefined,
+      );
       printResults.push(result);
     }
 
@@ -516,7 +521,17 @@ export async function orderRoutes(app: FastifyInstance) {
       operatorName: order.operatorName,
       authorizedBy: stornoBy,
     });
-    const printResult = await hardware.printEscPos("printer-cucina", payload, `storno-${parsed.data.lineId}`);
+    const cucinaPrinter = app.edgeDb
+      .select()
+      .from(printers)
+      .where(eq(printers.workCenter, "CUCINA"))
+      .get();
+    const printResult = await hardware.printEscPos(
+      cucinaPrinter?.id ?? "printer-cucina",
+      payload,
+      `storno-${parsed.data.lineId}`,
+      cucinaPrinter ? { host: cucinaPrinter.host, port: cucinaPrinter.port } : undefined,
+    );
 
     const value = Math.round(line.unitPrice * qty * 100) / 100;
     recordDayStorno(app.edgeDb, new Date().toISOString().slice(0, 10), {
@@ -638,7 +653,12 @@ export async function orderRoutes(app: FastifyInstance) {
           operatorName: "X DOLCE",
           lines,
         });
-        await hardware.printEscPos(printer?.id ?? center.toLowerCase(), payload, ticket.id);
+        await hardware.printEscPos(
+          printer?.id ?? center.toLowerCase(),
+          payload,
+          ticket.id,
+          printer ? { host: printer.host, port: printer.port } : undefined,
+        );
       }
     }
 
