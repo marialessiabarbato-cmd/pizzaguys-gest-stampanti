@@ -1,5 +1,12 @@
-import { boolean, integer, pgEnum, pgTable, real, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgEnum, pgTable, real, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { brands } from "./brands.js";
+
+/** Una fascia oraria in cui la Cassa ricorda di avviare il turno. `day`: 0=Domenica … 6=Sabato (Date.getDay()). */
+export interface ShiftReminderWindow {
+  day: number;
+  start: string;
+  end: string;
+}
 
 export const locationHealthEnum = pgEnum("location_health", ["ONLINE", "OFFLINE", "DESYNC"]);
 
@@ -21,6 +28,9 @@ export const locations = pgTable("locations", {
   coverChargeAmount: real("cover_charge_amount").notNull().default(0),
   /** Capienza massima coperti sede (0 = illimitata) */
   maxGuestCapacity: integer("max_guest_capacity").notNull().default(0),
+  /** Calendario settimanale (anche più fasce per giorno, es. pranzo+cena) in cui
+   *  la Cassa ricorda di avviare il turno se non è stato ancora fatto. */
+  shiftReminderSchedule: jsonb("shift_reminder_schedule").$type<ShiftReminderWindow[]>(),
   apiTokenHash: text("api_token_hash"),
   schemaVersion: integer("schema_version").notNull().default(1),
   healthStatus: locationHealthEnum("health_status").notNull().default("OFFLINE"),

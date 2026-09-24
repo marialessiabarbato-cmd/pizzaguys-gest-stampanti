@@ -19,6 +19,7 @@ function formatLocationRow(l: typeof locations.$inferSelect) {
     partnerEmails: l.partnerEmails,
     coverChargeAmount: Number(l.coverChargeAmount ?? 0),
     maxGuestCapacity: Number(l.maxGuestCapacity ?? 0),
+    shiftReminderSchedule: l.shiftReminderSchedule ?? [],
     schemaVersion: l.schemaVersion,
     healthStatus: l.healthStatus,
     lastHeartbeatAt: l.lastHeartbeatAt,
@@ -108,6 +109,9 @@ export async function locationRoutes(app: FastifyInstance) {
         ...(parsed.data.partnerEmails != null
           ? { partnerEmails: parsed.data.partnerEmails }
           : {}),
+        ...(parsed.data.shiftReminderSchedule != null
+          ? { shiftReminderSchedule: parsed.data.shiftReminderSchedule }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(locations.id, req.params.id))
@@ -145,6 +149,7 @@ export async function locationRoutes(app: FastifyInstance) {
       maxGuestCapacity: Number(updated?.maxGuestCapacity ?? 0),
       sendClosureEmail: updated?.sendClosureEmail ?? false,
       partnerEmails: updated?.partnerEmails ?? null,
+      shiftReminderSchedule: updated?.shiftReminderSchedule ?? [],
     };
   });
 

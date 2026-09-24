@@ -229,6 +229,23 @@ export function CounterOrderModal({
         </section>
 
         <section className="space-y-3">
+          {form.channel === "DELIVERY" && brokers.length > 0 && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">Broker</label>
+              <select
+                className="h-12 w-full rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3"
+                value={form.broker}
+                onChange={(e) => setField("broker", e.target.value)}
+              >
+                <option value="">Telefono / diretto</option>
+                {brokers.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
               <label className="text-sm font-medium">Cliente</label>
@@ -267,26 +284,7 @@ export function CounterOrderModal({
             )}
           </div>
           {form.channel === "DELIVERY" && (
-            <>
-              {brokers.length > 0 && (
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Broker</label>
-                  <select
-                    className="h-12 w-full rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3"
-                    value={form.broker}
-                    onChange={(e) => setField("broker", e.target.value)}
-                  >
-                    <option value="">Telefono / diretto</option>
-                    {brokers.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <Field label="Indirizzo" value={form.address} onChange={(v) => setField("address", v)} />
-            </>
+            <Field label="Indirizzo" value={form.address} onChange={(v) => setField("address", v)} />
           )}
           <Field label="Telefono" value={form.phone} onChange={(v) => setField("phone", v)} />
           <div>

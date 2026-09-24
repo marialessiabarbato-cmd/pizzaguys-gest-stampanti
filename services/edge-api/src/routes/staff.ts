@@ -17,6 +17,7 @@ import {
   getShiftPayments,
   getShiftTheoretical,
 } from "../lib/shift-ledger.js";
+import { enqueueStaffSync, tryImmediateStaffSync } from "../lib/sync-queue.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 
@@ -41,6 +42,7 @@ export async function staffRoutes(app: FastifyInstance) {
         id: staff.id,
         firstName: staff.firstName,
         lastName: staff.lastName,
+        email: staff.email,
         role: staff.role,
         isActive: staff.isActive,
         createdAt: staff.createdAt,
@@ -63,6 +65,7 @@ export async function staffRoutes(app: FastifyInstance) {
       id: randomUUID(),
       firstName: parsed.data.firstName,
       lastName: parsed.data.lastName,
+      email: parsed.data.email,
       role: parsed.data.role,
       pinHash,
       isActive: true,
@@ -70,10 +73,23 @@ export async function staffRoutes(app: FastifyInstance) {
       updatedAt: now,
     };
     app.edgeDb.insert(staff).values(row).run();
+
+    enqueueStaffSync(app.edgeDb, {
+      id: row.id,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      email: row.email,
+      role: row.role,
+      pinHash: row.pinHash,
+      isActive: row.isActive,
+    });
+    void tryImmediateStaffSync(app.edgeDb, row.id);
+
     return reply.status(201).send({
       id: row.id,
       firstName: row.firstName,
       lastName: row.lastName,
+      email: row.email,
       role: row.role,
       isActive: row.isActive,
     });
@@ -100,12 +116,29 @@ export async function staffRoutes(app: FastifyInstance) {
         id: staff.id,
         firstName: staff.firstName,
         lastName: staff.lastName,
+        email: staff.email,
         role: staff.role,
+        pinHash: staff.pinHash,
         isActive: staff.isActive,
       })
       .get();
     if (!updated) return reply.status(404).send({ error: "Operatore non trovato" });
-    return updated;
+
+    if (updated.email) {
+      enqueueStaffSync(app.edgeDb, {
+        id: updated.id,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        email: updated.email,
+        role: updated.role,
+        pinHash: updated.pinHash,
+        isActive: updated.isActive,
+      });
+      void tryImmediateStaffSync(app.edgeDb, updated.id);
+    }
+
+    const { pinHash: _pinHash, ...publicRow } = updated;
+    return publicRow;
   });
 
   app.post("/api/staff/verify-pin", async (req, reply) => {

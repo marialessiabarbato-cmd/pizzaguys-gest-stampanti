@@ -42,12 +42,25 @@ export function startHeartbeatLoop(app: FastifyInstance) {
             .where(eq(edgeState.id, 1))
             .run();
           const settings = (delta.delta as MenuSnapshot).settings as
-            | { maxGuestCapacity?: number }
+            | {
+                maxGuestCapacity?: number;
+                shiftReminderSchedule?: Array<{ day: number; start: string; end: string }>;
+              }
             | undefined;
           if (settings?.maxGuestCapacity != null) {
             app.edgeDb
               .update(edgeState)
               .set({ maxGuestCapacity: settings.maxGuestCapacity, updatedAt: now })
+              .where(eq(edgeState.id, 1))
+              .run();
+          }
+          if (settings?.shiftReminderSchedule !== undefined) {
+            app.edgeDb
+              .update(edgeState)
+              .set({
+                shiftReminderSchedule: JSON.stringify(settings.shiftReminderSchedule),
+                updatedAt: now,
+              })
               .where(eq(edgeState.id, 1))
               .run();
           }

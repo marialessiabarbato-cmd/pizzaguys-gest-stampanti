@@ -45,6 +45,7 @@ export const categoryRoutingSchema = z.object({
 export const createStaffSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
+  email: z.string().email(),
   role: z.enum(["USER_ADMIN", "CASHIER", "WAITER"]),
   pin: pinSchema,
 });
@@ -52,9 +53,21 @@ export const createStaffSchema = z.object({
 export const updateStaffSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
+  email: z.string().email().optional(),
   role: z.enum(["USER_ADMIN", "CASHIER", "WAITER"]).optional(),
   pin: pinSchema.optional(),
   isActive: z.boolean().optional(),
+});
+
+/** Payload inviato dall'edge al cloud per allineare l'anagrafica staff (POST /api/v2/sync/staff). */
+export const staffSyncSchema = z.object({
+  id: z.string().uuid(),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  email: z.string().email(),
+  role: z.enum(["USER_ADMIN", "CASHIER", "WAITER"]),
+  pinHash: z.string().min(10),
+  isActive: z.boolean().default(true),
 });
 
 export const startShiftSchema = z.object({

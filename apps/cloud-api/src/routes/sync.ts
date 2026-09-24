@@ -17,14 +17,16 @@ import {
   provHandshakeSchema,
   invoiceCustomerSchema,
   invoiceCustomerProfileSyncSchema,
+  staffSyncSchema,
 } from "@pizzaguys/validators";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { extractDailyReportFromReceipts } from "@pizzaguys/types";
 import { writeAudit } from "../lib/audit.js";
 import { bumpSchemaVersion } from "../lib/schema-version.js";
-import { hashApiToken } from "../lib/tokens.js";
+import { generateApiToken, hashApiToken } from "../lib/tokens.js";
 import { sendClosureEmailIfEnabled } from "../lib/closure-email.js";
 
 const heartbeatSchema = z.object({
@@ -147,6 +149,7 @@ async function buildCatalogSnapshot(
       deliveryBrokers: settings?.deliveryBrokers ?? [],
       coverChargeAmount: Number(location?.coverChargeAmount ?? 0),
       maxGuestCapacity: Number(location?.maxGuestCapacity ?? 0),
+      shiftReminderSchedule: location?.shiftReminderSchedule ?? [],
     },
   };
 }
@@ -544,6 +547,73 @@ export async function syncRoutes(app: FastifyInstance) {
         target: invoiceCustomerProfiles.id,
         set: {
           ...data,
+          updatedAt: receivedAt,
+        },
+      });
+
+    await bumpSchemaVersion(app, location.brandId);
+
+    return reply.status(200).send({
+      ok: true,
+      receivedAt: receivedAt.toISOString(),
+    });
+  });
+
+  /** L'edge invia qui ogni creazione/modifica staff, per tenere un'unica anagrafica col cloud. */
+  app.post("/api/v2/sync/staff", async (req, reply) => {
+    const auth = req.headers.authorization;
+    const apiToken = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!apiToken) {
+      return reply.status(401).send({ error: "Token mancante" });
+    }
+
+    const parsed = staffSyncSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Payload non valido", details: parsed.error.flatten() });
+    }
+
+    const hash = hashApiToken(apiToken);
+    const location = await app.db.query.locations.findFirst({
+      where: eq(locations.apiTokenHash, hash),
+    });
+    if (!location) {
+      return reply.status(401).send({ error: "Token non valido" });
+    }
+
+    const emailConflict = await app.db.query.users.findFirst({
+      where: and(eq(users.email, parsed.data.email), ne(users.id, parsed.data.id)),
+    });
+    if (emailConflict) {
+      return reply.status(409).send({ error: "Email già in uso da un altro utente" });
+    }
+
+    const receivedAt = new Date();
+    const passwordHash = await bcrypt.hash(`Pg${generateApiToken().slice(0, 12)}!`, 12);
+
+    await app.db
+      .insert(users)
+      .values({
+        id: parsed.data.id,
+        email: parsed.data.email,
+        passwordHash,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        role: parsed.data.role,
+        locationId: location.id,
+        pinHash: parsed.data.pinHash,
+        isActive: parsed.data.isActive,
+        updatedAt: receivedAt,
+      })
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          email: parsed.data.email,
+          firstName: parsed.data.firstName,
+          lastName: parsed.data.lastName,
+          role: parsed.data.role,
+          locationId: location.id,
+          pinHash: parsed.data.pinHash,
+          isActive: parsed.data.isActive,
           updatedAt: receivedAt,
         },
       });

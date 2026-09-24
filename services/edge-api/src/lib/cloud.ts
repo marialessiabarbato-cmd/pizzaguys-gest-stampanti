@@ -131,3 +131,32 @@ export async function cloudCustomerProfileSync(
 
   return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
+
+export async function cloudStaffSync(
+  apiToken: string,
+  payload: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: "USER_ADMIN" | "CASHIER" | "WAITER";
+    pinHash: string;
+    isActive: boolean;
+  },
+) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/staff`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Sync operatore fallita (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
+}

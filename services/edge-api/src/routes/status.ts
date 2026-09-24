@@ -5,6 +5,22 @@ import type { FastifyInstance } from "fastify";
 import { getMenuSnapshot, provisionEdge } from "../lib/provision.js";
 import { checkVenueCapacity, getVenueMaxGuests, totalActiveGuests } from "../lib/table-capacity.js";
 
+interface ShiftReminderWindow {
+  day: number;
+  start: string;
+  end: string;
+}
+
+function parseShiftReminderSchedule(raw: string | null | undefined): ShiftReminderWindow[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function statusRoutes(app: FastifyInstance) {
   app.get("/health", async () => {
     const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
@@ -29,6 +45,7 @@ export async function statusRoutes(app: FastifyInstance) {
       maxGuestCapacity: getVenueMaxGuests(app.edgeDb),
       activeGuests: totalActiveGuests(),
       venueCapacityWarning: venueCheck.ok ? null : venueCheck.warning,
+      shiftReminderSchedule: parseShiftReminderSchedule(state?.shiftReminderSchedule),
     };
   });
 

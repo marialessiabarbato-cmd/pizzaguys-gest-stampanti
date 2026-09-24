@@ -403,6 +403,24 @@ export function CounterOrdersScreen({
                 </>
               )}
 
+              {form.channel === "DELIVERY" && brokers.length > 0 && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Broker</label>
+                  <select
+                    className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] px-3 text-base"
+                    value={form.broker}
+                    onChange={(e) => setField("broker", e.target.value)}
+                  >
+                    <option value="">Telefono / diretto</option>
+                    {brokers.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <label className="text-sm font-medium">Cliente</label>
@@ -452,30 +470,11 @@ export function CounterOrdersScreen({
               />
 
               {form.channel === "DELIVERY" && (
-                <>
-                  {brokers.length > 0 && (
-                    <div>
-                      <label className="mb-1 block text-sm font-medium">Broker</label>
-                      <select
-                        className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] px-3 text-base"
-                        value={form.broker}
-                        onChange={(e) => setField("broker", e.target.value)}
-                      >
-                        <option value="">Telefono / diretto</option>
-                        {brokers.map((b) => (
-                          <option key={b} value={b}>
-                            {b}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  <Field
-                    label="Indirizzo"
-                    value={form.address}
-                    onChange={(v) => setField("address", v)}
-                  />
-                </>
+                <Field
+                  label="Indirizzo"
+                  value={form.address}
+                  onChange={(v) => setField("address", v)}
+                />
               )}
 
               <div>

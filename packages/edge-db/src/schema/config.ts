@@ -11,6 +11,8 @@ export const edgeState = sqliteTable("edge_state", {
   lastHeartbeatAt: text("last_heartbeat_at"),
   /** Capienza massima sede (0 = illimitata), sincronizzata da cloud */
   maxGuestCapacity: integer("max_guest_capacity").notNull().default(0),
+  /** Calendario settimanale promemoria apertura turno (JSON array), sincronizzato da cloud */
+  shiftReminderSchedule: text("shift_reminder_schedule"),
   updatedAt: text("updated_at").notNull(),
 });
 

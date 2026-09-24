@@ -6,6 +6,7 @@ export const staff = sqliteTable("staff", {
   id: text("id").primaryKey(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
+  email: text("email"),
   role: text("role", { enum: staffRoleEnum }).notNull(),
   pinHash: text("pin_hash").notNull(),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
