@@ -37,8 +37,19 @@ export interface ZReportResult {
   error?: string;
 }
 
+/** Destinazione di rete di una stampante ESC/POS (TCP raw, porta 9100 standard) */
+export interface PrintTarget {
+  host: string;
+  port: number;
+}
+
 export interface HardwareBridge {
-  printEscPos(printerId: string, payload: Buffer, label?: string): Promise<PrintResult>;
+  printEscPos(
+    printerId: string,
+    payload: Buffer,
+    label?: string,
+    target?: PrintTarget,
+  ): Promise<PrintResult>;
   emitReceipt(order: FiscalOrderInput): Promise<ReceiptResult>;
   emitZReport(): Promise<ZReportResult>;
   openCashDrawer(): Promise<void>;

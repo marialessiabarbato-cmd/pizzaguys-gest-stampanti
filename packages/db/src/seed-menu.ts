@@ -8,7 +8,7 @@ import {
   productPrices,
   products,
 } from "./schema/index.js";
-import { MENU_CATALOG, PILOT_LOCATION, allergensForProduct } from "./seed-menu-data.js";
+import { MENU_CATALOG, PILOT_LOCATION } from "./seed-menu-data.js";
 import { bumpBrandSchemaVersion, seedVariantCatalog } from "./seed-menu-variants.js";
 
 const DATABASE_URL =
@@ -62,6 +62,7 @@ async function main() {
         address: PILOT_LOCATION.address,
         vatNumber: PILOT_LOCATION.vatNumber,
         managerEmail: PILOT_LOCATION.managerEmail,
+        coverChargeAmount: PILOT_LOCATION.coverChargeAmount,
         apiTokenHash: hashApiToken(apiToken),
       })
       .returning();
@@ -100,7 +101,7 @@ async function main() {
           name: itName(item.name),
           basePrice: String(item.price),
           dessert: cat.dessert ?? false,
-          allergenIds: item.allergenIds ?? allergensForProduct(cat.key, item.name),
+          allergenIds: item.allergenIds ?? [],
           sortOrder: prodIndex,
         })
         .returning();
@@ -109,13 +110,11 @@ async function main() {
       productCount += 1;
 
       for (const channel of ["TABLE", "TAKEAWAY", "DELIVERY"] as const) {
-        const channelDelta = channel === "DELIVERY" ? 1 : channel === "TAKEAWAY" ? 0.5 : 0;
-        const price = Math.round((item.price + channelDelta) * 100) / 100;
         await db.insert(productPrices).values({
           productId: product.id,
           locationId: location.id,
           channel,
-          price: String(price),
+          price: String(item.price),
         });
       }
     }

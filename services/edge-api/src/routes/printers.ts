@@ -66,7 +66,10 @@ export async function printerRoutes(app: FastifyInstance) {
       operatorName: "Edge",
       lines: [{ name: "Stampa di prova", quantity: 1 }],
     });
-    const result = await hardware.printEscPos(printer.id, payload, "test");
+    const result = await hardware.printEscPos(printer.id, payload, "test", {
+      host: printer.host,
+      port: printer.port,
+    });
     return reply.send(result);
   });
 
@@ -80,7 +83,12 @@ export async function printerRoutes(app: FastifyInstance) {
       operatorName: "Test",
       lines: [{ name: "Margherita", quantity: 1 }],
     });
-    const result = await hardware.printEscPos(printer?.id ?? "pizzeria", payload, "test");
+    const result = await hardware.printEscPos(
+      printer?.id ?? "pizzeria",
+      payload,
+      "test",
+      printer ? { host: printer.host, port: printer.port } : undefined,
+    );
     return reply.send(result);
   });
 

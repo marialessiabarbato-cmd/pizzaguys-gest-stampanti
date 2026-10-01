@@ -6,6 +6,8 @@ import type { MockReceipt } from "@pizzaguys/fiscal";
 import { formatMockReceiptText } from "@pizzaguys/fiscal";
 import type { FiscalDocumentType, InvoiceCustomer, PaymentMethod, PaymentSplit, WsEnvelope } from "@pizzaguys/types";
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
+import { printers } from "@pizzaguys/edge-db";
+import { buildReceiptCopyTicket } from "@pizzaguys/escpos";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { billLinesForCheck, billToReceiptLines, FULL_MEAL_RECEIPT_LABEL, type BillLine } from "./bill.js";
 import { getCounterOrder, markCounterOrderPaid } from "./counter-order.js";
@@ -56,6 +58,26 @@ async function writeReceiptFiles(
   await writeFile(jsonPath, JSON.stringify(receipt, null, 2));
   await writeFile(txtPath, formatMockReceiptText(receipt, meta));
   return { jsonPath, txtPath };
+}
+
+/** RECEIPT_COPY_PRINT=true: a ogni incasso stampa una copia non fiscale sulla stampante Bar. */
+const RECEIPT_COPY_PRINT = process.env.RECEIPT_COPY_PRINT === "true";
+
+async function printReceiptCopy(
+  edgeDb: EdgeDatabase,
+  receipt: MockReceipt,
+  meta: Parameters<typeof formatMockReceiptText>[1],
+) {
+  const printer =
+    edgeDb.select().from(printers).all().find((p) => p.enabled && p.workCenter === "BAR") ??
+    edgeDb.select().from(printers).all().find((p) => p.enabled);
+  const payload = buildReceiptCopyTicket({ receiptText: formatMockReceiptText(receipt, meta) });
+  return hardware.printEscPos(
+    printer?.id ?? "cassa",
+    payload,
+    `receipt-copy-${receipt.id}`,
+    printer ? { host: printer.host, port: printer.port } : undefined,
+  );
 }
 
 export interface ExecutePaymentParams {
@@ -262,16 +284,26 @@ export async function executeTablePayment(
     await hardware.openCashDrawer();
   }
 
+  const receiptMeta = {
+    tableLabel: params.tableLabel,
+    guests: params.guests,
+    operatorName: params.operatorName,
+    amountReceived: cashSplit?.amountReceived,
+    paymentSplits,
+  };
   const { jsonPath: receiptPath, txtPath: receiptTxtPath } = await writeReceiptFiles(
     receiptResult.receipt,
-    {
-      tableLabel: params.tableLabel,
-      guests: params.guests,
-      operatorName: params.operatorName,
-      amountReceived: cashSplit?.amountReceived,
-      paymentSplits,
-    },
+    receiptMeta,
   );
+
+  if (RECEIPT_COPY_PRINT && docType !== "INVOICE") {
+    // In background: una stampante spenta non deve bloccare l'incasso.
+    void printReceiptCopy(params.edgeDb, receiptResult.receipt, receiptMeta)
+      .then((r) => {
+        if (!r.success) console.warn(`Copia non fiscale non stampata: ${r.error}`);
+      })
+      .catch((err) => console.warn("Copia non fiscale non stampata:", err));
+  }
 
   for (const split of paymentSplits) {
     if (params.shiftId) {

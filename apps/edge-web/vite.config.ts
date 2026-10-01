@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: { host: true, port: 5173 },
   envPrefix: "VITE_",
+  envDir: path.resolve(__dirname, "../.."),
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },

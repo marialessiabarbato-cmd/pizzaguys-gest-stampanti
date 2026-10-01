@@ -90,6 +90,27 @@ export async function cloudInvoiceSync(
   return res.json() as Promise<{ ok: boolean; receivedAt: string; cloudStatus: string }>;
 }
 
+export async function cloudReportIssue(
+  apiToken: string,
+  payload: { message: string; appName?: string; operatorName?: string },
+) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/support/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Invio segnalazione fallito (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; mode: string }>;
+}
+
 export async function cloudCustomerProfileSync(
   apiToken: string,
   payload: Record<string, unknown>,
@@ -106,6 +127,35 @@ export async function cloudCustomerProfileSync(
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error ?? `Sync cliente fallita (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
+}
+
+export async function cloudStaffSync(
+  apiToken: string,
+  payload: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: "USER_ADMIN" | "CASHIER" | "WAITER";
+    pinHash: string;
+    isActive: boolean;
+  },
+) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/staff`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Sync operatore fallita (${res.status})`);
   }
 
   return res.json() as Promise<{ ok: boolean; receivedAt: string }>;

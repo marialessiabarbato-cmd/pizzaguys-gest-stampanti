@@ -467,6 +467,7 @@ export async function posRoutes(app: FastifyInstance) {
       printer?.id ?? "cassa",
       payload,
       `prebill-${req.params.id}`,
+      printer ? { host: printer.host, port: printer.port } : undefined,
     );
 
     setBillRequested(req.params.id);

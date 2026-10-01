@@ -23,6 +23,7 @@ export function createEdgeDb(dbPath: string) {
       edge_device_id TEXT,
       schema_version INTEGER NOT NULL DEFAULT 0,
       last_heartbeat_at TEXT,
+      shift_reminder_schedule TEXT,
       updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS menu_cache (
@@ -69,6 +70,7 @@ export function createEdgeDb(dbPath: string) {
       id TEXT PRIMARY KEY,
       first_name TEXT NOT NULL,
       last_name TEXT NOT NULL,
+      email TEXT,
       role TEXT NOT NULL,
       pin_hash TEXT NOT NULL,
       is_active INTEGER NOT NULL DEFAULT 1,
@@ -220,6 +222,25 @@ export function createEdgeDb(dbPath: string) {
     sqlite.exec(`ALTER TABLE edge_state ADD COLUMN max_guest_capacity INTEGER NOT NULL DEFAULT 0`);
   } catch {
     /* colonna già presente */
+  }
+
+  try {
+    sqlite.exec(`ALTER TABLE staff ADD COLUMN email TEXT`);
+  } catch {
+    /* colonna già presente */
+  }
+
+  try {
+    sqlite.exec(`ALTER TABLE edge_state ADD COLUMN shift_reminder_schedule TEXT`);
+  } catch {
+    /* colonna già presente */
+  }
+
+  try {
+    sqlite.exec(`ALTER TABLE edge_state DROP COLUMN shift_reminder_start`);
+    sqlite.exec(`ALTER TABLE edge_state DROP COLUMN shift_reminder_end`);
+  } catch {
+    /* colonne non presenti (installazione nuova) o SQLite non supporta DROP COLUMN in questa versione */
   }
 
   sqlite.exec(`

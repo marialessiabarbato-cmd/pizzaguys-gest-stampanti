@@ -77,6 +77,38 @@ function formatOpenedElapsed(openedAt: string | null | undefined, nowMs: number)
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+interface ShiftReminderWindow {
+  day: number;
+  start: string;
+  end: string;
+}
+
+/** "HH:MM" → minuti da mezzanotte. "00:00" come orario di chiusura è trattato come fine giornata (24:00). */
+function toMinutesOfDay(time: string, isClosingTime: boolean): number {
+  const parts = time.split(":");
+  const h = Number(parts[0] ?? 0);
+  const m = Number(parts[1] ?? 0);
+  if (isClosingTime && h === 0 && m === 0) return 24 * 60;
+  return h * 60 + m;
+}
+
+/** Restituisce la fascia di oggi in cui cade `now`, se esiste. */
+function findActiveShiftWindow(
+  now: Date,
+  schedule: ShiftReminderWindow[],
+): ShiftReminderWindow | null {
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const today = now.getDay();
+  return (
+    schedule.find((w) => {
+      if (w.day !== today) return false;
+      const startMinutes = toMinutesOfDay(w.start, false);
+      const endMinutes = toMinutesOfDay(w.end, true);
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    }) ?? null
+  );
+}
+
 interface Operator {
   id: string;
   firstName: string;
@@ -164,7 +196,7 @@ export function CassaPage({
   onAdmin: () => void;
 }) {
   const { theme, setTheme } = useTheme();
-  const { connected, on } = useEdgeWs();
+  const { connected, on, send } = useEdgeWs();
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
@@ -228,6 +260,10 @@ export function CassaPage({
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
+  const [activeShiftLoaded, setActiveShiftLoaded] = useState(false);
+  const [shiftReminderSchedule, setShiftReminderSchedule] = useState<ShiftReminderWindow[]>([]);
+  const [activeShiftReminderWindow, setActiveShiftReminderWindow] =
+    useState<ShiftReminderWindow | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [showInternalClosureWizard, setShowInternalClosureWizard] = useState(false);
@@ -273,8 +309,12 @@ export function CassaPage({
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
     void edgeApi<Array<{ id: string; name: string }>>("/api/rooms").then(setRooms);
-    void edgeApi<{ venueCapacityWarning?: string | null }>("/api/status").then((s) => {
+    void edgeApi<{
+      venueCapacityWarning?: string | null;
+      shiftReminderSchedule?: ShiftReminderWindow[];
+    }>("/api/status").then((s) => {
       setVenueCapacityWarning(s.venueCapacityWarning ?? null);
+      setShiftReminderSchedule(s.shiftReminderSchedule ?? []);
     });
   }, []);
 
@@ -312,6 +352,7 @@ export function CassaPage({
   const loadActiveShift = useCallback(async (staffId: string) => {
     const shifts = await edgeApi<Shift[]>("/api/shifts");
     setActiveShift(shifts.find((s) => s.staffId === staffId) ?? null);
+    setActiveShiftLoaded(true);
   }, []);
 
   const startShift = async () => {
@@ -321,11 +362,29 @@ export function CassaPage({
       body: JSON.stringify({ staffId: operator.id }),
     });
     setActiveShift(row);
+    setActiveShiftReminderWindow(null);
     setMessage("Turno avviato");
   };
 
   useEffect(() => {
+    if (!operator || !activeShiftLoaded || shiftReminderSchedule.length === 0) return;
+
+    const check = () => {
+      if (activeShift) {
+        setActiveShiftReminderWindow(null);
+        return;
+      }
+      setActiveShiftReminderWindow(findActiveShiftWindow(new Date(), shiftReminderSchedule));
+    };
+
+    check();
+    const interval = setInterval(check, 60_000);
+    return () => clearInterval(interval);
+  }, [operator, activeShift, activeShiftLoaded, shiftReminderSchedule]);
+
+  useEffect(() => {
     if (!operator) return;
+    setActiveShiftLoaded(false);
     loadTables();
     loadPendingPayments();
     loadCounterOrders();
@@ -1282,6 +1341,21 @@ export function CassaPage({
           <strong>Capienza sede:</strong> {venueCapacityWarning}
         </div>
       )}
+      {activeShiftReminderWindow && (
+        <div className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900">
+          <span>
+            Turno non avviato — oggi si lavora {activeShiftReminderWindow.start}–
+            {activeShiftReminderWindow.end}.
+          </span>
+          <button
+            type="button"
+            className="shrink-0 font-medium underline underline-offset-2"
+            onClick={() => void startShift()}
+          >
+            Avvia turno
+          </button>
+        </div>
+      )}
       {pendingPayments.length > 0 && (
         <div className="shrink-0 space-y-1 border-b border-yellow-500/30 bg-yellow-500/10 px-4 py-2">
           {pendingPayments.map((p) => (
@@ -1726,6 +1800,30 @@ export function CassaPage({
                           )}
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded px-2 py-1 text-lg leading-none text-[hsl(var(--pg-muted-foreground))] hover:bg-[hsl(var(--pg-muted))]/50"
+                        onClick={() => {
+                          if (
+                            operator &&
+                            selectedTable.status === "LOCKED" &&
+                            selectedTable.lockedBy === operator.id
+                          ) {
+                            send("RELEASE_TABLE_LOCK", {
+                              tableId: selectedTable.id,
+                              operatorId: operator.id,
+                            });
+                          }
+                          setSelectedTable(null);
+                          setBill(null);
+                          setPaymentResult(null);
+                          loadTables();
+                        }}
+                        aria-label="Chiudi tavolo"
+                        title="Chiudi tavolo"
+                      >
+                        ✕
+                      </button>
                     </div>
                     {bill.counterOrder && (
                       <div className="mt-2 space-y-0.5 text-xs text-[hsl(var(--pg-muted-foreground))]">

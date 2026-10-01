@@ -101,7 +101,11 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
   }
 
   const settings = handshake.snapshot.settings as
-    | { tableLockTimeoutMinutes?: number; maxGuestCapacity?: number }
+    | {
+        tableLockTimeoutMinutes?: number;
+        maxGuestCapacity?: number;
+        shiftReminderSchedule?: Array<{ day: number; start: string; end: string }>;
+      }
     | undefined;
   if (settings?.tableLockTimeoutMinutes) {
     setLockTimeoutMinutes(settings.tableLockTimeoutMinutes);
@@ -109,6 +113,15 @@ export async function provisionEdge(db: EdgeDatabase, apiToken: string) {
   if (settings?.maxGuestCapacity != null) {
     db.update(edgeState)
       .set({ maxGuestCapacity: settings.maxGuestCapacity, updatedAt: now })
+      .where(eq(edgeState.id, 1))
+      .run();
+  }
+  if (settings?.shiftReminderSchedule !== undefined) {
+    db.update(edgeState)
+      .set({
+        shiftReminderSchedule: JSON.stringify(settings.shiftReminderSchedule),
+        updatedAt: now,
+      })
       .where(eq(edgeState.id, 1))
       .run();
   }

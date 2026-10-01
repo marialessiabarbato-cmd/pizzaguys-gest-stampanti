@@ -17,7 +17,6 @@ import {
   releaseLock,
   requestLock,
   setBillRequested,
-  setTableOccupied,
 } from "./lib/runtime.js";
 import { verifyManagerPin } from "./lib/staff-auth.js";
 import { parseGuestCount, effectiveCapacityForTable } from "./lib/table-capacity.js";
@@ -139,8 +138,8 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               tableLabel?: string;
               kdsTickets?: unknown[];
             };
-            setTableOccupied(payload.tableId);
-            broadcastTableStatus(payload.tableId, "OCCUPIED");
+            // Stato tavolo e lock sono già impostati dalla REST /api/orders/:id/submit
+            // (che mantiene il lock dell'operatore che ha inviato l'ordine).
             broadcast({
               type: "KDS_ORDER_UPDATE",
               payload: {

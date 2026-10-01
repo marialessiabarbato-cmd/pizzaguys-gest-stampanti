@@ -7,6 +7,7 @@ interface StaffMember {
   id: string;
   firstName: string;
   lastName: string;
+  email?: string | null;
   role: string;
   isActive: boolean;
   createdAt?: string;
@@ -17,6 +18,7 @@ export function StaffPage() {
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
+    email: "",
     role: "WAITER",
     pin: "",
   });
@@ -42,7 +44,7 @@ export function StaffPage() {
     setCreateError("");
     try {
       await edgeApi("/api/staff", { method: "POST", body: JSON.stringify(form) });
-      setForm({ firstName: "", lastName: "", role: "WAITER", pin: "" });
+      setForm({ firstName: "", lastName: "", email: "", role: "WAITER", pin: "" });
       setShowCreateModal(false);
       void load();
     } catch (err) {
@@ -264,6 +266,14 @@ export function StaffPage() {
               onChange={(e) => setForm({ ...form, lastName: e.target.value })}
               required
             />
+            <input
+              className="rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 md:col-span-2"
+              type="email"
+              placeholder="Email (per recupero PIN e accesso cloud)"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              required
+            />
             <select
               className="rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2"
               value={form.role}
@@ -300,6 +310,7 @@ export function StaffPage() {
           <div className="grid gap-2 text-sm">
             <DetailRow label="Nome" value={detailTarget.firstName} />
             <DetailRow label="Cognome" value={detailTarget.lastName} />
+            <DetailRow label="Email" value={detailTarget.email || "—"} />
             <DetailRow label="Ruolo" value={roleLabel(detailTarget.role)} />
             <DetailRow label="Stato" value={detailTarget.isActive ? "Attivo" : "Disattivato"} />
             <DetailRow label="Creato il" value={formatDateTime(detailTarget.createdAt)} />

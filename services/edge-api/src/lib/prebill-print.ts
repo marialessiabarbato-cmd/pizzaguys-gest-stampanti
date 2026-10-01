@@ -38,6 +38,7 @@ export async function printTablePrebill(edgeDb: EdgeDatabase, tableId: string) {
     printer?.id ?? "cassa",
     payload,
     `prebill-${tableId}`,
+    printer ? { host: printer.host, port: printer.port } : undefined,
   );
 
   setBillRequested(tableId);

@@ -439,6 +439,7 @@ export async function printReservationsList(
     printer?.id ?? "cassa",
     payload,
     "reservations-list",
+    printer ? { host: printer.host, port: printer.port } : undefined,
   );
 
   await mkdir(PRINT_DIR, { recursive: true });
