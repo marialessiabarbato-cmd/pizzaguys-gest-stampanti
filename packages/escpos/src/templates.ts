@@ -111,9 +111,7 @@ export function buildPrebillTicket(params: PrebillTicketParams): Buffer {
   const parts: Buffer[] = [
     CMD_INIT,
     CMD_ALIGN_CENTER,
-    CMD_DOUBLE_SIZE,
     textLine("*** DOCUMENTO NON FISCALE ***"),
-    CMD_NORMAL_SIZE,
     textLine("PRECONTO"),
     CMD_ALIGN_LEFT,
     textLine(`Tavolo: ${params.tableLabel}`),
@@ -247,8 +245,39 @@ export function buildCallCourseTicket(params: CallCourseTicketParams): Buffer {
   return concatBuffers(...parts);
 }
 
+export interface ReceiptCopyTicketParams {
+  /** Testo dello scontrino già formattato (es. formatMockReceiptText). */
+  receiptText: string;
+}
+
+/** Copia di cortesia dello scontrino su stampante termica: non ha valore fiscale. */
+export function buildReceiptCopyTicket(params: ReceiptCopyTicketParams): Buffer {
+  const parts: Buffer[] = [
+    CMD_INIT,
+    CMD_ALIGN_CENTER,
+    textLine("*** COPIA NON FISCALE ***"),
+    CMD_DOUBLE_SIZE,
+    textLine("PIZZA GUYS"),
+    CMD_NORMAL_SIZE,
+    CMD_ALIGN_LEFT,
+    textLine("---"),
+  ];
+
+  for (const line of params.receiptText.trimEnd().split("\n")) {
+    parts.push(textLine(line));
+  }
+
+  parts.push(
+    textLine("---"),
+    CMD_ALIGN_CENTER,
+    textLine("*** NON VALIDO AI FINI FISCALI ***"),
+    CMD_CUT,
+  );
+  return concatBuffers(...parts);
+}
+
 /** Preview testuale per UI dev (senza byte binari) */
 export function kitchenTicketPreview(params: KitchenTicketParams): string {
   const buf = buildKitchenTicket(params);
-  return buf.toString("utf-8").replace(/[^\x20-\x7E\n]/g, "");
+  return buf.toString("latin1").replace(/[^\x20-\x7E\n]/g, "");
 }

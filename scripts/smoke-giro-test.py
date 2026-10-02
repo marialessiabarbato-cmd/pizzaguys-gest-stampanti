@@ -757,6 +757,7 @@ def test_edge_flows(ctx: dict) -> None:
                 "lineIds": [xlines[0]["id"]],
                 "operatorId": cashier["id"],
                 "operatorName": op_c,
+                "overridePin": "5678",
             })
             if code == 200 and tr.get("ok"):
                 ok("edge transfer parziale")
@@ -778,6 +779,7 @@ def test_edge_flows(ctx: dict) -> None:
             "targetTableId": m1,
             "operatorId": cashier["id"],
             "operatorName": op_c,
+            "overridePin": "5678",
         })
         if code == 200 and mg.get("ok"):
             ok("edge merge tavoli")

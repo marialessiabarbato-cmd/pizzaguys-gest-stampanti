@@ -52,6 +52,7 @@ export async function processCallCourse(
         printer?.id ?? center.toLowerCase(),
         payload,
         `call-${tableId}-${course}`,
+        printer ? { host: printer.host, port: printer.port } : undefined,
       );
       printResults.push(result);
     }
