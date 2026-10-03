@@ -1,4 +1,4 @@
-import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, TableStatus } from "@pizzaguys/types";
+import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
 import { Button, useTheme } from "@pizzaguys/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
@@ -227,6 +227,8 @@ export function CassaPage({
     invoiceId?: string;
   } | null>(null);
   const [pendingPayments, setPendingPayments] = useState<PaymentRequest[]>([]);
+  /** Stampe non riuscite (da qualunque dispositivo), finché la cassa non le chiude. */
+  const [printAlerts, setPrintAlerts] = useState<{ id: string; at: string; messages: string[] }[]>([]);
   const [romanShares, setRomanShares] = useState("2");
   const [discountLine, setDiscountLine] = useState<BillLine | null>(null);
   const [discountError, setDiscountError] = useState("");
@@ -459,6 +461,17 @@ export function CassaPage({
       });
       loadTables();
     });
+    const offPrintFailed = on("PRINT_FAILED", (payload) => {
+      const p = payload as PrintFailedPayload;
+      setPrintAlerts((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          at: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+          messages: p.messages,
+        },
+      ]);
+    });
     const offComplete = on("PAYMENT_COMPLETE", () => {
       loadPendingPayments();
       loadTables();
@@ -499,6 +512,7 @@ export function CassaPage({
       offLocked();
       offStatus();
       offPending();
+      offPrintFailed();
       offComplete();
       offGranted();
       offDenied();
@@ -1354,6 +1368,25 @@ export function CassaPage({
           >
             Avvia turno
           </button>
+        </div>
+      )}
+      {printAlerts.length > 0 && (
+        <div className="shrink-0 space-y-1 border-b border-[hsl(var(--pg-danger))]/40 bg-[hsl(var(--pg-danger))]/10 px-4 py-2">
+          {printAlerts.map((a) => (
+            <div key={a.id} className="flex items-start justify-between gap-2 text-sm">
+              <span>
+                <strong>⚠ Stampa non riuscita ({a.at})</strong> — {a.messages.join(" · ")}. Avvisa la
+                cucina e controlla la stampante.
+              </span>
+              <Button
+                variant="outline"
+                className="h-9 shrink-0"
+                onClick={() => setPrintAlerts((prev) => prev.filter((x) => x.id !== a.id))}
+              >
+                Chiudi
+              </Button>
+            </div>
+          ))}
         </div>
       )}
       {pendingPayments.length > 0 && (

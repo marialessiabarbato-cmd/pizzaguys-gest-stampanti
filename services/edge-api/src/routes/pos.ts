@@ -25,6 +25,7 @@ import {
   resolveTableContext,
 } from "../lib/counter-order.js";
 import { executeTablePayment } from "../lib/payment.js";
+import { reportPrintFailures } from "../lib/print-alerts.js";
 import { getMenuSnapshot } from "../lib/provision.js";
 import {
   clearTableOrders,
@@ -473,10 +474,12 @@ export async function posRoutes(app: FastifyInstance) {
     setBillRequested(req.params.id);
     broadcastTableStatus(req.params.id, "BILL_REQUESTED");
 
+    const printWarnings = reportPrintFailures(app.edgeDb, "PRECONTO", ctx.label, [printResult]);
     return {
       ok: true,
       bill,
       printResult,
+      printWarnings,
       status: "BILL_REQUESTED" as const,
     };
   });

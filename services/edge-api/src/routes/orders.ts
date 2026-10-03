@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { buildCancelTicket, buildKitchenTicket } from "@pizzaguys/escpos";
 import { isLinePriceValid } from "@pizzaguys/fiscal";
-import { categoryRouting, edgeState, printers, tables } from "@pizzaguys/edge-db";
+import { edgeState, printers, tables } from "@pizzaguys/edge-db";
 import {
   authorizeDiscountSchema,
   callCourseSchema,
@@ -13,8 +13,9 @@ import {
 } from "@pizzaguys/validators";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
+import { createHardwareBridge, type PrintResult } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
+import { reportPrintFailures } from "../lib/print-alerts.js";
 import {
   getCounterOrder,
   resolveTableContext,
@@ -49,7 +50,8 @@ import {
 } from "../lib/runtime.js";
 import { broadcastKdsUpdate } from "../lib/kds-broadcast.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
-import { processCallCourse } from "../lib/call-course.js";
+import { groupLinesByCenter, processCallCourse } from "../lib/call-course.js";
+import { createWorkCenterResolver } from "../lib/work-center.js";
 import { getActiveStaffById, verifyManagerPin } from "../lib/staff-auth.js";
 import {
   checkVenueCapacity,
@@ -433,15 +435,12 @@ export async function orderRoutes(app: FastifyInstance) {
         table?.defaultGuests ||
         2;
     const ticketTableLabel = kitchenTicketTableLabel(app.edgeDb, order);
-    const routing = app.edgeDb.select().from(categoryRouting).all();
     const printerList = app.edgeDb.select().from(printers).all();
+    const resolveCenter = createWorkCenterResolver(app.edgeDb);
 
     const byCenter = new Map<string, OrderLine[]>();
     for (const line of order.lines) {
-      const product = snapshot?.products?.find((p) => p.id === line.productId);
-      const categoryId = product?.categoryId;
-      const route = routing.find((r) => r.categoryId === categoryId);
-      const center = route?.workCenter ?? "PIZZERIA";
+      const center = resolveCenter(line.productId);
       const group = byCenter.get(center) ?? [];
       group.push(line);
       byCenter.set(center, group);
@@ -502,9 +501,12 @@ export async function orderRoutes(app: FastifyInstance) {
       if (g && g > 0) bumpChargedGuests(memberId, g);
     }
 
+    const printWarnings = reportPrintFailures(app.edgeDb, "COMANDA", ticketTableLabel, printResults);
+
     return {
       ok: true,
       printResults,
+      printWarnings,
       kdsTickets: getKdsSnapshot().tickets,
       orderId: order.id,
       tableId: order.tableId,
@@ -590,7 +592,13 @@ export async function orderRoutes(app: FastifyInstance) {
     });
     broadcastKdsUpdate({ cancellation });
 
-    return { ok: true, line: result.line, printResult, cancellation };
+    const printWarnings = reportPrintFailures(
+      app.edgeDb,
+      "ANNULLO",
+      resolveOrderTableLabel(app.edgeDb, order.tableId),
+      [printResult],
+    );
+    return { ok: true, line: result.line, printResult, printWarnings, cancellation };
   });
 
   app.post("/api/orders/line-price", async (req, reply) => {
@@ -652,17 +660,13 @@ export async function orderRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, parsed.data.tableId)).get();
     const guestCount = getUnionGuestTotal(parsed.data.tableId) || table?.defaultGuests || 2;
     const released = releaseDessertQueue(parsed.data.tableId);
+    const printResults: PrintResult[] = [];
 
-    const routing = app.edgeDb.select().from(categoryRouting).all();
     const printerList = app.edgeDb.select().from(printers).all();
-    const menu = getMenuSnapshot(app.edgeDb);
-    const snapshot = menu?.snapshot as MenuSnapshot | undefined;
+    const resolveCenter = createWorkCenterResolver(app.edgeDb);
 
     for (const ticket of released) {
-      const byCenter = new Map<string, typeof ticket.lines>();
-      for (const line of ticket.lines) {
-        byCenter.set("PIZZERIA", [...(byCenter.get("PIZZERIA") ?? []), line]);
-      }
+      const byCenter = groupLinesByCenter([ticket], resolveCenter);
       for (const [center, lines] of byCenter) {
         const printer = printerList.find((p) => p.workCenter === center && p.enabled);
         const payload = buildKitchenTicket({
@@ -672,15 +676,23 @@ export async function orderRoutes(app: FastifyInstance) {
           operatorName: "X DOLCE",
           lines,
         });
-        await hardware.printEscPos(
-          printer?.id ?? center.toLowerCase(),
-          payload,
-          ticket.id,
-          printer ? { host: printer.host, port: printer.port } : undefined,
+        printResults.push(
+          await hardware.printEscPos(
+            printer?.id ?? center.toLowerCase(),
+            payload,
+            ticket.id,
+            printer ? { host: printer.host, port: printer.port } : undefined,
+          ),
         );
       }
     }
 
-    return { ok: true, released };
+    const printWarnings = reportPrintFailures(
+      app.edgeDb,
+      "DOLCI",
+      resolveOrderTableLabel(app.edgeDb, parsed.data.tableId),
+      printResults,
+    );
+    return { ok: true, released, printResults, printWarnings };
   });
 }

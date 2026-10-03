@@ -47,6 +47,8 @@ export interface TableOrder {
 
 export interface KdsTicketLine {
   lineId: string;
+  /** Per smistare marcia e dolci al centro di produzione corretto. */
+  productId?: string;
   name: string;
   quantity: number;
   variants?: string[];
@@ -797,6 +799,7 @@ export function rebuildKdsTicketsForOrder(order: TableOrder, tableLabel: string)
       course,
       lines: lines.map((l) => ({
         lineId: l.id,
+        productId: l.productId,
         name: l.name,
         quantity: l.quantity,
         variants: variantLabels(l),

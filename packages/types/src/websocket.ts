@@ -28,7 +28,8 @@ export type WsMessageType =
   | "CONFIRM_PAYMENT"
   | "PAYMENT_COMPLETE"
   | "PAYMENT_REJECTED"
-  | "TABLE_ACCOUNT_MOVED";
+  | "TABLE_ACCOUNT_MOVED"
+  | "PRINT_FAILED";
 
 export interface WsEnvelope<T extends WsMessageType = WsMessageType, P = unknown> {
   type: T;
@@ -119,4 +120,21 @@ export interface TableAccountMovedPayload {
   targetTableId: string;
   operatorId: string;
   movedLineIds: string[];
+}
+
+/** Tipo di stampa non riuscita (comanda, marcia, annullo, ...). */
+export type PrintJobKind =
+  | "COMANDA"
+  | "MARCIA"
+  | "DOLCI"
+  | "ANNULLO"
+  | "PRECONTO"
+  | "COPIA_SCONTRINO";
+
+/** Broadcast quando una stampa ESC/POS fallisce (stampante spenta, irraggiungibile, ...). */
+export interface PrintFailedPayload {
+  kind: PrintJobKind;
+  tableLabel: string;
+  /** Una riga leggibile per stampante non riuscita. */
+  messages: string[];
 }

@@ -8,6 +8,7 @@ import {
 } from "@pizzaguys/validators";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { friendlyReason } from "../lib/print-alerts.js";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -39,7 +40,11 @@ export async function printerRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string } }>("/api/printers/:id", async (req, reply) => {
     const parsed = updatePrinterSchema.safeParse(req.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+      const fields = parsed.error.flatten().fieldErrors;
+      const first = fields.host?.[0] ?? (fields.port ? "Porta non valida (1–65535)" : undefined);
+      return reply
+        .status(400)
+        .send({ error: first ?? "Dati non validi", details: parsed.error.flatten() });
     }
     const updated = app.edgeDb
       .update(printers)
@@ -70,7 +75,7 @@ export async function printerRoutes(app: FastifyInstance) {
       host: printer.host,
       port: printer.port,
     });
-    return reply.send(result);
+    return reply.send(result.success ? result : { ...result, error: friendlyReason(result.error) });
   });
 
   app.post("/api/print/test", async (_req, reply) => {

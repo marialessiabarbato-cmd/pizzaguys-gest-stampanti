@@ -27,10 +27,21 @@ export const createTableSchema = z.object({
 
 export const updateTableSchema = createTableSchema.partial();
 
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const HOSTNAME = /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+
+/** IP v4 (es. 192.168.1.200) o nome host della stampante di rete. */
+export const printerHostSchema = z
+  .string()
+  .trim()
+  .refine((v) => IPV4.test(v) || (HOSTNAME.test(v) && !/^[\d.]+$/.test(v)), {
+    message: "Indirizzo non valido: usa un IP (es. 192.168.1.200) o un nome host",
+  });
+
 export const createPrinterSchema = z.object({
   name: z.string().min(1),
   workCenter: z.enum(["CUCINA", "PIZZERIA", "BAR", "CHEF"]),
-  host: z.string().min(1).optional(),
+  host: printerHostSchema.optional(),
   port: z.number().int().min(1).max(65535).optional(),
   enabled: z.boolean().optional(),
 });

@@ -35,6 +35,7 @@ import {
   setTableFree,
 } from "./runtime.js";
 import { recordDayPayment, recordShiftPayment } from "./shift-ledger.js";
+import { reportPrintFailures } from "./print-alerts.js";
 import { broadcast } from "./ws-hub.js";
 import { issueElectronicInvoice } from "./invoice.js";
 
@@ -300,7 +301,7 @@ export async function executeTablePayment(
     // In background: una stampante spenta non deve bloccare l'incasso.
     void printReceiptCopy(params.edgeDb, receiptResult.receipt, receiptMeta)
       .then((r) => {
-        if (!r.success) console.warn(`Copia non fiscale non stampata: ${r.error}`);
+        reportPrintFailures(params.edgeDb, "COPIA_SCONTRINO", params.tableLabel ?? params.tableId, [r]);
       })
       .catch((err) => console.warn("Copia non fiscale non stampata:", err));
   }
