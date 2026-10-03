@@ -1,6 +1,7 @@
 # Handoff — Continuazione sviluppo Pizza Guys Gest
 
 > Usa questo file come contesto in una **nuova chat** per proseguire senza perdere lo stato del progetto.
+> Aggiornato: **3 ottobre 2026**.
 
 ## Stato attuale
 
@@ -13,45 +14,76 @@
 | **Fase 4** | ✅ Completata | Cassa e pagamenti — `doc/FASE-4.md` |
 | **Fase 5** | ✅ Completata | Chiusura, sync, audit, report — `doc/FASE-5.md` |
 | **Fase 6** | 🔄 In corso | Pilota Caserta — `doc/FASE-6.md` |
+| **Fase 7** | 🔄 Anticipata in parte | Stampa ESC/POS su rete reale testata (POS Italia ST30); RT Micrelec ancora mock |
+
+## Repository
+
+| | |
+|---|---|
+| Repo | `https://github.com/marialessiabarbato-cmd/pizzaguys-gest-stampanti` |
+| Branch di lavoro | `test-stampa` (parte da `ui_fix` del repo originale `wearedexin-git/pizzaguys-gest`) |
+| Copia locale | `~/Desktop/pizzaguys-gest-stampanti-fix-richieste` (container Docker dedicati, porte 5433/6380) |
 
 ## Decisioni chiave (non ridiscutere)
 
 - Intero ecosistema web (Cloud + Edge + PWA)
 - Pilota: **Caserta**, 3 sedi × 3 tablet
-- PWA su Fire Tablet; Edge Node.js + hardware-bridge mock
+- PWA su Fire Tablet; Edge Node.js + hardware-bridge (`mock` | `network`)
 - Stack: pnpm + Turborepo, React 19, Fastify, Drizzle, PostgreSQL + SQLite edge
 - Fase 4–6: **mock fiscale** — RT Micrelec reale solo in Fase 7
+- Stampanti termiche: ESC/POS su TCP :9100, code page **WPC1252** (16), carta 80 mm / 48 colonne
+
+## Novità recenti (branch `test-stampa`)
+
+| Area | Modifica |
+|------|----------|
+| Stampa di rete | `HARDWARE_BRIDGE_MODE=network`: comande, annulli, **preconto, marcia, lista prenotazioni** su stampante LAN |
+| ESC/POS | Testo in CP1252 + `ESC t 16` (accenti ed euro corretti); avanzamento 5 righe prima del taglio |
+| Comanda | Nota libera del cameriere stampata (`NOTA: ...`) e visibile su KDS |
+| Comanda | Sezioni per portata `-- ORA --`, `-- SEGUE >1 (in attesa) --`, …; chiamata `=== MARCIA SEGUE >n ===` |
+| Preconto | Intestazione `*** DOCUMENTO NON FISCALE ***` in dimensione normale (entra in 48 colonne) |
+| Cassa | `RECEIPT_COPY_PRINT=true`: copia non fiscale dello scontrino a ogni incasso (stampante Bar) |
+| Stampa | Avviso se una stampa fallisce: finestra sul palmare + banner rosso in cassa (WS `PRINT_FAILED`) |
+| Stampa | Main Station → Stampanti: IP/porta modificabili, Applica a tutte, Attiva/Disattiva (IP validato) |
+| Stampa | Marcia e dolci smistati al reparto della categoria (prima sempre Pizzeria) |
+| Test | `scripts/fake-printer.mjs` (stampante simulata), test unitari ESC/POS, PIN manager nel giro-test |
+| Dev | `docker-compose.yml` con nome container e porte da `.env` |
+| Cliente | Segnala problema, email chiusura, promemoria turno, capienza sede, menu "Travelling Kitchen" |
 
 ## Documentazione
 
 | File | Contenuto |
 |------|-----------|
-| `doc/PIANO-OPERATIVO.md` | Piano completo |
+| `doc/PIANO-OPERATIVO.md` | Piano completo (§14 flussi stampa aggiornati) |
 | `doc/FASE-1.md` … `doc/FASE-5.md` | Fasi completate |
 | `doc/FASE-6.md` | **Pilota Caserta (in corso)** |
-| `doc/GIRO-TEST-LOCALE.md` | **Checklist test MVP su PC/Mac** |
+| `doc/TEST-LOCALE.md` | **Link, accessi, stampante ST30, avvio e test locali** |
+| `doc/CHECKLIST-TEST-MANUALI.md` | Checklist test manuali (sezione **S — Stampa**) |
+| `doc/PROSSIMI-STEP.md` | **Checklist di validazione + todo prossimi step** |
 | `doc/HANDOFF.md` | Questo file |
 | `deploy/cloud/README.md` | Deploy cloud T6.1 |
 
 ## Avvio dev
 
 ```bash
-docker compose up -d && npx pnpm@9.15.9 dev
+export PATH=/opt/homebrew/opt/node@22/bin:$PATH   # Node 22 obbligatorio
+docker compose up -d && pnpm dev
 ```
 
-Seed pilota:
+Seed (database vuoto):
 
 ```bash
+set -a; source .env; set +a
 pnpm db:migrate
-pnpm --filter @pizzaguys/db seed
+pnpm --filter @pizzaguys/db seed   # termina dopo "✓ Password": se resta appeso, Ctrl+C
 pnpm db:seed:menu
 ```
 
 ## Credenziali
 
 - **SuperAdmin:** `admin@pizzaguys.it` / `PizzaGuys2026!`
-- **Cameriere PIN:** creato su Main Station → Staff (4 cifre)
-- **Manager PIN:** staff con ruolo CASHIER o USER_ADMIN
+- **PIN staff:** creati su Main Station → Staff (4 cifre). Ambiente locale attuale: vedi `doc/TEST-LOCALE.md`
+- **Manager PIN:** staff con ruolo CASHIER o USER_ADMIN (i WAITER non possono autorizzare override)
 
 ## Porte
 
@@ -64,21 +96,14 @@ pnpm db:seed:menu
 | Edge API + WS | http://localhost:4100 / ws://localhost:4100/ws |
 | Cloud API | http://localhost:4000 |
 
-## Fase 6 — prossimi step
+## Prossimi step
 
-Vedi `doc/FASE-6.md`:
-
-1. **T6.1** — Deploy cloud EU (Fly/Railway) — scaffold in `deploy/cloud/`
-2. **T6.2** — `scripts/edge/install-caserta.sh` su mini PC
-3. **T6.3** — Tablet Fire + LAN (on-site)
-4. **T6.4** — `pnpm db:seed:menu` (80 articoli ✅ script pronto)
-5. **T6.5** — Estendere e2e Playwright (`e2e/`)
-6. **T6.6** — Formazione staff Caserta
+Vedi `doc/PROSSIMI-STEP.md` (da validare insieme) e `doc/FASE-6.md`.
 
 ## Prompt per nuova chat
 
 ```
-Continua Pizza Guys Gest — Fase 6 Pilota Caserta.
-Leggi doc/HANDOFF.md e doc/FASE-6.md.
-Prossimo: [deploy cloud / e2e flussi / formazione].
+Continua Pizza Guys Gest — branch test-stampa.
+Leggi doc/HANDOFF.md, doc/PROSSIMI-STEP.md e doc/TEST-LOCALE.md.
+Prossimo: [voce della todo list].
 ```

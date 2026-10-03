@@ -13,8 +13,9 @@ Portare l'ecosistema completo (cloud + edge + tablet) in produzione pilota a **C
 | Deploy cloud (T6.1) | 🔄 | `deploy/cloud/` — Fly.io + Railway, Dockerfile |
 | Script install edge (T6.2) | 🔄 | `scripts/edge/install-caserta.sh` + systemd |
 | Tablet + LAN (T6.3) | ⬜ | Runbook documentato — hardware on-site |
-| Seed menu pilota (T6.4) | 🔄 | `pnpm db:seed:menu` — 8 cat., 80 articoli |
-| Test e2e Playwright (T6.5) | 🔄 | `e2e/` smoke cloud + edge |
+| Seed menu pilota (T6.4) | ✅ | `pnpm db:seed:menu` — menu reale "Travelling Kitchen", 11 cat., 42 articoli (allergeni da validare) |
+| Test e2e Playwright (T6.5) | 🔄 | `e2e/` — 11 test: smoke cloud/edge + dettagli Cloud Admin; flussi sala/cassa ancora da coprire |
+| Stampa reale (anticipo T7.2) | 🔄 | ESC/POS in rete testata su POS Italia ST30 — vedi `doc/TEST-LOCALE.md` |
 | Formazione staff (T6.6) | ⬜ | Checklist on-site — vedi sotto |
 
 ## Task
@@ -24,7 +25,7 @@ Portare l'ecosistema completo (cloud + edge + tablet) in produzione pilota a **C
 | T6.1 | Deploy cloud (Fly.io / Railway EU) | 🔄 | P0 |
 | T6.2 | Script install mini PC Caserta | 🔄 | P0 |
 | T6.3 | Configurazione 3 tablet Fire + rete LAN | ⬜ | P0 |
-| T6.4 | Seed menu Pizza Guys (~80 articoli, 8 categorie) | 🔄 | P0 |
+| T6.4 | Seed menu Pizza Guys (menu reale, 11 categorie, 42 articoli) | ✅ | P0 |
 | T6.5 | Test e2e Playwright su flussi critici | 🔄 | P1 |
 | T6.6 | Formazione on-site staff | ⬜ | P1 |
 
@@ -61,7 +62,7 @@ Config: `/etc/pizzaguys/edge.env` (da `pizzaguys-edge.env.example`)
 Dopo l'avvio:
 
 1. Main Station → **Provision** → incolla API token sede Caserta
-2. Configura sala, stampanti mock, staff con PIN
+2. Configura sala, stampanti (IP:porta reali con `HARDWARE_BRIDGE_MODE=network`, altrimenti mock), staff con PIN
 3. Verifica heartbeat su Cloud Admin → sede ONLINE
 
 ## T6.3 — Tablet Fire + rete LAN
@@ -95,24 +96,19 @@ Autostart via `~pizzaguys/.config/autostart/pizzaguys-cassa.desktop`.
 
 ```bash
 pnpm --filter @pizzaguys/db seed      # brand + SuperAdmin (se assente)
-pnpm db:seed:menu                     # 8 categorie, 80 prodotti, sede Caserta
+pnpm db:seed:menu                     # menu reale + sede Caserta (skip se il menu esiste già)
 ```
 
-Catalogo in `packages/db/src/seed-menu-data.ts`:
+Catalogo in `packages/db/src/seed-menu-data.ts` — menu reale **"Travelling Kitchen"**
+(tovaglietta settembre 2026), **11 categorie, 42 articoli**:
 
-| Categoria | Articoli | IVA |
-|-----------|----------|-----|
-| Pizze Classiche | 12 | 10% |
-| Pizze Speciali | 12 | 10% |
-| Focacce e Calzoni | 8 | 10% |
-| Antipasti | 10 | 10% |
-| Insalate | 8 | 10% |
-| Dolci | 8 | 10% |
-| Bevande | 12 | 22% |
-| Birre e Vini | 10 | 22% |
+Cocktail Bar · Soft Drink · Beer · Wine · Digestivi · Tapas Fritti Bar · Fries ·
+Travelling Kitchen · Storytelling Pizzas · Classic Pizzas · Desserts
 
-Prezzi per canale TABLE / TAKEAWAY / DELIVERY sulla sede **Caserta — Via Roma**.  
-Lo script stampa l'**API token** al primo run — usarlo per il provisioning edge.
+- Prezzo **unico** per TABLE / TAKEAWAY / DELIVERY sulla sede **Caserta — Corso Trieste** (coperto € 1,50).
+- Varianti: 2 gruppi "Personalizza" (rimozioni ingredienti reali + aggiunte presenti in menu).
+- ⚠️ Allergeni: bozza dedotta dagli ingredienti — **da validare con cucina/titolare** (Reg. UE 1169/2011).
+- Lo script stampa l'**API token** al primo run — usarlo per il provisioning edge.
 
 ## T6.5 — Test e2e
 
@@ -123,8 +119,12 @@ cd e2e && pnpm install && pnpm test
 
 | File | Copertura attuale |
 |------|-------------------|
-| `e2e/cloud.spec.ts` | Health, auth validation |
+| `e2e/cloud.spec.ts` | Health, auth validation, dettagli clienti fiscali / fatture / chiusure (API) |
+| `e2e/cloud-admin.spec.ts` | Login SuperAdmin, pagine dettaglio (UI) |
 | `e2e/edge.spec.ts` | Health, status provisioning |
+
+Copertura API più ampia oggi negli smoke Python: `scripts/smoke-giro-test.py` (112 check) e
+`scripts/smoke-feature-richieste.py`.
 
 Flussi e2e prioritari (da estendere):
 
@@ -149,7 +149,7 @@ Materiali:
 
 - Credenziali SuperAdmin (solo manager sede)
 - PIN staff creati in anteprima
-- Checklist stampata: `doc/FASE-6-FORMAZIONE.md` (opzionale)
+- Checklist stampata: `doc/CHECKLIST-TEST-MANUALI.md` (una dispensa dedicata `FASE-6-FORMAZIONE.md` è ancora da scrivere)
 
 ## Dipendenze Fase 5 ✅
 
@@ -184,3 +184,5 @@ Prerequisiti completati:
 | Data | Note |
 |------|------|
 | 2026-06-10 | Avvio Fase 6 — doc, seed menu, deploy, script edge, e2e smoke |
+| 2026-09-24 | Menu reale "Travelling Kitchen" (11 cat., 42 art.), stampanti di rete, segnala problema, email chiusura |
+| 2026-10-03 | Test stampa su POS Italia ST30: CP1252, taglio, note, sezioni Ora/Segue, marcia, copia non fiscale |

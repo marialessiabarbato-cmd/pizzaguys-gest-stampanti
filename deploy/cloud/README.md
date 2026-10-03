@@ -25,7 +25,11 @@ pnpm --filter @pizzaguys/db seed:menu
 | `JWT_SECRET` | sì | stringa lunga random |
 | `SEED_ADMIN_EMAIL` | seed | `admin@pizzaguys.it` |
 | `NIGHTLY_REPORT_ENABLED` | no | `true` |
-| `EMAIL_MOCK_DIR` | no | `/data/emails` (o provider SMTP futuro) |
+| `EMAIL_MOCK_DIR` | no | `/data/emails` — usata se manca `RESEND_API_KEY` |
+| `RESEND_API_KEY` | no | invio email reale (report notturno, chiusure, segnalazioni) |
+| `EMAIL_FROM` | con Resend | `Pizza Guys <noreply@dominio>` |
+| `DEV_REPORT_EMAIL` | no | destinatario "Segnala problema" dalla cassa (senza: 503 controllato) |
+| `NIGHTLY_REPORT_HOUR` / `NIGHTLY_REPORT_MINUTE` | no | `4` / `30` |
 
 Per `cloud-web`:
 
