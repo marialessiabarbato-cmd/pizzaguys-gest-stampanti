@@ -50,6 +50,7 @@ export interface KdsTicketLine {
   name: string;
   quantity: number;
   variants?: string[];
+  notes?: string;
 }
 
 export interface KdsTicket {
@@ -799,6 +800,7 @@ export function rebuildKdsTicketsForOrder(order: TableOrder, tableLabel: string)
         name: l.name,
         quantity: l.quantity,
         variants: variantLabels(l),
+        notes: l.notes?.trim() || undefined,
       })),
       submittedAt: order.submittedAt,
       hold: hold || dessertQueue,

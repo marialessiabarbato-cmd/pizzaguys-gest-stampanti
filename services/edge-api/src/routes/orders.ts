@@ -463,6 +463,9 @@ export async function orderRoutes(app: FastifyInstance) {
           name: kitchenLineName(l),
           quantity: l.quantity,
           variants: variantLabels(l),
+          notes: l.notes,
+          course: l.course,
+          hold: l.hold,
         })),
       });
       const result = await hardware.printEscPos(
