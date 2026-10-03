@@ -88,7 +88,11 @@ pnpm typecheck && pnpm test                 # typecheck + unit (+ e2e se servizi
 pnpm test:e2e                               # Playwright (servizi avviati)
 python3 scripts/smoke-feature-richieste.py  # feature richieste cliente
 python3 scripts/smoke-giro-test.py          # giro completo API cloud + edge
+python3 scripts/smoke-restart.py            # T19: stato operativo dopo riavvio Edge (--crash per kill -9)
 ```
+
+Lo stato operativo (tavoli aperti, ordini, KDS, split, asporti, incassi del turno) è salvato nella
+tabella `runtime_state` di `tmp/edge.sqlite` e ricaricato all'avvio dell'Edge.
 
 > ⚠️ `smoke-giro-test.py` esegue decine di ordini e incassi: con la ST30 collegata stampa decine di
 > ticket. Prima di lanciarlo puntare le stampanti al simulatore (vedi sopra).

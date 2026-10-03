@@ -46,6 +46,7 @@
 | Stampa | Avviso se una stampa fallisce: finestra sul palmare + banner rosso in cassa (WS `PRINT_FAILED`) |
 | Stampa | Main Station → Stampanti: IP/porta modificabili, Applica a tutte, Attiva/Disattiva (IP validato) |
 | Stampa | Marcia e dolci smistati al reparto della categoria (prima sempre Pizzeria) |
+| Edge | **T19**: stato operativo salvato su SQLite (`runtime_state`) e ripristinato all'avvio — tavoli, ordini, KDS, split, richieste pagamento, asporti, incassi turno, Z; blocchi rilasciati; banner in cassa |
 | Test | `scripts/fake-printer.mjs` (stampante simulata), test unitari ESC/POS, PIN manager nel giro-test |
 | Dev | `docker-compose.yml` con nome container e porte da `.env` |
 | Cliente | Segnala problema, email chiusura, promemoria turno, capienza sede, menu "Travelling Kitchen" |

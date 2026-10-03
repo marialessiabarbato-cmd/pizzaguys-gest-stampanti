@@ -181,6 +181,20 @@ Prerequisiti: `HARDWARE_BRIDGE_MODE=network`, stampanti Edge puntate alla stampa
 
 ---
 
+## R — Riavvio Edge (stato operativo)
+
+Automatico: `python3 scripts/smoke-restart.py` (riavvio pulito) e `--crash` (kill -9, poi rilanciare `pnpm dev`).
+
+| #  | Test                         | Passi                                                                 | Atteso                                                                | ☐   |
+| -- | ---------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | --- |
+| R1 | Riavvio a metà servizio      | Tavoli aperti (comanda, split, preconto), asporto, incassi → riavvia Edge | Tutto come prima; tavoli "in uso" sbloccati                       | ok  |
+| R2 | Spegnimento forzato          | Come R1 ma `kill -9` / spina staccata                                  | Come R1 (si perde al massimo l'ultima operazione in corso)            | ok  |
+| R3 | Avviso in cassa              | Dopo R1/R2 apri la cassa                                               | Banner blu "L'Edge si è riavviato…" con n. tavoli/asporti; **Chiudi** | ok  |
+| R4 | Chiusura turno dopo riavvio  | Incassa, riavvia, Chiudi turno                                        | Totali teorici del turno invariati                                    | ☐   |
+| R5 | Mini PC riavviato (produzione) | Riavvio del mini PC durante il servizio                             | systemd riavvia l'Edge; stato ripristinato                            | ☐ (serve mini PC) |
+
+---
+
 ## H — Regressione rapida (smoke UI)
 
 
