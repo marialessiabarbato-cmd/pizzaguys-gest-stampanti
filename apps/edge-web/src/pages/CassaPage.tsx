@@ -188,6 +188,17 @@ interface PaymentRequest {
   operatorName: string;
 }
 
+const RESTORE_DISMISSED_KEY = "pg-cassa-restore-dismissed";
+
+interface RuntimeRestoreInfo {
+  restoredAt: string;
+  openTables: number;
+  openOrders: number;
+  openCounterOrders: number;
+  releasedLocks: number;
+  errors: string[];
+}
+
 export function CassaPage({
   locationName,
   onAdmin,
@@ -229,6 +240,15 @@ export function CassaPage({
   const [pendingPayments, setPendingPayments] = useState<PaymentRequest[]>([]);
   /** Stampe non riuscite (da qualunque dispositivo), finché la cassa non le chiude. */
   const [printAlerts, setPrintAlerts] = useState<{ id: string; at: string; messages: string[] }[]>([]);
+  /** Ripristino dello stato dopo un riavvio dell'Edge (T19). */
+  const [runtimeRestore, setRuntimeRestore] = useState<RuntimeRestoreInfo | null>(null);
+  const [dismissedRestoreAt, setDismissedRestoreAt] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(RESTORE_DISMISSED_KEY);
+    } catch {
+      return null;
+    }
+  });
   const [romanShares, setRomanShares] = useState("2");
   const [discountLine, setDiscountLine] = useState<BillLine | null>(null);
   const [discountError, setDiscountError] = useState("");
@@ -314,9 +334,11 @@ export function CassaPage({
     void edgeApi<{
       venueCapacityWarning?: string | null;
       shiftReminderSchedule?: ShiftReminderWindow[];
+      runtimeRestore?: RuntimeRestoreInfo | null;
     }>("/api/status").then((s) => {
       setVenueCapacityWarning(s.venueCapacityWarning ?? null);
       setShiftReminderSchedule(s.shiftReminderSchedule ?? []);
+      setRuntimeRestore(s.runtimeRestore ?? null);
     });
   }, []);
 
@@ -1368,6 +1390,44 @@ export function CassaPage({
           >
             Avvia turno
           </button>
+        </div>
+      )}
+      {runtimeRestore && runtimeRestore.restoredAt !== dismissedRestoreAt && (
+        <div className="flex shrink-0 items-start justify-between gap-2 border-b border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm">
+          <span>
+            <strong>
+              ℹ L'Edge si è riavviato alle{" "}
+              {new Date(runtimeRestore.restoredAt).toLocaleTimeString("it-IT", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </strong>{" "}
+            — ripristinati {runtimeRestore.openTables} tavoli aperti
+            {runtimeRestore.openCounterOrders > 0 ? ` e ${runtimeRestore.openCounterOrders} asporto/delivery` : ""}.
+            {runtimeRestore.releasedLocks > 0
+              ? ` ${runtimeRestore.releasedLocks} tavoli in uso sono stati sbloccati.`
+              : ""}{" "}
+            Ricontrolla la sala.
+            {runtimeRestore.errors.length > 0 && (
+              <span className="block text-[hsl(var(--pg-danger))]">
+                ⚠ Alcuni dati non sono stati ripristinati: {runtimeRestore.errors.join(" · ")}
+              </span>
+            )}
+          </span>
+          <Button
+            variant="outline"
+            className="h-9 shrink-0"
+            onClick={() => {
+              setDismissedRestoreAt(runtimeRestore.restoredAt);
+              try {
+                localStorage.setItem(RESTORE_DISMISSED_KEY, runtimeRestore.restoredAt);
+              } catch {
+                // archivio locale non disponibile: l'avviso tornerà al prossimo caricamento
+              }
+            }}
+          >
+            Chiudi
+          </Button>
         </div>
       )}
       {printAlerts.length > 0 && (

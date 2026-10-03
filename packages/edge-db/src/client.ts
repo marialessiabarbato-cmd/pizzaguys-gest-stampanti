@@ -93,6 +93,12 @@ export function createEdgeDb(dbPath: string) {
       next_state TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS runtime_state (
+      namespace TEXT PRIMARY KEY,
+      version INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS sync_queue (
       id TEXT PRIMARY KEY,
       operation TEXT NOT NULL,

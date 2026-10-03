@@ -39,3 +39,19 @@ export function getLastClosure() {
 export function resetClosureSession() {
   zReportToday = null;
 }
+
+// ── Persistenza su disco (T19) ───────────────────────────────────────────────
+
+export interface ClosureStateSnapshot {
+  zReportToday: { zNumber: number; issuedAt: string } | null;
+  lastClosure: DailyClosureRecord | null;
+}
+
+export function exportClosureState(): ClosureStateSnapshot {
+  return { zReportToday, lastClosure };
+}
+
+export function importClosureState(snapshot: Partial<ClosureStateSnapshot>) {
+  zReportToday = snapshot.zReportToday ?? null;
+  lastClosure = snapshot.lastClosure ?? null;
+}

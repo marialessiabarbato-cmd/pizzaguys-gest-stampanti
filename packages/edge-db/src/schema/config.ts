@@ -22,3 +22,14 @@ export const menuCache = sqliteTable("menu_cache", {
   payload: text("payload").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+/**
+ * Stato operativo dell'Edge (tavoli aperti, ordini, KDS, incassi turno...)
+ * salvato a ogni modifica e ricaricato all'avvio: una riga per modulo.
+ */
+export const runtimeState = sqliteTable("runtime_state", {
+  namespace: text("namespace").primaryKey(),
+  version: integer("version").notNull(),
+  payload: text("payload").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
