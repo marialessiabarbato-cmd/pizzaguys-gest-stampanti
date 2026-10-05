@@ -110,6 +110,15 @@ export interface CartLine {
   forTableLabel?: string;
 }
 
+/** Ultimo piatto aggiunto alla bozza; `seq` cambia a ogni aggiunta, anche dello stesso piatto. */
+export interface LastAddedLine {
+  seq: number;
+  lineId: string;
+  productId: string;
+  name: string;
+  course: number;
+}
+
 export interface SubmittedLine {
   orderId: string;
   lineId: string;

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { EU_ALLERGENS } from "../constants/allergens";
 import { fuzzyMatch, localized, resolvePrice } from "../lib/menu";
-import type { Category, MenuSnapshot, Product } from "../lib/types";
+import type { Category, LastAddedLine, MenuSnapshot, Product } from "../lib/types";
 
 export function MenuPanel({
   menu,
@@ -15,6 +15,8 @@ export function MenuPanel({
   onSearchChange,
   onAllergenToggle,
   onAddProduct,
+  cartQtyByProduct = {},
+  lastAdded = null,
 }: {
   menu: MenuSnapshot;
   categories: Category[];
@@ -27,6 +29,9 @@ export function MenuPanel({
   onSearchChange: (v: string) => void;
   onAllergenToggle: (id: string) => void;
   onAddProduct: (p: Product) => void;
+  /** Pezzi già in bozza per prodotto (tutte le varianti e portate). */
+  cartQtyByProduct?: Record<string, number>;
+  lastAdded?: LastAddedLine | null;
 }) {
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -96,22 +101,39 @@ export function MenuPanel({
         {products.map((p) => {
           const excluded = isExcluded(p);
           const price = resolvePrice(p, channel, menu.prices ?? []);
+          const inCart = cartQtyByProduct[p.id] ?? 0;
+          const justAdded = lastAdded?.productId === p.id;
           return (
             <li key={p.id}>
               <button
+                // Chiave nuova a ogni aggiunta per far ripartire l'animazione.
+                key={justAdded ? `added-${lastAdded.seq}` : "product"}
                 type="button"
                 disabled={excluded}
                 onClick={() => onAddProduct(p)}
                 className={`flex min-h-[3.25rem] w-full items-center justify-between px-4 py-3 text-left active:bg-[hsl(var(--pg-muted))]/30 ${
                   excluded ? "pointer-events-none opacity-30" : ""
-                }`}
+                } ${justAdded ? "pg-added-flash" : ""}`}
               >
                 <span className="pr-3 font-medium leading-tight">
                   {excluded && "🚫 "}
                   {localized(p.name)}
                 </span>
-                <span className="shrink-0 tabular-nums text-[hsl(var(--pg-muted-foreground))]">
-                  € {price.toFixed(2)}
+                <span className="flex shrink-0 items-center gap-2">
+                  {inCart > 0 && (
+                    <span
+                      key={justAdded ? lastAdded.seq : "qty"}
+                      className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[hsl(var(--pg-primary))] px-1.5 text-xs font-bold tabular-nums text-[hsl(var(--pg-primary-foreground))] ${
+                        justAdded ? "pg-pop" : ""
+                      }`}
+                      aria-label={`${inCart} in bozza`}
+                    >
+                      {inCart}×
+                    </span>
+                  )}
+                  <span className="tabular-nums text-[hsl(var(--pg-muted-foreground))]">
+                    € {price.toFixed(2)}
+                  </span>
                 </span>
               </button>
             </li>

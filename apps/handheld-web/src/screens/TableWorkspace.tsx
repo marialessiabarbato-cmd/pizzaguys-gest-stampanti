@@ -1,5 +1,5 @@
 import { Button } from "@pizzaguys/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BottomSheet, bottomSheetFooterClass } from "../components/BottomSheet";
 import { compactMergedTableLabel, formatTableLabel, formatUnionGuests, isUnionHost, resolveLiveTable, unionMembers, unionMemberChipLabel } from "../lib/table-display";
 import { ConfirmModal } from "../components/ConfirmModal";
@@ -20,6 +20,7 @@ import { cartTotal, resolvePrice, tableOrderTotal, variantsForProduct } from "..
 import type {
   CartLine,
   Category,
+  LastAddedLine,
   LiveTable,
   MenuSnapshot,
   Operator,
@@ -104,6 +105,7 @@ export function TableWorkspace({
   onAllergenToggle,
   onSelectCat,
   onAddProduct,
+  lastAdded,
   onConfirmVariants,
   onCancelVariants,
   onUpdateCart,
@@ -153,6 +155,7 @@ export function TableWorkspace({
   onAllergenToggle: (id: string) => void;
   onSelectCat: (id: string) => void;
   onAddProduct: (p: Product) => void;
+  lastAdded: LastAddedLine | null;
   onConfirmVariants: (v: VariantSelection[]) => void;
   onCancelVariants: () => void;
   onUpdateCart: (updater: (prev: CartLine[]) => CartLine[]) => void;
@@ -176,6 +179,27 @@ export function TableWorkspace({
   const [moreOpen, setMoreOpen] = useState(false);
   const [marciaPicker, setMarciaPicker] = useState(false);
   const [editConfirm, setEditConfirm] = useState<EditConfirm | null>(null);
+  const [addedToast, setAddedToast] = useState<LastAddedLine | null>(null);
+  const comandaRef = useRef<HTMLDivElement>(null);
+
+  // Feedback aggiunta piatto: avviso temporaneo e riga portata in vista.
+  useEffect(() => {
+    if (!lastAdded) {
+      setAddedToast(null);
+      return;
+    }
+    setAddedToast(lastAdded);
+    const frame = requestAnimationFrame(() => {
+      comandaRef.current
+        ?.querySelector(`[data-line-id="${lastAdded.lineId}"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    const timer = window.setTimeout(() => setAddedToast(null), 3500);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [lastAdded]);
 
   const liveTable = resolveLiveTable(table, tables);
   const unionTables = isUnionHost(liveTable) ? unionMembers(liveTable, tables) : [];
@@ -192,6 +216,13 @@ export function TableWorkspace({
   const draftTotal = cartTotal(cart);
   const tableTotal = tableOrderTotal(cart, submittedLines);
   const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
+  const cartQtyByProduct = cart.reduce<Record<string, number>>((acc, l) => {
+    acc[l.productId] = (acc[l.productId] ?? 0) + l.quantity;
+    return acc;
+  }, {});
+  const addedToastQty = addedToast
+    ? (cart.find((l) => l.lineId === addedToast.lineId)?.quantity ?? 0)
+    : 0;
   const groups = groupCartByCourse(cart);
   const suggestedMarcia = suggestMarciaCourse(cart);
   const needsLock = !hasLock && table.status !== "FREE";
@@ -227,6 +258,14 @@ export function TableWorkspace({
   const applyDelete = (line: CartLine) => {
     onUpdateCart((prev) => prev.filter((l) => l.lineId !== line.lineId));
     onSelectLine(null);
+  };
+
+  /** Annulla l'ultima aggiunta: toglie un pezzo (o la riga se era l'unico). */
+  const undoLastAdded = () => {
+    if (!addedToast) return;
+    const line = cart.find((l) => l.lineId === addedToast.lineId);
+    if (line) applyQty(line, line.quantity - 1);
+    setAddedToast(null);
   };
 
   const applyCourseToLine = (lineId: string, course: number) => {
@@ -359,7 +398,7 @@ export function TableWorkspace({
   const showComanda = workspaceTab === "comanda";
 
   const comandaList = (
-    <div className="space-y-4 p-3">
+    <div ref={comandaRef} className="space-y-4 p-3">
       {submittedLines.length > 0 && (
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
@@ -475,16 +514,21 @@ export function TableWorkspace({
               <ul className="space-y-2">
                 {lines.map((l) => {
                   const active = selectedLineId === l.lineId;
+                  const justAdded = lastAdded?.lineId === l.lineId;
                   const price = linePriceParts(l);
                   return (
-                    <li key={l.lineId}>
+                    <li key={l.lineId} data-line-id={l.lineId}>
                       <button
+                        // Chiave nuova a ogni aggiunta per far ripartire l'animazione.
+                        key={justAdded ? `added-${lastAdded.seq}` : "line"}
                         type="button"
                         onClick={() => {
                           onSelectLine(active ? null : l.lineId);
                           onSelectSubmitted(null);
                         }}
                         className={`flex min-h-14 w-full items-center justify-between rounded-xl border px-4 py-3 text-left ${
+                          justAdded ? "pg-added-flash " : ""
+                        }${
                           active
                             ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
                             : "border-[hsl(var(--pg-border))]"
@@ -552,6 +596,8 @@ export function TableWorkspace({
           onSearchChange={onSearchChange}
           onAllergenToggle={onAllergenToggle}
           onAddProduct={onAddProduct}
+          cartQtyByProduct={cartQtyByProduct}
+          lastAdded={lastAdded}
         />
       </div>
     </div>
@@ -651,6 +697,7 @@ export function TableWorkspace({
         <TabButton
           label="Comanda"
           badge={cartCount > 0 ? cartCount : undefined}
+          badgePopKey={lastAdded?.seq}
           active={workspaceTab === "comanda"}
           onClick={() => onTabChange("comanda")}
         />
@@ -723,6 +770,36 @@ export function TableWorkspace({
                 <ActionChip label="Storno" onClick={() => onStorno(selectedSubmitted)} />
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {addedToast && addedToastQty > 0 && (
+        <div
+          className={`pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 ${
+            hasSelection ? "bottom-[9.5rem]" : "bottom-[5.5rem]"
+          }`}
+        >
+          <div
+            key={addedToast.seq}
+            role="status"
+            aria-live="polite"
+            className="pg-toast-in pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-xl bg-[hsl(var(--pg-foreground))] py-2 pl-4 pr-2 text-sm text-[hsl(var(--pg-background))] shadow-lg"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-semibold">✓ {addedToast.name}</span>
+              <span className="block text-xs opacity-80">
+                {stepLabel(addedToast.course)}
+                {addedToastQty > 1 ? ` · ${addedToastQty} in bozza` : ""}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={undoLastAdded}
+              className="min-h-10 shrink-0 rounded-lg px-3 font-semibold text-[hsl(var(--pg-primary))]"
+            >
+              Annulla
+            </button>
           </div>
         </div>
       )}
@@ -874,11 +951,14 @@ export function TableWorkspace({
 function TabButton({
   label,
   badge,
+  badgePopKey,
   active,
   onClick,
 }: {
   label: string;
   badge?: number;
+  /** Cambia a ogni aggiunta: fa "saltare" il badge. */
+  badgePopKey?: number;
   active: boolean;
   onClick: () => void;
 }) {
@@ -894,7 +974,12 @@ function TabButton({
     >
       {label}
       {badge != null && badge > 0 && (
-        <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--pg-primary))] px-1 text-xs text-[hsl(var(--pg-primary-foreground))]">
+        <span
+          key={badgePopKey}
+          className={`ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--pg-primary))] px-1 text-xs text-[hsl(var(--pg-primary-foreground))] ${
+            badgePopKey ? "pg-pop" : ""
+          }`}
+        >
           {badge > 99 ? "99+" : badge}
         </span>
       )}

@@ -18,6 +18,7 @@ import { normalizeCourse, stepLabel } from "./lib/course";
 import { clearDraft, loadDraft, saveDraft } from "./lib/offline";
 import type {
   CartLine,
+  LastAddedLine,
   LiveTable,
   MenuSnapshot,
   Operator,
@@ -57,6 +58,8 @@ export default function App() {
   /** Tavolo fisico di destinazione quando il conto è un gruppo unito. */
   const [orderForTableId, setOrderForTableId] = useState<string | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
+  /** Ultimo piatto aggiunto alla bozza: guida avviso, evidenziazione riga e contatore menu. */
+  const [lastAdded, setLastAdded] = useState<LastAddedLine | null>(null);
   const [submittedLines, setSubmittedLines] = useState<SubmittedLine[]>([]);
   const [message, setMessage] = useState("");
   const [printAlert, setPrintAlert] = useState<string[] | null>(null);
@@ -137,6 +140,7 @@ export default function App() {
     setActiveCourse(1);
     setSelectedLineId(null);
     setSelectedSubmittedId(null);
+    setLastAdded(null);
     setScreen("table");
 
     // Asporto/delivery: chi apre l'ordine lo prende in carico subito (come in cassa).
@@ -726,13 +730,15 @@ export default function App() {
 
   const mergeCartLine = (line: CartLine) => {
     const key = lineKey(line.productId, line.variants, line.course, line.forTableId);
-    let focusId = line.lineId;
+    // L'id da selezionare va calcolato prima di setCart: l'updater può girare dopo.
+    const focusId =
+      cart.find((l) => lineKey(l.productId, l.variants, l.course, l.forTableId) === key)
+        ?.lineId ?? line.lineId;
     setCart((prev) => {
       const existing = prev.find(
         (l) => lineKey(l.productId, l.variants, l.course, l.forTableId) === key,
       );
       if (existing) {
-        focusId = existing.lineId;
         return prev.map((l) =>
           lineKey(l.productId, l.variants, l.course, l.forTableId) === key
             ? { ...l, quantity: l.quantity + 1 }
@@ -745,6 +751,14 @@ export default function App() {
       return [...prev, courseHold ? { ...line, hold: true } : line];
     });
     setSelectedLineId(focusId);
+    setLastAdded((prev) => ({
+      seq: (prev?.seq ?? 0) + 1,
+      lineId: focusId,
+      productId: line.productId,
+      name: line.name,
+      course: line.course,
+    }));
+    navigator.vibrate?.(15);
   };
 
   const resolveOrderForTable = (): { id: string; label: string } | null => {
@@ -1477,6 +1491,7 @@ export default function App() {
           }
           onSelectCat={handleSelectCat}
           onAddProduct={addProduct}
+          lastAdded={lastAdded}
           onConfirmVariants={confirmVariants}
           onCancelVariants={() => setVariantProduct(null)}
           onUpdateCart={setCart}

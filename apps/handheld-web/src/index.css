@@ -2,3 +2,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Feedback aggiunta piatto (palmare) */
+@keyframes pg-added-flash {
+  0% { background-color: hsl(var(--pg-primary) / 0.28); }
+  100% { background-color: transparent; }
+}
+@keyframes pg-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+/* Solo movimento: se l'animazione non parte, l'avviso resta comunque visibile. */
+@keyframes pg-toast-in {
+  from { transform: translateY(0.75rem); }
+  to { transform: translateY(0); }
+}
+.pg-added-flash { animation: pg-added-flash 1.2s ease-out; }
+.pg-pop { animation: pg-pop 0.35s ease-out; }
+.pg-toast-in { animation: pg-toast-in 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .pg-added-flash, .pg-pop, .pg-toast-in { animation: none; }
+}
