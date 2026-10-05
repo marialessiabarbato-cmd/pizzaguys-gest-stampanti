@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { startHeartbeatLoop } from "./lib/heartbeat.js";
+import { registerRuntimePersistence, restoreRuntimeState } from "./lib/runtime-persistence.js";
 import dbPlugin from "./plugins/db.js";
 import { invoiceCustomerRoutes } from "./routes/invoice-customers.js";
 import { orderRoutes } from "./routes/orders.js";
@@ -31,6 +32,11 @@ await app.register(cors, {
 });
 await app.register(websocket);
 await app.register(dbPlugin);
+
+// T19: ripristina tavoli aperti, ordini, KDS e incassi turno salvati prima del riavvio.
+const restored = restoreRuntimeState(app.edgeDb);
+if (restored) app.log.info({ restored }, "Stato operativo ripristinato dopo il riavvio");
+registerRuntimePersistence(app);
 
 await statusRoutes(app);
 await salaRoutes(app);

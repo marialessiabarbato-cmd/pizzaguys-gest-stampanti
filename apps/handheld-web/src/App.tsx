@@ -2,6 +2,7 @@ import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal";
 import { ConfirmModal } from "./components/ConfirmModal";
+import { PrintAlertModal } from "./components/PrintAlertModal";
 import { PinPad } from "./components/PinPad";
 import { PinModal } from "./components/PinModal";
 import { PriceOverrideModal } from "./components/PriceOverrideModal";
@@ -58,6 +59,10 @@ export default function App() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [submittedLines, setSubmittedLines] = useState<SubmittedLine[]>([]);
   const [message, setMessage] = useState("");
+  const [printAlert, setPrintAlert] = useState<string[] | null>(null);
+  const showPrintWarnings = (warnings?: string[]) => {
+    if (warnings?.length) setPrintAlert(warnings);
+  };
   const [lockPending, setLockPending] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [allergenFilter, setAllergenFilter] = useState<string[]>([]);
@@ -912,7 +917,9 @@ export default function App() {
       orderId: string;
       tableId: string;
       tableLabel: string;
+      printWarnings?: string[];
     }>(`/api/orders/${order.id}/submit`, { method: "POST" });
+    showPrintWarnings(result.printWarnings);
 
     if (result.ok) {
       send("ORDER_SUBMIT", {
@@ -969,20 +976,22 @@ export default function App() {
 
   const callCourse = async (course: number) => {
     if (!activeTable || isOffline) return;
-    await edgeApi("/api/orders/call-course", {
+    const result = await edgeApi<{ printWarnings?: string[] }>("/api/orders/call-course", {
       method: "POST",
       body: JSON.stringify({ tableId: activeTable.id, course }),
     });
+    showPrintWarnings(result.printWarnings);
     setConfirmCallCourse(null);
     setMessage(`Marcia — ${stepLabel(course)} inviata in cucina`);
   };
 
   const releaseDessert = async () => {
     if (!activeTable || isOffline) return;
-    await edgeApi("/api/orders/release-dessert", {
+    const result = await edgeApi<{ printWarnings?: string[] }>("/api/orders/release-dessert", {
       method: "POST",
       body: JSON.stringify({ tableId: activeTable.id }),
     });
+    showPrintWarnings(result.printWarnings);
     setConfirmReleaseDessert(false);
     setMessage("X DOLCE — dolci inviati in cucina");
   };
@@ -1028,7 +1037,7 @@ export default function App() {
   const executeStorno = async (line: SubmittedLine, quantity: number) => {
     if (!operator) return;
     try {
-      await edgeApi(`/api/orders/${line.orderId}/storno`, {
+      const stornoResult = await edgeApi<{ printWarnings?: string[] }>(`/api/orders/${line.orderId}/storno`, {
         method: "POST",
         body: JSON.stringify({
           lineId: line.lineId,
@@ -1037,6 +1046,7 @@ export default function App() {
           quantity,
         }),
       });
+      showPrintWarnings(stornoResult.printWarnings);
       setSubmittedLines((prev) =>
         prev.map((l) =>
           l.lineId === line.lineId
@@ -1267,6 +1277,7 @@ export default function App() {
         />
         );
       })()}
+      {printAlert && <PrintAlertModal messages={printAlert} onClose={() => setPrintAlert(null)} />}
       {confirmCallCourse != null && (
         <ConfirmModal
           title={`Chiamare ${stepLabel(confirmCallCourse)}?`}

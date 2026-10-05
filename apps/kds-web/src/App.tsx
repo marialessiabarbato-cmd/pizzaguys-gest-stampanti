@@ -8,7 +8,7 @@ interface KdsTicket {
   tableId: string;
   tableLabel: string;
   course: number;
-  lines: { name: string; quantity: number; variants?: string[] }[];
+  lines: { name: string; quantity: number; variants?: string[]; notes?: string }[];
   submittedAt: string;
   hold: boolean;
   dessertQueue: boolean;
@@ -181,6 +181,11 @@ export default function App() {
                     {item.variants?.length ? (
                       <span className="block text-xs text-[hsl(var(--pg-muted-foreground))]">
                         {item.variants.join(", ")}
+                      </span>
+                    ) : null}
+                    {item.notes ? (
+                      <span className="block text-xs font-semibold text-[hsl(var(--pg-warning))]">
+                        Nota: {item.notes}
                       </span>
                     ) : null}
                   </li>

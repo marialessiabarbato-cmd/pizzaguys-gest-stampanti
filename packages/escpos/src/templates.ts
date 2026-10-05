@@ -15,6 +15,26 @@ export interface OrderLine {
   name: string;
   quantity: number;
   variants?: string[];
+  /** Nota libera del cameriere (es. "ben cotta", "allergia"). */
+  notes?: string;
+  /** Portata (1 = Ora, 2–3 = Segue, 4 = Dolce), come nel palmare. */
+  course?: number;
+  /** Riga in attesa di "Marcia". */
+  hold?: boolean;
+}
+
+/** Nome della portata come nel palmare (handheld-web/src/lib/course.ts). */
+export function courseLabel(course: number): string {
+  if (course <= 1) return "ORA";
+  if (course >= 4) return "DOLCE";
+  return `SEGUE >${course - 1}`;
+}
+
+function lineDetailLines(line: OrderLine): Buffer[] {
+  const parts = (line.variants ?? []).map((v) => textLine(`  + ${v}`));
+  const note = line.notes?.trim();
+  if (note) parts.push(textLine(`  NOTA: ${note}`));
+  return parts;
 }
 
 export interface KitchenTicketParams {
@@ -38,14 +58,28 @@ export function buildKitchenTicket(params: KitchenTicketParams): Buffer {
   parts.push(CMD_DOUBLE_SIZE, textLine(`TAVOLO ${params.tableLabel}`));
   parts.push(CMD_NORMAL_SIZE, CMD_ALIGN_LEFT);
 
-  if (params.hold) {
-    parts.push(textLine("*** IN ATTESA / HOLD ***"));
+  const byCourse = new Map<number, OrderLine[]>();
+  for (const line of params.lines) {
+    const course = line.course ?? 1;
+    byCourse.set(course, [...(byCourse.get(course) ?? []), line]);
   }
 
-  for (const line of params.lines) {
-    parts.push(textLine(`${line.quantity}x ${line.name}`));
-    for (const v of line.variants ?? []) {
-      parts.push(textLine(`  + ${v}`));
+  if (byCourse.size === 1 && byCourse.has(1)) {
+    // Solo portata "Ora": formato semplice senza intestazioni di sezione.
+    if (params.hold) {
+      parts.push(textLine("*** IN ATTESA / HOLD ***"));
+    }
+    for (const line of params.lines) {
+      parts.push(textLine(`${line.quantity}x ${line.name}`), ...lineDetailLines(line));
+    }
+  } else {
+    for (const course of [...byCourse.keys()].sort((a, b) => a - b)) {
+      const lines = byCourse.get(course)!;
+      const waiting = lines.every((l) => l.hold) ? " (in attesa)" : "";
+      parts.push(textLine(`-- ${courseLabel(course)}${waiting} --`));
+      for (const line of lines) {
+        parts.push(textLine(`${line.quantity}x ${line.name}`), ...lineDetailLines(line));
+      }
     }
   }
 
@@ -221,18 +255,14 @@ export function buildCallCourseTicket(params: CallCourseTicketParams): Buffer {
     CMD_INIT,
     CMD_ALIGN_CENTER,
     CMD_DOUBLE_SIZE,
-    textLine(`=== CHIAMA PORTATA ${params.course} ===`),
+    textLine(`=== MARCIA ${courseLabel(params.course)} ===`),
     CMD_NORMAL_SIZE,
     textLine(`TAVOLO ${params.tableLabel}`),
     CMD_ALIGN_LEFT,
-    textLine("SEGUE ->"),
   ];
 
   for (const line of params.lines) {
-    parts.push(textLine(`${line.quantity}x ${line.name}`));
-    for (const v of line.variants ?? []) {
-      parts.push(textLine(`  + ${v}`));
-    }
+    parts.push(textLine(`${line.quantity}x ${line.name}`), ...lineDetailLines(line));
   }
 
   parts.push(

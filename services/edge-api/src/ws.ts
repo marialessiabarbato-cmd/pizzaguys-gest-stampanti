@@ -21,6 +21,7 @@ import {
 import { verifyManagerPin } from "./lib/staff-auth.js";
 import { parseGuestCount, effectiveCapacityForTable } from "./lib/table-capacity.js";
 import { printTablePrebill } from "./lib/prebill-print.js";
+import { saveRuntimeStateSafe } from "./lib/runtime-persistence.js";
 import { addWsClient, broadcast, broadcastTableStatus, removeWsClient } from "./lib/ws-hub.js";
 
 type WsClient = { send: (data: string) => void; readyState: number };
@@ -313,6 +314,9 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
         }
       } catch {
         socket.send(JSON.stringify({ type: "ERROR", payload: { message: "Invalid message" } }));
+      } finally {
+        // T19: i messaggi dei palmari (lock, ordini, pagamenti) modificano lo stato operativo.
+        saveRuntimeStateSafe(app);
       }
     });
 

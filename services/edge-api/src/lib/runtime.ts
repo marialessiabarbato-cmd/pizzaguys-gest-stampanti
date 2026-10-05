@@ -47,9 +47,12 @@ export interface TableOrder {
 
 export interface KdsTicketLine {
   lineId: string;
+  /** Per smistare marcia e dolci al centro di produzione corretto. */
+  productId?: string;
   name: string;
   quantity: number;
   variants?: string[];
+  notes?: string;
 }
 
 export interface KdsTicket {
@@ -796,9 +799,11 @@ export function rebuildKdsTicketsForOrder(order: TableOrder, tableLabel: string)
       course,
       lines: lines.map((l) => ({
         lineId: l.id,
+        productId: l.productId,
         name: l.name,
         quantity: l.quantity,
         variants: variantLabels(l),
+        notes: l.notes?.trim() || undefined,
       })),
       submittedAt: order.submittedAt,
       hold: hold || dessertQueue,
@@ -1241,4 +1246,81 @@ export function mergeTablesInto(params: {
     affectedOrderIds: [],
     mergedSources,
   };
+}
+
+// ── Persistenza su disco (T19) ───────────────────────────────────────────────
+
+/** Stato operativo serializzabile. I token sconto (validi pochi secondi) non vengono salvati. */
+export interface RuntimeSnapshot {
+  tableRuntime: [string, TableRuntime][];
+  orders: [string, TableOrder][];
+  kdsTickets: [string, KdsTicket][];
+  kdsCancellations: KdsCancellation[];
+  romanSplits: [string, RomanSplit][];
+  analyticSplits: [string, AnalyticSplit][];
+  paymentRequests: [string, PaymentRequest][];
+}
+
+export function exportRuntimeState(): RuntimeSnapshot {
+  return {
+    tableRuntime: [...tableRuntime.entries()],
+    orders: [...orders.entries()],
+    kdsTickets: [...kdsTickets.entries()],
+    kdsCancellations: [...kdsCancellations],
+    romanSplits: [...romanSplits.entries()],
+    analyticSplits: [...analyticSplits.entries()],
+    paymentRequests: [...paymentRequests.entries()],
+  };
+}
+
+function refill<V>(map: Map<string, V>, entries: [string, V][] | undefined) {
+  map.clear();
+  for (const [key, value] of entries ?? []) map.set(key, value);
+}
+
+/**
+ * Ricarica lo stato salvato. I blocchi dei tavoli vengono rilasciati: dopo un
+ * riavvio i dispositivi si ricollegano e un blocco appeso fermerebbe il tavolo.
+ */
+export function importRuntimeState(snapshot: Partial<RuntimeSnapshot>): { releasedLocks: number } {
+  refill(tableRuntime, snapshot.tableRuntime);
+  refill(orders, snapshot.orders);
+  refill(kdsTickets, snapshot.kdsTickets);
+  refill(romanSplits, snapshot.romanSplits);
+  refill(analyticSplits, snapshot.analyticSplits);
+  refill(paymentRequests, snapshot.paymentRequests);
+  kdsCancellations.length = 0;
+  kdsCancellations.push(...(snapshot.kdsCancellations ?? []));
+  discountTokens.clear();
+
+  let releasedLocks = 0;
+  for (const runtime of [...tableRuntime.values()]) {
+    if (!runtime.lockedBy) continue;
+    releasedLocks += 1;
+    if (runtime.status === "LOCKED") {
+      releaseLock(runtime.tableId, runtime.lockedBy);
+    } else {
+      tableRuntime.set(runtime.tableId, {
+        ...runtime,
+        lockedBy: undefined,
+        lockedByName: undefined,
+        lockedAt: undefined,
+      });
+    }
+  }
+  return { releasedLocks };
+}
+
+/**
+ * Riepilogo per l'avviso in cassa dopo un ripristino. `excludeIds`: tavoli virtuali
+ * di asporto/delivery, contati a parte.
+ */
+export function summarizeRuntimeState(excludeIds: Set<string> = new Set()): {
+  openTables: number;
+  openOrders: number;
+} {
+  const busy = [...tableRuntime.values()].filter(
+    (t) => t.status !== "FREE" && !t.mergedIntoTableId && !excludeIds.has(t.tableId),
+  );
+  return { openTables: busy.length, openOrders: orders.size };
 }

@@ -85,3 +85,21 @@ export function getDayTheoretical(date = todayKey()) {
 export function clearDayLedger(date = todayKey()) {
   dayLedger.delete(date);
 }
+
+// ── Persistenza su disco (T19) ───────────────────────────────────────────────
+
+export interface ShiftLedgerSnapshot {
+  ledger: [string, ShiftPayment[]][];
+  dayLedger: [string, ShiftPayment[]][];
+}
+
+export function exportShiftLedgerState(): ShiftLedgerSnapshot {
+  return { ledger: [...ledger.entries()], dayLedger: [...dayLedger.entries()] };
+}
+
+export function importShiftLedgerState(snapshot: Partial<ShiftLedgerSnapshot>) {
+  ledger.clear();
+  dayLedger.clear();
+  for (const [key, value] of snapshot.ledger ?? []) ledger.set(key, value);
+  for (const [key, value] of snapshot.dayLedger ?? []) dayLedger.set(key, value);
+}

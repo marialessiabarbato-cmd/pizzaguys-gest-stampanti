@@ -142,3 +142,21 @@ export function formatScheduledTime(order: CounterOrder): string {
   const d = new Date(order.scheduledAt);
   return d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }
+
+// ── Persistenza su disco (T19) ───────────────────────────────────────────────
+
+export interface CounterOrderSnapshot {
+  counterOrders: [string, CounterOrder][];
+  dailySeq: typeof dailySeq;
+}
+
+export function exportCounterOrderState(): CounterOrderSnapshot {
+  return { counterOrders: [...counterOrders.entries()], dailySeq: { ...dailySeq } };
+}
+
+/** Ripristina asporti/delivery aperti e la numerazione del giorno (niente numeri doppi). */
+export function importCounterOrderState(snapshot: Partial<CounterOrderSnapshot>) {
+  counterOrders.clear();
+  for (const [key, value] of snapshot.counterOrders ?? []) counterOrders.set(key, value);
+  if (snapshot.dailySeq) dailySeq = { ...snapshot.dailySeq };
+}

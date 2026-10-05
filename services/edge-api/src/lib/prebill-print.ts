@@ -5,6 +5,7 @@ import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { consolidateBillForTable } from "./cover-charge.js";
 import { resolveTableContext } from "./counter-order.js";
 import { setBillRequested } from "./runtime.js";
+import { reportPrintFailures } from "./print-alerts.js";
 import { broadcastTableStatus } from "./ws-hub.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -44,5 +45,6 @@ export async function printTablePrebill(edgeDb: EdgeDatabase, tableId: string) {
   setBillRequested(tableId);
   broadcastTableStatus(tableId, "BILL_REQUESTED");
 
-  return { ok: true as const, bill, printResult };
+  const printWarnings = reportPrintFailures(edgeDb, "PRECONTO", ctx.label, [printResult]);
+  return { ok: true as const, bill, printResult, printWarnings };
 }

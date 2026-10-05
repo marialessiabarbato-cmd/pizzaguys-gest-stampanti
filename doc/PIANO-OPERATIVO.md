@@ -603,7 +603,7 @@ Brand (Pizza Guys)
 | T6.1 | Deploy cloud (Fly.io / Railway EU) | 🔄 `deploy/cloud/` |
 | T6.2 | Script install mini PC Caserta | 🔄 `scripts/edge/install-caserta.sh` |
 | T6.3 | Configurazione 3 tablet Fire + rete LAN | ⬜ runbook in FASE-6 |
-| T6.4 | Seed menu Pizza Guys (~80 articoli, 8 categorie) | 🔄 `pnpm db:seed:menu` |
+| T6.4 | Seed menu Pizza Guys (menu reale, 11 categorie, 42 articoli) | ✅ `pnpm db:seed:menu` |
 | T6.5 | Test e2e Playwright su flussi critici | 🔄 `e2e/` smoke |
 | T6.6 | Formazione on-site staff | ⬜ |
 
@@ -616,7 +616,7 @@ Brand (Pizza Guys)
 | ID | Task |
 |----|------|
 | T7.1 | Integrazione driver Micrelec (Ethernet + seriale) |
-| T7.2 | ESC/POS TCP reale porta 9100 |
+| T7.2 | ESC/POS TCP reale porta 9100 — 🔄 `NetworkHardwareBridge` testato su POS Italia ST30 |
 | T7.3 | Fattura elettronica via intermediario SDI |
 | T7.4 | Ritrasmissione corrispettivi telematici |
 | T7.5 | KDS produzione: SLA, audio, undo, stati avanzati |
@@ -743,18 +743,23 @@ Con 3 dev in parallelo su Fasi 3–4: **12–14 settimane**.
 
 ## 14. Flussi stampa (requisito core)
 
-Specifiche da rispettare (mock in MVP, reali in Fase 7).
+Specifiche originali e stato dell'implementazione (`packages/escpos/src/templates.ts`).
+Stampa su rete reale testata su POS Italia ST30 (ottobre 2026); fiscale ancora mock.
 
-| Tipo stampa | Requisiti layout |
-|-------------|-----------------|
-| **Comanda standard** | Centro in alto; tavolo doppia dimensione; varianti con `+` indentate; footer: ospiti, n. articoli, ora, operatore |
-| **Comanda in attesa (HOLD)** | Linea tratteggiata `SEGUE → [N]` sotto i piatti in hold |
-| **Annullamento** | `--- ANNULLO ---` testo invertito (sfondo nero, testo bianco) |
-| **Ristampa** | `*** RISTAMPA ***` in testa e footer |
-| **Preconto** | `*** DOCUMENTO NON FISCALE ***` doppia dimensione, testa e coda |
-| **Chiama portata** | `=== CHIAMA PORTATA [X] ===` caratteri giganti |
-| **Dessert (X DOLCE)** | `*** SERVIZIO DOLCI TAVOLO [ID] ***` |
-| **Report giornaliero** | Struttura testuale nativa per parsing email cloud |
+| Tipo stampa | Requisito originale | Implementazione attuale |
+|-------------|--------------------|-------------------------|
+| **Comanda standard** | Centro in alto; tavolo doppia dimensione; varianti con `+` indentate; footer: ospiti, n. articoli, ora, operatore | ✅ Come da requisito + nota cameriere `NOTA: ...` sotto le varianti |
+| **Comanda in attesa (HOLD)** | Linea tratteggiata `SEGUE → [N]` sotto i piatti in hold | ✅ Sezioni per portata: `-- ORA --`, `-- SEGUE >1 (in attesa) --`, `-- SEGUE >2 (in attesa) --`, `-- DOLCE --` (nomi come nel palmare) |
+| **Annullamento** | `--- ANNULLO ---` testo invertito | ✅ `=== ANNULLO PIATTO ===` invertito, doppia dimensione |
+| **Ristampa** | `*** RISTAMPA ***` in testa e footer | ✅ `*** RISTAMPA ***` in testa, `** Reprint **` in coda |
+| **Preconto** | `*** DOCUMENTO NON FISCALE ***` doppia dimensione, testa e coda | ⚠️ Testa in **dimensione normale** (in doppia supera i 24 caratteri e va a capo); coda `*** NON VALIDO AI FINI FISCALI ***` |
+| **Chiama portata** | `=== CHIAMA PORTATA [X] ===` caratteri giganti | ⚠️ `=== MARCIA SEGUE >n ===` doppia dimensione — allineato ai nomi del palmare |
+| **Dessert (X DOLCE)** | `*** SERVIZIO DOLCI TAVOLO [ID] ***` | ⚠️ Comanda Pizzeria con operatore `X DOLCE` — intestazione dedicata da implementare |
+| **Copia scontrino** | — | ✅ `*** COPIA NON FISCALE ***` a ogni incasso se `RECEIPT_COPY_PRINT=true` |
+| **Report giornaliero** | Struttura testuale nativa per parsing email cloud | ✅ File txt/html/json in `tmp/prints/` (mock) |
+
+Regole tecniche comuni: init `ESC @` + code page `ESC t 16` (WPC1252) con testo codificato CP1252;
+avanzamento 5 righe (`ESC d 5`) prima del taglio `GS V 0`; carta 80 mm = 48 colonne (24 in doppia dimensione).
 
 ---
 
@@ -768,10 +773,11 @@ Specifiche da rispettare (mock in MVP, reali in Fase 7).
 6. ✅ **Fase 4** — Cassa e pagamenti (`doc/FASE-4.md`)
 7. ✅ **Fase 5** — Chiusura e sync (`doc/FASE-5.md`)
 8. 🔄 **Fase 6** — Pilota Caserta (`doc/FASE-6.md`)
-9. 🔄 Seed menu pilota — `pnpm db:seed:menu` (script pronto)
+9. ✅ Seed menu pilota — menu reale "Travelling Kitchen" (allergeni da validare)
 10. 🔄 Deploy cloud EU — `deploy/cloud/README.md`
 11. ⬜ Acquisizione hardware Caserta (mini PC + tablet)
-12. ⬜ **Fase 7** — Hardware reale Micrelec + ESC/POS
+12. 🔄 **Fase 7** — ESC/POS reale testato (ST30); Micrelec ⬜
+13. ⬜ Validazione prossimi step — `doc/PROSSIMI-STEP.md`
 
 ---
 
@@ -789,6 +795,7 @@ Specifiche da rispettare (mock in MVP, reali in Fase 7).
 | 2026-06-10 | 1.6 | Fase 4 avviata — doc `FASE-4.md`, cassa e pagamenti |
 | 2026-06-10 | 1.7 | Fase 5 completata — chiusura, audit, sync, report notturno |
 | 2026-06-10 | 1.8 | Fase 6 avviata — pilota Caserta, seed menu, deploy, e2e |
+| 2026-10-03 | 1.9 | §14 flussi stampa: stato implementazione e scostamenti; ESC/POS reale testato su ST30 |
 
 ---
 

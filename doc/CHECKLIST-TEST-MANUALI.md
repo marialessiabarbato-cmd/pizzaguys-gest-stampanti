@@ -1,7 +1,7 @@
 # Checklist test manuali — Pizza Guys Gest
 
 Documento operativo per verificare le feature richieste (sala, cassa, handheld, cloud, chiusure).  
-Aggiornato: **24 luglio 2026**.
+Aggiornato: **3 ottobre 2026** (aggiunta sezione **S — Stampa**).
 
 ---
 
@@ -21,8 +21,10 @@ Aggiornato: **24 luglio 2026**.
 | Ruolo            | Credenziali                         |
 | ---------------- | ----------------------------------- |
 | Cameriere        | PIN `1234`                          |
-| Cassiere         | PIN `2468`                          |
+| Cassiere         | PIN `5678` (ambiente locale attuale — vedi `doc/TEST-LOCALE.md`) |
 | SuperAdmin cloud | `admin@pizzaguys.it` / password hub |
+
+I PIN dipendono dall'ambiente (si creano su Main Station → Staff). Gli smoke Python si aspettano `1234` e `5678`.
 
 
 ### Smoke automatici (opzionale, prima del giro UI)
@@ -33,6 +35,9 @@ python3 scripts/smoke-giro-test.py
 ```
 
 Atteso: **0 FAIL**. I WARN su chiusura Z devono essere **0** dopo cleanup turni/tavoli.
+
+> ⚠️ Con `HARDWARE_BRIDGE_MODE=network` e stampante reale collegata, `smoke-giro-test.py` stampa decine
+> di ticket: puntare prima le stampanti al simulatore (`doc/TEST-LOCALE.md`).
 
 ---
 
@@ -95,7 +100,7 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 | --- | --------------------- | ---------------------------------------------------- | ----------------------------------------------- | --- |
 | D1  | Richiesta da handheld | Tavolo con comanda spedita → **Preconto** → conferma | Messaggio “cassa notificata”                    | ok  |
 | D2  | Notifica cassa        | Guarda cassa                                         | Banner “Pagamento richiesto” + tavolo arancione | ok  |
-| D3  | Stampa preconto       | Controlla `tmp/prints` o stampante mock              | File `*-prebill-*` con testo PRECONTO           | ok  |
+| D3  | Stampa preconto       | Stampante Bar (ST30) o `tmp/prints` in modalità mock | Ticket PRECONTO (vedi anche **S5**)             | ok  |
 
 
 ---
@@ -153,6 +158,43 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 
 ---
 
+## S — Stampa (stampante reale ESC/POS, es. POS Italia ST30)
+
+Prerequisiti: `HARDWARE_BRIDGE_MODE=network`, stampanti Edge puntate alla stampante, alias di rete attivo
+(`doc/TEST-LOCALE.md`). Test eseguiti su ST30 il 1–3 ottobre 2026.
+
+| #   | Test                     | Passi                                                       | Atteso                                                                 | ☐   |
+| --- | ------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------- | --- |
+| S1  | Test stampante           | Main Station → Stampanti → **Test stampa** (o API `/test`)  | Ticket "TAVOLO TEST" esce; data in fondo **intera** (non tagliata)     | ok  |
+| S2  | Accenti ed euro          | Operatore/nota con `à è ì ò ù`, preconto con `€`            | Caratteri corretti, nessun simbolo strano                              | ok  |
+| S3  | Varianti e nota          | Pizza con rimozione + aggiunta + nota libera → Spedisci      | `+ NO …`, `+ …` e poi `NOTA: …` sotto il piatto                        | ok  |
+| S4  | Ora / Segue in comanda   | Un piatto Ora, uno Segue >1, uno Segue >2 → Spedisci         | Un ticket con sezioni `-- ORA --`, `-- SEGUE >1 (in attesa) --`, `-- SEGUE >2 (in attesa) --` | ok  |
+| S5  | Marcia                   | Palmare → Marcia Segue >1, poi Segue >2                      | Ticket `=== MARCIA SEGUE >1 ===` e `=== MARCIA SEGUE >2 ===` con i piatti giusti | ok  |
+| S6  | Preconto                 | Cassa/palmare → Preconto                                     | `*** DOCUMENTO NON FISCALE ***` su **una riga**; totale in grande      | ok  |
+| S7  | Copia non fiscale        | Incassa un tavolo (`RECEIPT_COPY_PRINT=true`)                 | `*** COPIA NON FISCALE ***` con righe, totale, IVA; nessuna copia per fattura | ☐ layout da confermare |
+| S8  | Annullo                  | Storno di un piatto spedito                                  | `=== ANNULLO PIATTO ===` in negativo (sfondo nero)                     | ☐   |
+| S9  | Stampante spenta         | Spegni la stampante → Spedisci dal palmare, poi incassa      | Palmare: finestra "Stampa non riuscita"; cassa: banner rosso; incasso riesce comunque | ☐   |
+| S12 | IP stampante da cassa    | Main Station → Stampanti → cambia IP → Salva → Stampa di prova | IP non valido rifiutato; IP valido salvato; ticket di prova esce        | ok  |
+| S13 | Smistamento reparti      | Routing categorie diverse → comanda, Marcia, X DOLCE         | Ogni piatto (anche in Marcia e dolci) esce sulla stampante del suo reparto | ok (simulatore) |
+| S10 | X DOLCE                  | Dolce in coda → sblocca dolci                                | Comanda dolci in Pizzeria (intestazione dedicata da definire)          | ☐   |
+| S11 | Prenotazioni             | Prenotazioni → Stampa lista                                  | Lista su stampante Bar                                                 | ☐   |
+
+---
+
+## R — Riavvio Edge (stato operativo)
+
+Automatico: `python3 scripts/smoke-restart.py` (riavvio pulito) e `--crash` (kill -9, poi rilanciare `pnpm dev`).
+
+| #  | Test                         | Passi                                                                 | Atteso                                                                | ☐   |
+| -- | ---------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | --- |
+| R1 | Riavvio a metà servizio      | Tavoli aperti (comanda, split, preconto), asporto, incassi → riavvia Edge | Tutto come prima; tavoli "in uso" sbloccati                       | ok  |
+| R2 | Spegnimento forzato          | Come R1 ma `kill -9` / spina staccata                                  | Come R1 (si perde al massimo l'ultima operazione in corso)            | ok  |
+| R3 | Avviso in cassa              | Dopo R1/R2 apri la cassa                                               | Banner blu "L'Edge si è riavviato…" con n. tavoli/asporti; **Chiudi** | ok  |
+| R4 | Chiusura turno dopo riavvio  | Incassa, riavvia, Chiudi turno                                        | Totali teorici del turno invariati                                    | ☐   |
+| R5 | Mini PC riavviato (produzione) | Riavvio del mini PC durante il servizio                             | systemd riavvia l'Edge; stato ripristinato                            | ☐ (serve mini PC) |
+
+---
+
 ## H — Regressione rapida (smoke UI)
 
 
@@ -160,7 +202,7 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 | --- | ------------------------ | ---------------------------------------- | --- |
 | H1  | Login handheld + cassa   | PIN OK, edge online                      | ok  |
 | H2  | Lock tavolo cameriere    | Altro operatore non entra senza override | ok  |
-| H3  | SPEDITO → KDS/print mock | Ticket cucina in `tmp/prints`            | ok  |
+| H3  | SPEDITO → KDS/stampa     | Ticket cucina su stampante (o `tmp/prints` in mock); KDS aggiornato | ok  |
 | H4  | Login cloud SuperAdmin   | Dashboard sedi online                    | ok  |
 
 
@@ -174,8 +216,9 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 4. **D** (preconto)
 5. **E** (cassa / split)
 6. **G** (cloud)
-7. **F** (chiusure, a fine giornata di test)
-8. **H** se qualcosa è andato storto
+7. **S** (stampa, se c'è la stampante reale)
+8. **F** (chiusure, a fine giornata di test)
+9. **H** se qualcosa è andato storto
 
 ---
 
@@ -194,5 +237,6 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 
 - Smoke API esteso: `scripts/smoke-giro-test.py`
 - Smoke feature richieste: `scripts/smoke-feature-richieste.py`
-- Giro test locale storico: `doc/GIRO-TEST-LOCALE.md`
+- Ambiente, accessi e stampante: `doc/TEST-LOCALE.md`
+- Prossimi step da validare: `doc/PROSSIMI-STEP.md`
 
