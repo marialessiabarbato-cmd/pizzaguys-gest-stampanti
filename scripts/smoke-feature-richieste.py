@@ -155,6 +155,14 @@ def main() -> int:
     code, hist_list = req(EDGE, "GET", "/api/internal-closure/history")
     expect("internal-closure history list", code, 200, hist_list if isinstance(hist_list, dict) else {})
 
+    # Banco, invio comande e incassi richiedono un turno cassa aperto (409 SHIFT_NOT_ACTIVE).
+    started_shift_id = None
+    code, open_shifts = req(EDGE, "GET", "/api/shifts")
+    if operator and code == 200 and isinstance(open_shifts, list) and not open_shifts:
+        code, shift = req(EDGE, "POST", "/api/shifts/start", {"staffId": operator.get("id")})
+        if expect("avvia turno per il test", code, {200, 201}, shift):
+            started_shift_id = shift.get("id")
+
     # Counter orders list (handheld delivery)
     print("\n--- Asporto/Delivery ---")
     code, counters = req(EDGE, "GET", "/api/pos/counter-orders")
@@ -365,6 +373,10 @@ def main() -> int:
 
             code, vg = req(CLOUD, "GET", "/api/v2/variant-groups", token=token)
             expect("variant-groups (filtri UI)", code, 200, vg if isinstance(vg, dict) else {})
+
+    if started_shift_id:
+        code, ended = req(EDGE, "POST", f"/api/shifts/{started_shift_id}/end")
+        expect("chiudi turno del test", code, 200, ended if isinstance(ended, dict) else {})
 
     print(f"\n=== Risultato: {len(PASS)} OK, {len(FAIL)} FAIL ===")
     for f in FAIL:

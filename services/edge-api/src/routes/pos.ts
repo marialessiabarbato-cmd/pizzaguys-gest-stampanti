@@ -52,6 +52,7 @@ import {
   clearTableDiscounts,
 } from "../lib/runtime.js";
 import { verifyManagerPin } from "../lib/staff-auth.js";
+import { SHIFT_NOT_ACTIVE, isShiftActive } from "../lib/shift-guard.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -112,6 +113,7 @@ export async function posRoutes(app: FastifyInstance) {
   );
 
   app.post("/api/pos/counter-orders", async (req, reply) => {
+    if (!isShiftActive(app.edgeDb)) return reply.status(409).send(SHIFT_NOT_ACTIVE);
     const parsed = createCounterOrderSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -542,7 +544,9 @@ export async function posRoutes(app: FastifyInstance) {
     });
 
     if (!result.ok) {
-      return reply.status(result.status ?? 400).send({ error: result.error });
+      return reply
+        .status(result.status ?? 400)
+        .send({ error: result.error, ...("code" in result ? { code: result.code } : {}) });
     }
 
     return {
@@ -577,6 +581,7 @@ export async function posRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/pos/counter-sale", async (req, reply) => {
+    if (!isShiftActive(app.edgeDb)) return reply.status(409).send(SHIFT_NOT_ACTIVE);
     const parsed = counterSaleSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });

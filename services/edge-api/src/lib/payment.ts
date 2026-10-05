@@ -36,6 +36,7 @@ import {
 } from "./runtime.js";
 import { recordDayPayment, recordShiftPayment } from "./shift-ledger.js";
 import { reportPrintFailures } from "./print-alerts.js";
+import { SHIFT_NOT_ACTIVE, isShiftActive } from "./shift-guard.js";
 import { broadcast } from "./ws-hub.js";
 import { issueElectronicInvoice } from "./invoice.js";
 
@@ -173,7 +174,12 @@ function normalizePaymentSplits(
 
 export async function executeTablePayment(
   params: ExecutePaymentParams,
-): Promise<ExecutePaymentResult | { ok: false; error: string; status?: number }> {
+): Promise<ExecutePaymentResult | { ok: false; error: string; status?: number; code?: string }> {
+  // Unico punto per REST e WebSocket (conferma pagamento palmare, scontrino da cassa).
+  if (!isShiftActive(params.edgeDb)) {
+    return { ok: false, ...SHIFT_NOT_ACTIVE, status: 409 };
+  }
+
   const bill = consolidateBillForTable(params.edgeDb, params.tableId);
   if (bill.lines.length === 0) {
     return { ok: false, error: "Nessuna voce da pagare", status: 400 };

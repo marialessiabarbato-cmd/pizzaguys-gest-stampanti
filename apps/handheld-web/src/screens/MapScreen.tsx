@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModal";
 import { RoomTabs } from "../components/RoomTabs";
+import { ShiftInactiveBanner } from "../components/ShiftInactiveBanner";
 import { TableMapViewport } from "../components/TableMapViewport";
 import {
   TABLE_STATUS_COLORS,
@@ -23,6 +24,7 @@ export function MapScreen({
   rooms,
   message,
   isOffline,
+  shiftInactive,
   lockPending,
   logoutConfirm,
   pendingGuestsTable,
@@ -41,6 +43,7 @@ export function MapScreen({
   rooms: Array<{ id: string; name: string }>;
   message: string;
   isOffline: boolean;
+  shiftInactive: boolean;
   lockPending: string | null;
   logoutConfirm: boolean;
   pendingGuestsTable: LiveTable | null;
@@ -139,101 +142,104 @@ export function MapScreen({
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-col overflow-hidden p-3">
-        {message && (
-          <p className="mb-3 shrink-0 rounded bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
-        )}
+      <main className="flex min-h-0 flex-col overflow-hidden">
+        {shiftInactive && <ShiftInactiveBanner />}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+          {message && (
+            <p className="mb-3 shrink-0 rounded bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
+          )}
 
-        {logoutConfirm && (
-          <ConfirmModal
-            title="Uscire dalla sessione?"
-            message="Dovrai reinserire il PIN per accedere."
-            confirmLabel="Esci"
-            onConfirm={onConfirmLogout}
-            onCancel={onCancelLogout}
-          />
-        )}
+          {logoutConfirm && (
+            <ConfirmModal
+              title="Uscire dalla sessione?"
+              message="Dovrai reinserire il PIN per accedere."
+              confirmLabel="Esci"
+              onConfirm={onConfirmLogout}
+              onCancel={onCancelLogout}
+            />
+          )}
 
-        <div className="mb-2 space-y-2">
-          <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-            {visibleTables.length} {visibleTables.length === 1 ? "tavolo" : "tavoli"}
-            {activeRoomName ? ` · ${activeRoomName}` : " in sala"}
-          </p>
-          <RoomTabs rooms={rooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} />
-        </div>
+          <div className="mb-2 space-y-2">
+            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+              {visibleTables.length} {visibleTables.length === 1 ? "tavolo" : "tavoli"}
+              {activeRoomName ? ` · ${activeRoomName}` : " in sala"}
+            </p>
+            <RoomTabs rooms={rooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} />
+          </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <TableMapViewport tables={displayTables} maxScale={1.15} align="start" className="!p-0">
-            {(scale) => (
-              <>
-                {displayTables.map((table) => {
-                  const unionHost = isUnionHost(table);
-                  const annexedCount = table.linkedTableIds?.length ?? 0;
-                  const { title, meta } = mapTableMeta(table, tables);
-                  const labelWidth = table.width * scale;
-                  const status = table.status;
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <TableMapViewport tables={displayTables} maxScale={1.15} align="start" className="!p-0">
+              {(scale) => (
+                <>
+                  {displayTables.map((table) => {
+                    const unionHost = isUnionHost(table);
+                    const annexedCount = table.linkedTableIds?.length ?? 0;
+                    const { title, meta } = mapTableMeta(table, tables);
+                    const labelWidth = table.width * scale;
+                    const status = table.status;
 
-                  return (
-                    <button
-                      key={table.id}
-                      type="button"
-                      disabled={lockPending === table.id}
-                      onClick={() => onSelectTable(table)}
-                      style={{
-                        position: "absolute",
-                        left: table.x,
-                        top: table.y,
-                        width: table.width,
-                        height: table.height,
-                      }}
-                      className={`relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
-                        unionHost ? "ring-2 ring-white/40 ring-offset-1 ring-offset-transparent" : ""
-                      } ${lockPending === table.id ? "opacity-50" : ""}`}
-                    >
-                      {unionHost && annexedCount > 0 && (
-                        <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
-                          +{annexedCount}
-                        </span>
-                      )}
-
-                      <span
-                        className={`max-w-full truncate font-bold leading-tight ${tableLabelFontClass(title, labelWidth)}`}
+                    return (
+                      <button
+                        key={table.id}
+                        type="button"
+                        disabled={lockPending === table.id}
+                        onClick={() => onSelectTable(table)}
+                        style={{
+                          position: "absolute",
+                          left: table.x,
+                          top: table.y,
+                          width: table.width,
+                          height: table.height,
+                        }}
+                        className={`relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
+                          unionHost ? "ring-2 ring-white/40 ring-offset-1 ring-offset-transparent" : ""
+                        } ${lockPending === table.id ? "opacity-50" : ""}`}
                       >
-                        {title}
-                      </span>
+                        {unionHost && annexedCount > 0 && (
+                          <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
+                            +{annexedCount}
+                          </span>
+                        )}
 
-                      {meta ? (
-                        <span className="max-w-full truncate text-[11px] font-medium leading-tight text-white/85">
-                          {meta}
+                        <span
+                          className={`max-w-full truncate font-bold leading-tight ${tableLabelFontClass(title, labelWidth)}`}
+                        >
+                          {title}
                         </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
 
-                {displayTables.length === 0 && (
-                  <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
-                    {activeRoomName
-                      ? `Nessun tavolo in ${activeRoomName}`
-                      : "Nessun tavolo in sala — configura la mappa da Admin"}
-                  </p>
-                )}
-              </>
-            )}
-          </TableMapViewport>
+                        {meta ? (
+                          <span className="max-w-full truncate text-[11px] font-medium leading-tight text-white/85">
+                            {meta}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
 
-          <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[hsl(var(--pg-border))] px-4 py-2.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
-            {(Object.keys(TABLE_STATUS_DOT) as TableStatus[]).map((status) => (
-              <span key={status} className="flex items-center gap-1.5">
-                <span className={`h-2.5 w-2.5 rounded-full ${TABLE_STATUS_DOT[status]}`} />
-                {TABLE_STATUS_LABELS[status]}
-                {statusSummary[status] != null && statusSummary[status]! > 0 && (
-                  <span className="tabular-nums text-[hsl(var(--pg-foreground))]">
-                    ({statusSummary[status]})
-                  </span>
-                )}
-              </span>
-            ))}
+                  {displayTables.length === 0 && (
+                    <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
+                      {activeRoomName
+                        ? `Nessun tavolo in ${activeRoomName}`
+                        : "Nessun tavolo in sala — configura la mappa da Admin"}
+                    </p>
+                  )}
+                </>
+              )}
+            </TableMapViewport>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[hsl(var(--pg-border))] px-4 py-2.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
+              {(Object.keys(TABLE_STATUS_DOT) as TableStatus[]).map((status) => (
+                <span key={status} className="flex items-center gap-1.5">
+                  <span className={`h-2.5 w-2.5 rounded-full ${TABLE_STATUS_DOT[status]}`} />
+                  {TABLE_STATUS_LABELS[status]}
+                  {statusSummary[status] != null && statusSummary[status]! > 0 && (
+                    <span className="tabular-nums text-[hsl(var(--pg-foreground))]">
+                      ({statusSummary[status]})
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </main>

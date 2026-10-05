@@ -287,6 +287,9 @@ export function CassaPage({
   const [activeShiftReminderWindow, setActiveShiftReminderWindow] =
     useState<ShiftReminderWindow | null>(null);
   const [showShiftClose, setShowShiftClose] = useState(false);
+  /** Turno del locale (almeno un turno cassa aperto). null = non ancora noto. */
+  const [shiftActive, setShiftActive] = useState<boolean | null>(null);
+  const shiftInactive = shiftActive === false;
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [showInternalClosureWizard, setShowInternalClosureWizard] = useState(false);
   const [showClosureHistory, setShowClosureHistory] = useState(false);
@@ -335,8 +338,10 @@ export function CassaPage({
       venueCapacityWarning?: string | null;
       shiftReminderSchedule?: ShiftReminderWindow[];
       runtimeRestore?: RuntimeRestoreInfo | null;
+      shift?: { active: boolean };
     }>("/api/status").then((s) => {
       setVenueCapacityWarning(s.venueCapacityWarning ?? null);
+      setShiftActive(s.shift?.active ?? null);
       setShiftReminderSchedule(s.shiftReminderSchedule ?? []);
       setRuntimeRestore(s.runtimeRestore ?? null);
     });
@@ -483,6 +488,9 @@ export function CassaPage({
       });
       loadTables();
     });
+    const offShiftStatus = on("SHIFT_STATUS", (payload) => {
+      setShiftActive((payload as { active: boolean }).active);
+    });
     const offPrintFailed = on("PRINT_FAILED", (payload) => {
       const p = payload as PrintFailedPayload;
       setPrintAlerts((prev) => [
@@ -535,6 +543,7 @@ export function CassaPage({
       offStatus();
       offPending();
       offPrintFailed();
+      offShiftStatus();
       offComplete();
       offGranted();
       offDenied();
@@ -830,6 +839,10 @@ export function CassaPage({
   };
 
   const openCounterModal = (channel: CounterChannel) => {
+    if (shiftInactive) {
+      setMessage("Turno non attivo — avvia il turno per incassare, inviare comande e aprire ordini al banco");
+      return;
+    }
     setCounterModalChannel(channel);
     setChannelFilter(channel === "TAKEAWAY" ? "ASPORTO" : "DELIVERY");
     setSelectedTable(null);
@@ -1082,6 +1095,10 @@ export function CassaPage({
   );
 
   const openPayment = (requestId?: string, checkId?: string) => {
+    if (shiftInactive) {
+      setMessage("Turno non attivo — avvia il turno per incassare, inviare comande e aprire ordini al banco");
+      return;
+    }
     setPaymentMethod("CASH");
     setDocumentType("RECEIPT");
     setInvoiceCustomer(EMPTY_INVOICE_CUSTOMER);
@@ -1377,7 +1394,25 @@ export function CassaPage({
           <strong>Capienza sede:</strong> {venueCapacityWarning}
         </div>
       )}
-      {activeShiftReminderWindow && (
+      {shiftInactive && (
+        <div
+          role="alert"
+          className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm text-amber-900"
+        >
+          <span>
+            <strong>Turno non attivo</strong> — incassi, invio comande e ordini al banco sono
+            bloccati, anche sui palmari.
+          </span>
+          <button
+            type="button"
+            className="shrink-0 font-medium underline underline-offset-2"
+            onClick={() => void startShift()}
+          >
+            Avvia turno
+          </button>
+        </div>
+      )}
+      {activeShiftReminderWindow && !shiftInactive && (
         <div className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900">
           <span>
             Turno non avviato — oggi si lavora {activeShiftReminderWindow.start}–
@@ -1730,6 +1765,7 @@ export function CassaPage({
               {canComanda && !showCounterModal && (
                 <Button
                   className="h-10 shrink-0 px-4 text-sm"
+                  disabled={shiftInactive}
                   onClick={() =>
                     openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
                   }
@@ -1760,6 +1796,7 @@ export function CassaPage({
                       </p>
                       <Button
                         className="h-10 px-4"
+                        disabled={shiftInactive}
                         onClick={() =>
                           openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
                         }
@@ -1821,6 +1858,7 @@ export function CassaPage({
             <ComandaPanel
               table={selectedTable}
               operator={operator}
+              shiftInactive={shiftInactive}
               onClose={() => {
                 setPanelTab("conto");
                 loadTables();
@@ -2036,7 +2074,8 @@ export function CassaPage({
                   {!hasAnalyticSplit ? (
                     <Button
                       className="min-h-14 text-lg"
-                      disabled={loading || bill.lines.length === 0}
+                      disabled={loading || bill.lines.length === 0 || shiftInactive}
+                      title={shiftInactive ? "Turno non attivo — avvia il turno per incassare" : undefined}
                       onClick={() => {
                         if (isRomanPay || bill.romanSplit) {
                           openPayment(paymentRequestId);

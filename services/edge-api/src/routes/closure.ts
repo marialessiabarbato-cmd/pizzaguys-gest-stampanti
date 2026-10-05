@@ -41,6 +41,7 @@ import {
   getDayTheoretical,
 } from "../lib/day-report-ledger.js";
 import { formatDailyReportHtml, formatDailyReportText } from "../lib/daily-report-format.js";
+import { broadcastShiftStatus } from "../lib/shift-guard.js";
 import { broadcastTableStatus } from "../lib/ws-hub.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -351,6 +352,7 @@ export async function closureRoutes(app: FastifyInstance) {
       app.edgeDb.update(staffShifts).set({ endedAt: now }).where(eq(staffShifts.id, shift.id)).run();
       clearShiftLedger(shift.id);
     }
+    if (openShifts.length > 0) broadcastShiftStatus(app.edgeDb);
 
     clearDayLedger(closureDate);
     clearDayReportLedger(app.edgeDb, closureDate);

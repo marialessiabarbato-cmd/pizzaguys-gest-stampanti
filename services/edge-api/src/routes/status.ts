@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { getMenuSnapshot, provisionEdge } from "../lib/provision.js";
 import { getRestoreInfo } from "../lib/runtime-persistence.js";
+import { getShiftStatus } from "../lib/shift-guard.js";
 import { checkVenueCapacity, getVenueMaxGuests, totalActiveGuests } from "../lib/table-capacity.js";
 
 interface ShiftReminderWindow {
@@ -48,6 +49,7 @@ export async function statusRoutes(app: FastifyInstance) {
       venueCapacityWarning: venueCheck.ok ? null : venueCheck.warning,
       shiftReminderSchedule: parseShiftReminderSchedule(state?.shiftReminderSchedule),
       runtimeRestore: getRestoreInfo(),
+      shift: getShiftStatus(app.edgeDb),
     };
   });
 

@@ -195,6 +195,22 @@ Automatico: `python3 scripts/smoke-restart.py` (riavvio pulito) e `--crash` (kil
 
 ---
 
+## T — Turno non attivo e palmare (UX)
+
+Il locale è "in turno" se almeno un turno cassa è aperto. Senza turno l'Edge rifiuta con 409 `SHIFT_NOT_ACTIVE`: invio comande, incassi, ordini e vendite al banco.
+
+| #  | Test                         | Passi                                                                 | Atteso                                                                | ☐   |
+| -- | ---------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | --- |
+| T1 | Avviso senza turno           | Nessun turno aperto → apri palmare (mappa, tavolo, Asporto) e cassa    | Banner ambra "Turno non attivo" ovunque                               | ok  |
+| T2 | Blocchi senza turno          | Palmare: aggiungi piatti, prova Spedisci / + Asporto. Cassa: PAGA, SPEDITO, + Nuovo ordine | La bozza si prepara; i pulsanti di invio/incasso/banco sono disattivati | ok  |
+| T3 | Sblocco in tempo reale       | Cassa: **Avvia turno** dal banner, palmare aperto su un tavolo         | Il palmare toglie il banner e riattiva Spedisci senza ricaricare      | ok  |
+| T4 | Chiusura turno               | Chiudi turno (o chiusura giornata) con palmare aperto                 | Banner e blocchi ricompaiono subito su palmare e cassa                | ok  |
+| T5 | Aggiunta piatto              | Palmare: tocca un piatto (anche due volte lo stesso)                   | Avviso "✓ piatto · portata" con **Annulla**, contatore "n×" sul menu, riga evidenziata | ok  |
+| T6 | Nota riga                    | Seleziona riga → **Nota** → note rapide / testo → **Salva**           | Un solo passaggio; tap fuori chiude senza salvare; nota visibile sulla riga | ok  |
+| T7 | Nota con tastiera reale      | Su tablet/iPad reale apri la nota                                     | Il foglio resta sopra la tastiera, Salva visibile                     | ☐ (serve tablet) |
+
+---
+
 ## H — Regressione rapida (smoke UI)
 
 

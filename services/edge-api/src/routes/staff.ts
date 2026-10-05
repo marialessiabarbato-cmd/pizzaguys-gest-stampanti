@@ -17,6 +17,7 @@ import {
   getShiftPayments,
   getShiftTheoretical,
 } from "../lib/shift-ledger.js";
+import { broadcastShiftStatus } from "../lib/shift-guard.js";
 import { enqueueStaffSync, tryImmediateStaffSync } from "../lib/sync-queue.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -186,6 +187,7 @@ export async function staffRoutes(app: FastifyInstance) {
       endedAt: null,
     };
     app.edgeDb.insert(staffShifts).values(row).run();
+    broadcastShiftStatus(app.edgeDb);
     return reply.status(201).send(row);
   });
 
@@ -198,6 +200,7 @@ export async function staffRoutes(app: FastifyInstance) {
       .get();
     if (!updated) return reply.status(404).send({ error: "Turno non trovato" });
     clearShiftLedger(req.params.id);
+    broadcastShiftStatus(app.edgeDb);
     return updated;
   });
 
@@ -286,6 +289,7 @@ export async function staffRoutes(app: FastifyInstance) {
       .get();
 
     clearShiftLedger(req.params.id);
+    broadcastShiftStatus(app.edgeDb);
 
     return {
       ok: true,

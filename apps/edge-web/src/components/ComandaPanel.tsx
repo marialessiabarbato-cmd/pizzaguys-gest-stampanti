@@ -35,11 +35,14 @@ interface LiveTable {
 export function ComandaPanel({
   table,
   operator,
+  shiftInactive = false,
   onClose,
   onSubmitted,
 }: {
   table: LiveTable;
   operator: Operator;
+  /** Nessun turno cassa aperto: l'invio è bloccato anche lato edge. */
+  shiftInactive?: boolean;
   onClose: () => void;
   onSubmitted: () => void;
 }) {
@@ -498,10 +501,10 @@ export function ComandaPanel({
               </div>
               <Button
                 className="h-12 w-full text-base"
-                disabled={cart.length === 0 || loading}
+                disabled={cart.length === 0 || loading || shiftInactive}
                 onClick={() => setConfirmSubmit(true)}
               >
-                SPEDITO
+                {shiftInactive ? "SPEDITO — turno non attivo" : "SPEDITO"}
               </Button>
               <Button
                 variant="outline"

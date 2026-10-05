@@ -112,6 +112,9 @@ export default function App() {
   const cartDirty = useRef(false);
 
   const isOffline = !connected || !online;
+  /** null = stato non ancora noto: non blocchiamo nulla finché l'edge non risponde. */
+  const [shiftActive, setShiftActive] = useState<boolean | null>(null);
+  const shiftInactive = shiftActive === false;
   const categories = menu?.categories ?? [];
   const products = menu?.products ?? [];
   const settings = menu?.settings ?? { maxDiscountPercent: 20, tableLockTimeoutMinutes: 15 };
@@ -393,6 +396,23 @@ export default function App() {
     cartDirty.current = true;
     void saveDraft(activeTable.id, cart, operator?.id ?? "");
   }, [cart, activeTable, operator]);
+
+  // Stato turno: letto al login e a ogni riconnessione, poi aggiornato dal broadcast.
+  useEffect(() => {
+    if (!operator || !connected) return;
+    edgeApi<{ shift?: { active: boolean } }>("/api/status")
+      .then((s) => setShiftActive(s.shift?.active ?? null))
+      .catch(() => {});
+  }, [operator, connected]);
+
+  useEffect(() => {
+    const unsub = on("SHIFT_STATUS", (payload) => {
+      setShiftActive((payload as { active: boolean }).active);
+    });
+    return () => {
+      unsub();
+    };
+  }, [on]);
 
   useEffect(() => {
     const unsub1 = on("TABLE_LOCKED_BROADCAST", () => loadTables());
@@ -1449,6 +1469,7 @@ export default function App() {
           selectedCat={selectedCat}
           variantProduct={variantProduct}
           isOffline={isOffline}
+          shiftInactive={shiftInactive}
           hasLock={hasLock}
           message={message}
           channel={channel}
@@ -1556,6 +1577,7 @@ export default function App() {
           rooms={rooms}
           message={message}
           isOffline={isOffline}
+          shiftInactive={shiftInactive}
           lockPending={lockPending}
           logoutConfirm={logoutConfirm}
           pendingGuestsTable={pendingGuestsTable}
@@ -1587,6 +1609,7 @@ export default function App() {
         <CounterOrdersScreen
           operator={operator}
           isOffline={isOffline}
+          shiftInactive={shiftInactive}
           message={message}
           onBack={() => setScreen("map")}
           onMessage={setMessage}

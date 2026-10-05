@@ -7,6 +7,7 @@ import { CourseOptionsModal } from "../components/CourseOptionsModal";
 import { CourseStepBar } from "../components/CourseStepBar";
 import { MenuPanel } from "../components/MenuPanel";
 import { NoteModal } from "../components/NoteModal";
+import { ShiftInactiveBanner } from "../components/ShiftInactiveBanner";
 import { VariantSheet } from "../components/VariantSheet";
 import {
   groupCartByCourse,
@@ -91,6 +92,7 @@ export function TableWorkspace({
   selectedCat,
   variantProduct,
   isOffline,
+  shiftInactive,
   hasLock,
   message,
   channel,
@@ -141,6 +143,7 @@ export function TableWorkspace({
   selectedCat: string | null;
   variantProduct: Product | null;
   isOffline: boolean;
+  shiftInactive: boolean;
   hasLock: boolean;
   message: string;
   channel: "TABLE" | "TAKEAWAY" | "DELIVERY";
@@ -614,6 +617,7 @@ export function TableWorkspace({
           Offline — SPEDITO disabilitato
         </div>
       )}
+      {shiftInactive && <ShiftInactiveBanner />}
 
       {/* Header */}
       <header className="shrink-0 border-b border-[hsl(var(--pg-border))]">
@@ -811,7 +815,7 @@ export function TableWorkspace({
         <div className="grid grid-cols-4 gap-2">
           <Button
             className="min-h-12 text-sm leading-tight"
-            disabled={speditoLines.length === 0 || isOffline || needsLock}
+            disabled={speditoLines.length === 0 || isOffline || needsLock || shiftInactive}
             onClick={onSpedisci}
           >
             {orderTargetLabel && isUnionHost(liveTable) ? (

@@ -2,6 +2,7 @@ import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BottomSheet, bottomSheetFooterClass } from "../components/BottomSheet";
 import { CounterCustomerPicker } from "../components/CounterCustomerPicker";
+import { ShiftInactiveBanner } from "../components/ShiftInactiveBanner";
 import { edgeApi } from "../lib/api";
 import {
   type CounterCustomerSelection,
@@ -76,6 +77,7 @@ function buildScheduledAt(asap: boolean, hour: number, minute: number): string |
 export function CounterOrdersScreen({
   operator,
   isOffline,
+  shiftInactive,
   message,
   onBack,
   onOpenOrder,
@@ -83,6 +85,7 @@ export function CounterOrdersScreen({
 }: {
   operator: Operator;
   isOffline: boolean;
+  shiftInactive: boolean;
   message: string;
   onBack: () => void;
   onOpenOrder: (table: LiveTable) => void;
@@ -234,6 +237,8 @@ export function CounterOrdersScreen({
         </Button>
       </header>
 
+      {shiftInactive && <ShiftInactiveBanner />}
+
       {message && (
         <p className="shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))] px-4 py-2 text-sm">
           {message}
@@ -266,7 +271,7 @@ export function CounterOrdersScreen({
       <div className="flex shrink-0 gap-2 p-3">
         <Button
           className="min-h-12 flex-1"
-          disabled={isOffline}
+          disabled={isOffline || shiftInactive}
           onClick={() => openCreate("TAKEAWAY")}
         >
           + Asporto
@@ -274,7 +279,7 @@ export function CounterOrdersScreen({
         <Button
           className="min-h-12 flex-1"
           variant="outline"
-          disabled={isOffline}
+          disabled={isOffline || shiftInactive}
           onClick={() => openCreate("DELIVERY")}
         >
           + Delivery
@@ -502,7 +507,7 @@ export function CounterOrdersScreen({
               <Button
                 type="button"
                 className="min-h-12 flex-1 font-semibold"
-                disabled={creating || isOffline}
+                disabled={creating || isOffline || shiftInactive}
                 onClick={() => void createOrder()}
               >
                 {creating ? "..." : "Apri comanda"}
