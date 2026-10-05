@@ -275,12 +275,12 @@ export function TableTransferModal({
                     } ${t.status === "SPLIT_IN_PROGRESS" ? "opacity-40" : ""}`}
                   >
                     {t.label}
-                    <span className="block text-[10px] font-normal opacity-70">
+                    <span className="block text-2xs font-normal opacity-70">
                       max {cap} posti
                       {current > 0 ? ` · ${current} ora` : ""}
                     </span>
                     {roomName(t.id) && (
-                      <span className="block text-[9px] font-normal opacity-60">
+                      <span className="block text-2xs font-normal opacity-60">
                         {roomName(t.id)}
                       </span>
                     )}

@@ -188,7 +188,7 @@ export function PaymentScreen({
             )}
           </div>
           <div className="shrink-0 rounded-xl border-2 border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/5 px-4 py-1.5 text-right">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+            <p className="text-2xs font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
               Da incassare
             </p>
             <p className="text-2xl font-bold tabular-nums leading-none text-[hsl(var(--pg-primary))]">
@@ -208,7 +208,7 @@ export function PaymentScreen({
             <div className="flex min-h-0 flex-col gap-3 lg:overflow-y-auto">
               {billLines.length > 0 && (
                 <section className="shrink-0 rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2">
-                  <h2 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  <h2 className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
                     Riepilogo conto
                   </h2>
                   <ul className="max-h-28 space-y-1 overflow-y-auto text-sm">
@@ -225,7 +225,7 @@ export function PaymentScreen({
               )}
 
               <section className="shrink-0">
-                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
                   Metodo di pagamento
                 </p>
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
@@ -245,7 +245,7 @@ export function PaymentScreen({
 
               {!isMealVoucher && (
                 <section className="shrink-0">
-                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
                     Documento fiscale
                   </p>
                   <div className="grid grid-cols-3 gap-1.5">

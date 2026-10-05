@@ -260,7 +260,7 @@ export function TableTransferModal({
                     }`}
                   >
                     <span className="font-medium">{t.label}</span>
-                    <span className="block text-[10px] opacity-70">
+                    <span className="block text-2xs opacity-70">
                       {guestsAt(t)} coperti
                     </span>
                   </button>
@@ -354,7 +354,7 @@ export function TableTransferModal({
                     }`}
                   >
                     {t.label}
-                    <span className="block text-[10px] font-normal opacity-70">
+                    <span className="block text-2xs font-normal opacity-70">
                       max {cap}
                       {current > 0 ? ` · ${current}` : ""}
                     </span>

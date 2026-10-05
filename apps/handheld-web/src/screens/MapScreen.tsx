@@ -196,7 +196,7 @@ export function MapScreen({
                         } ${lockPending === table.id ? "opacity-50" : ""}`}
                       >
                         {unionHost && annexedCount > 0 && (
-                          <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
+                          <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-2xs font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
                             +{annexedCount}
                           </span>
                         )}
@@ -208,7 +208,7 @@ export function MapScreen({
                         </span>
 
                         {meta ? (
-                          <span className="max-w-full truncate text-[11px] font-medium leading-tight text-white/85">
+                          <span className="max-w-full truncate text-2xs font-medium leading-tight text-white/85">
                             {meta}
                           </span>
                         ) : null}

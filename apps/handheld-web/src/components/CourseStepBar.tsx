@@ -50,7 +50,7 @@ export function CourseStepBar({
               <span className="text-xs font-semibold leading-tight sm:text-sm">{step.shortLabel}</span>
               {count > 0 && (
                 <span
-                  className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                  className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-2xs font-bold ${
                     active
                       ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
                       : "bg-[hsl(var(--pg-muted))] text-[hsl(var(--pg-foreground))]"

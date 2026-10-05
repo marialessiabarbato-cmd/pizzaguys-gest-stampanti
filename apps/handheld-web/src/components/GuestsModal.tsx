@@ -342,7 +342,7 @@ export function GuestsModal({
                         className="min-h-[56px] rounded-lg border border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/15 px-1 py-2 text-sm font-semibold text-[hsl(var(--pg-primary))]"
                       >
                         ✓ {t ? formatTableLabel(t.label) : id}
-                        <span className="mt-0.5 block text-[11px] font-normal opacity-90">
+                        <span className="mt-0.5 block text-2xs font-normal opacity-90">
                           già unito
                         </span>
                       </div>
@@ -365,7 +365,7 @@ export function GuestsModal({
                         {selected && <span className="mr-0.5">✓</span>}
                         {formatTableLabel(t.label)}
                         <span
-                          className={`mt-0.5 block text-[11px] font-normal ${
+                          className={`mt-0.5 block text-2xs font-normal ${
                             selected ? "opacity-90" : "opacity-75"
                           }`}
                         >

@@ -268,7 +268,7 @@ export function InternalClosureWizard({
                   value={euro(draft.closureTotal)}
                   readOnly
                 />
-                <p className="mt-1 text-[11px] text-[hsl(var(--pg-muted-foreground))]">
+                <p className="mt-1 text-2xs text-[hsl(var(--pg-muted-foreground))]">
                   Calcolato dagli incassi della giornata
                 </p>
               </NotebookRow>
@@ -529,7 +529,7 @@ export function InternalClosureWizard({
                   <p className="mb-1 text-xs font-semibold uppercase text-[hsl(var(--pg-muted-foreground))]">
                     Anteprima taccuino
                   </p>
-                  <pre className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+                  <pre className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-3 font-mono text-2xs leading-relaxed whitespace-pre-wrap">
                     {formatNotebook(previewPayload)}
                   </pre>
                 </div>

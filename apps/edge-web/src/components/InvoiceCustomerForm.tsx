@@ -85,7 +85,7 @@ export function InvoiceCustomerForm({
     <div className="rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-3">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+          <p className="text-2xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
             Fattura elettronica
           </p>
           <p className="text-sm font-semibold leading-tight">Dati cliente</p>
@@ -107,7 +107,7 @@ export function InvoiceCustomerForm({
         />
 
         <fieldset className="min-w-0">
-          <legend className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+          <legend className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
             Identificativo fiscale
             <span className="ml-1 font-normal normal-case tracking-normal">— P.IVA o CF</span>
           </legend>
@@ -137,7 +137,7 @@ export function InvoiceCustomerForm({
         </fieldset>
 
         <fieldset className="min-w-0">
-          <legend className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+          <legend className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
             Destinatario SDI
             <span className="ml-1 font-normal normal-case tracking-normal">— codice o PEC</span>
           </legend>
@@ -198,7 +198,7 @@ function Field({
   const isInvalid = showError && !!error;
   return (
     <label className="block min-w-0">
-      <span className="mb-1 block text-[11px] font-medium text-[hsl(var(--pg-muted-foreground))]">
+      <span className="mb-1 block text-2xs font-medium text-[hsl(var(--pg-muted-foreground))]">
         {label}
         {required ? " *" : ""}
       </span>

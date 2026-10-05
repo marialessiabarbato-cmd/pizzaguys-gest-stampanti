@@ -512,7 +512,7 @@ export function DocumentListModal({
                           <td className="px-2 py-2">{typeCode(doc.documentType)}</td>
                           <td className="px-2 py-2 tabular-nums">{doc.documentNumber}</td>
                           <td className="px-2 py-2">{doc.tableLabel ?? "—"}</td>
-                          <td className="px-2 py-2 text-[10px] font-medium">
+                          <td className="px-2 py-2 text-2xs font-medium">
                             {PAYMENT_LABELS[doc.paymentMethod]?.slice(0, 4) ?? doc.paymentMethod}
                           </td>
                           <td className="px-2 py-2 text-right tabular-nums">{euro(doc.total)}</td>

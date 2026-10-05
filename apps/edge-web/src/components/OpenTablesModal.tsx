@@ -196,7 +196,7 @@ export function OpenTablesModal({
                       <span className="inline-flex flex-wrap items-center gap-1.5">
                         {row.tableLabel}
                         {row.status === "LOCKED" ? (
-                          <span className="rounded bg-rose-600/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                          <span className="rounded bg-rose-600/15 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-rose-700">
                             In uso
                           </span>
                         ) : null}

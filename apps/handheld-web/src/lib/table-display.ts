@@ -56,7 +56,7 @@ export function formatTableLabel(label: string): string {
 
 export function tableLabelFontClass(label: string, width: number): string {
   const len = formatTableLabel(label).length;
-  if (len > 14 || width < 72) return "text-[10px]";
+  if (len > 14 || width < 72) return "text-2xs";
   if (len > 10 || width < 96) return "text-xs";
   if (len > 7 || width < 112) return "text-sm";
   return "text-base";

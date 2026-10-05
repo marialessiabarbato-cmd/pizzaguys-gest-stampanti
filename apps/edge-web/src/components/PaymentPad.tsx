@@ -48,13 +48,13 @@ export function PaymentPad({
     <div className="flex min-h-0 flex-col gap-2">
       <div className="grid shrink-0 grid-cols-2 gap-2">
         <div className="rounded-lg bg-[hsl(var(--pg-muted))] px-3 py-2 text-center">
-          <p className="text-[11px] uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+          <p className="text-2xs uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
             Ricevuto
           </p>
           <p className="text-xl font-bold tabular-nums leading-tight">€ {formatAmount(amount)}</p>
         </div>
         <div className="rounded-lg border-2 border-[hsl(var(--pg-primary))] px-3 py-2 text-center">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+          <p className="text-2xs font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
             Resto
           </p>
           <p className="text-xl font-bold tabular-nums leading-tight text-[hsl(var(--pg-primary))]">

@@ -1668,17 +1668,17 @@ export function CassaPage({
                         {formatTableLabel(t.label)}
                       </span>
                       {(formatUnionGuests(t, tables) || "") && (
-                        <span className="text-[10px] font-medium opacity-90">
+                        <span className="text-2xs font-medium opacity-90">
                           {formatUnionGuests(t, tables)}
                         </span>
                       )}
                       {t.status !== "FREE" && t.openedAt && (
-                        <span className="text-[9px] font-medium tabular-nums opacity-85">
+                        <span className="text-2xs font-medium tabular-nums opacity-85">
                           {formatOpenedElapsed(t.openedAt, nowMs)}
                         </span>
                       )}
                       {t.lockedByName && t.status === "LOCKED" && (
-                        <span className="max-w-full truncate px-1 text-[10px] opacity-90">
+                        <span className="max-w-full truncate px-1 text-2xs opacity-90">
                           {t.lockedByName}
                         </span>
                       )}

@@ -438,7 +438,7 @@ export function TableWorkspace({
                         {remaining}× {l.name}
                       </span>
                       {l.forTableLabel && (
-                        <span className="mt-0.5 inline-block rounded bg-[hsl(var(--pg-muted))] px-1.5 py-0.5 text-[11px] font-semibold">
+                        <span className="mt-0.5 inline-block rounded bg-[hsl(var(--pg-muted))] px-1.5 py-0.5 text-2xs font-semibold">
                           {formatTableLabel(l.forTableLabel)}
                         </span>
                       )}
@@ -457,7 +457,7 @@ export function TableWorkspace({
                         €{price.total.toFixed(2)}
                       </span>
                       {price.detail && (
-                        <span className="block text-[11px] text-[hsl(var(--pg-muted-foreground))]">
+                        <span className="block text-2xs text-[hsl(var(--pg-muted-foreground))]">
                           {price.detail}
                         </span>
                       )}
@@ -542,7 +542,7 @@ export function TableWorkspace({
                             {l.quantity}× {l.name}
                           </p>
                           {l.forTableLabel && (
-                            <span className="mt-0.5 inline-block rounded bg-[hsl(var(--pg-muted))] px-1.5 py-0.5 text-[11px] font-semibold">
+                            <span className="mt-0.5 inline-block rounded bg-[hsl(var(--pg-muted))] px-1.5 py-0.5 text-2xs font-semibold">
                               {formatTableLabel(l.forTableLabel)}
                             </span>
                           )}
@@ -566,7 +566,7 @@ export function TableWorkspace({
                             €{price.total.toFixed(2)}
                           </span>
                           {price.detail && (
-                            <span className="block text-[11px] tabular-nums text-[hsl(var(--pg-muted-foreground))]">
+                            <span className="block text-2xs tabular-nums text-[hsl(var(--pg-muted-foreground))]">
                               {price.detail}
                             </span>
                           )}
@@ -655,7 +655,7 @@ export function TableWorkspace({
         </div>
         {unionTables.length > 1 && onOrderForTableChange && (
           <div className="flex items-center gap-2 border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/25 px-3 py-2">
-            <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+            <p className="shrink-0 text-2xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
               Aggiungi a
             </p>
             <div className="flex min-w-0 flex-1 gap-1.5">

@@ -8,7 +8,7 @@ function formatShiftTime(iso: string): string {
 function ActionBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[hsl(var(--pg-primary))] px-1.5 text-[10px] font-bold text-[hsl(var(--pg-primary-foreground))]">
+    <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[hsl(var(--pg-primary))] px-1.5 text-2xs font-bold text-[hsl(var(--pg-primary-foreground))]">
       {count > 99 ? "99+" : count}
     </span>
   );

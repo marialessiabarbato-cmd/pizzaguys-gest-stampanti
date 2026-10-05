@@ -19,10 +19,10 @@ export function TableUnionChips({
   const chip =
     tone === "neutral"
       ? size === "sm"
-        ? "rounded-md bg-[hsl(var(--pg-muted))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(var(--pg-foreground))]"
+        ? "rounded-md bg-[hsl(var(--pg-muted))] px-2 py-0.5 text-2xs font-semibold text-[hsl(var(--pg-foreground))]"
         : "rounded-full bg-[hsl(var(--pg-muted))] px-2.5 py-1 text-xs font-semibold text-[hsl(var(--pg-foreground))]"
       : size === "sm"
-        ? "rounded-md bg-amber-400/90 px-2 py-0.5 text-[11px] font-bold text-amber-950"
+        ? "rounded-md bg-amber-400/90 px-2 py-0.5 text-2xs font-bold text-amber-950"
         : "rounded-full bg-amber-400 px-2.5 py-1 text-xs font-bold text-amber-950 shadow-sm";
 
   const plusClass =
