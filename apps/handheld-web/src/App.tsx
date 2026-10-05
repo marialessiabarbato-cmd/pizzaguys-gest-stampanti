@@ -107,11 +107,6 @@ export default function App() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showEditGuestsModal, setShowEditGuestsModal] = useState(false);
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
-  const [pendingNoteSave, setPendingNoteSave] = useState<{
-    lineId: string;
-    note: string;
-    lineName: string;
-  } | null>(null);
   const [pendingVariantSave, setPendingVariantSave] = useState<VariantSelection[] | null>(null);
   const [confirmDiscountLine, setConfirmDiscountLine] = useState<string | null>(null);
   const cartDirty = useRef(false);
@@ -1238,16 +1233,10 @@ export default function App() {
     setEditCartLine(null);
   };
 
-  const applyNoteSave = () => {
-    if (!pendingNoteSave) return;
+  const applyNoteSave = (lineId: string, note: string) => {
     setCart((prev) =>
-      prev.map((l) =>
-        l.lineId === pendingNoteSave.lineId
-          ? { ...l, notes: pendingNoteSave.note || undefined }
-          : l,
-      ),
+      prev.map((l) => (l.lineId === lineId ? { ...l, notes: note || undefined } : l)),
     );
-    setPendingNoteSave(null);
     setNoteLineId(null);
   };
 
@@ -1345,19 +1334,6 @@ export default function App() {
           variants={priceOverrideTarget.variants}
           onConfirm={(result) => void applyPriceOverride(result)}
           onCancel={() => setPriceOverrideTarget(null)}
-        />
-      )}
-      {pendingNoteSave && (
-        <ConfirmModal
-          title="Salvare la nota?"
-          message={
-            pendingNoteSave.note
-              ? `Aggiungere la nota «${pendingNoteSave.note}» a ${pendingNoteSave.lineName}?`
-              : `Rimuovere la nota da ${pendingNoteSave.lineName}?`
-          }
-          confirmLabel="Salva"
-          onConfirm={applyNoteSave}
-          onCancel={() => setPendingNoteSave(null)}
         />
       )}
       {pendingVariantSave && editCartLine && (
@@ -1506,11 +1482,7 @@ export default function App() {
           onEditVariants={handleEditVariants}
           onEditNote={handleEditNote}
           noteLineId={noteLineId}
-          onSaveNote={(lineId, note) => {
-            const line = cart.find((l) => l.lineId === lineId);
-            if (!line) return;
-            setPendingNoteSave({ lineId, note, lineName: line.name });
-          }}
+          onSaveNote={applyNoteSave}
           onCancelNote={() => setNoteLineId(null)}
           onAcquireLock={() => activeTable && ensureLock(() => setMessage("Tavolo acquisito"))}
           onOpenTransfer={() => setShowTransferModal(true)}

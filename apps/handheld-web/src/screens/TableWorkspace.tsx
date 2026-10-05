@@ -543,14 +543,18 @@ export function TableWorkspace({
                               {formatTableLabel(l.forTableLabel)}
                             </span>
                           )}
-                          {(l.variants.length > 0 || l.notes) && (
+                          {l.variants.length > 0 && (
                             <p className="truncate text-xs text-[hsl(var(--pg-muted-foreground))]">
                               {l.variants
                                 .map((v) =>
                                   v.type === "REMOVE" ? `−${v.name}` : `+${v.name}`,
                                 )
                                 .join(", ")}
-                              {l.notes && (l.variants.length ? ` · ${l.notes}` : l.notes)}
+                            </p>
+                          )}
+                          {l.notes && (
+                            <p className="mt-0.5 break-words text-xs font-medium italic text-amber-700">
+                              Nota: {l.notes}
                             </p>
                           )}
                         </span>
@@ -726,83 +730,81 @@ export function TableWorkspace({
         </div>
       </div>
 
-      {/* Azioni riga selezionata */}
-      {hasSelection && (
-        <div className="fixed bottom-[4.5rem] left-0 right-0 z-20 border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 px-3 py-2.5 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-3xl flex-wrap justify-center gap-2">
-            {selectedLine && (
-              <>
-                <ActionChip label="−" disabled={needsLock} onClick={() => requestQtyChange(-1)} />
-                <ActionChip label="+" disabled={needsLock} onClick={() => requestQtyChange(1)} />
-                {selectedLineHasVariants && (
-                  <ActionChip
-                    label="Modifica"
-                    disabled={needsLock}
-                    onClick={() => onEditVariants(selectedLine)}
-                  />
-                )}
-                <ActionChip
-                  label="Nota"
-                  disabled={needsLock}
-                  onClick={() => onEditNote(selectedLine)}
-                />
-                <ActionChip
-                  label="Portata"
-                  disabled={needsLock}
-                  onClick={() => setCourseModalLineId(selectedLine.lineId)}
-                />
-                <ActionChip
-                  label="Prezzo"
-                  disabled={needsLock}
-                  onClick={() => onPriceOverride({ kind: "cart", lineId: selectedLine.lineId })}
-                />
-                <ActionChip label="Elimina" disabled={needsLock} onClick={requestDelete} />
-              </>
-            )}
-            {selectedSubmitted && !selectedLine && (
-              <>
-                <ActionChip
-                  label="Prezzo"
-                  onClick={() =>
-                    onPriceOverride({ kind: "submitted", lineId: selectedSubmitted.lineId })
-                  }
-                />
-                <ActionChip label="Storno" onClick={() => onStorno(selectedSubmitted)} />
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {addedToast && addedToastQty > 0 && (
-        <div
-          className={`pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 ${
-            hasSelection ? "bottom-[9.5rem]" : "bottom-[5.5rem]"
-          }`}
-        >
-          <div
-            key={addedToast.seq}
-            role="status"
-            aria-live="polite"
-            className="pg-toast-in pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-xl bg-[hsl(var(--pg-foreground))] py-2 pl-4 pr-2 text-sm text-[hsl(var(--pg-background))] shadow-lg"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-semibold">✓ {addedToast.name}</span>
-              <span className="block text-xs opacity-80">
-                {stepLabel(addedToast.course)}
-                {addedToastQty > 1 ? ` · ${addedToastQty} in bozza` : ""}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={undoLastAdded}
-              className="min-h-10 shrink-0 rounded-lg px-3 font-semibold text-[hsl(var(--pg-primary))]"
+      {/* Avviso aggiunta + azioni riga selezionata, impilati sopra il footer:
+          l'avviso non copre mai la barra azioni, che su telefono va su due righe. */}
+      <div className="pointer-events-none fixed bottom-[4.5rem] left-0 right-0 z-20 flex flex-col">
+        {addedToast && addedToastQty > 0 && (
+          <div className="flex justify-center px-4 pb-2">
+            <div
+              key={addedToast.seq}
+              role="status"
+              aria-live="polite"
+              className="pg-toast-in pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-xl bg-[hsl(var(--pg-foreground))] py-2 pl-4 pr-2 text-sm text-[hsl(var(--pg-background))] shadow-lg"
             >
-              Annulla
-            </button>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold">✓ {addedToast.name}</span>
+                <span className="block text-xs opacity-80">
+                  {stepLabel(addedToast.course)}
+                  {addedToastQty > 1 ? ` · ${addedToastQty} in bozza` : ""}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={undoLastAdded}
+                className="min-h-10 shrink-0 rounded-lg px-3 font-semibold text-[hsl(var(--pg-primary))]"
+              >
+                Annulla
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+        {hasSelection && (
+          <div className="pointer-events-auto border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 px-3 py-2.5 backdrop-blur-sm">
+            <div className="mx-auto flex max-w-3xl flex-wrap justify-center gap-2">
+              {selectedLine && (
+                <>
+                  <ActionChip label="−" disabled={needsLock} onClick={() => requestQtyChange(-1)} />
+                  <ActionChip label="+" disabled={needsLock} onClick={() => requestQtyChange(1)} />
+                  {selectedLineHasVariants && (
+                    <ActionChip
+                      label="Modifica"
+                      disabled={needsLock}
+                      onClick={() => onEditVariants(selectedLine)}
+                    />
+                  )}
+                  <ActionChip
+                    label="Nota"
+                    disabled={needsLock}
+                    onClick={() => onEditNote(selectedLine)}
+                  />
+                  <ActionChip
+                    label="Portata"
+                    disabled={needsLock}
+                    onClick={() => setCourseModalLineId(selectedLine.lineId)}
+                  />
+                  <ActionChip
+                    label="Prezzo"
+                    disabled={needsLock}
+                    onClick={() => onPriceOverride({ kind: "cart", lineId: selectedLine.lineId })}
+                  />
+                  <ActionChip label="Elimina" disabled={needsLock} onClick={requestDelete} />
+                </>
+              )}
+              {selectedSubmitted && !selectedLine && (
+                <>
+                  <ActionChip
+                    label="Prezzo"
+                    onClick={() =>
+                      onPriceOverride({ kind: "submitted", lineId: selectedSubmitted.lineId })
+                    }
+                  />
+                  <ActionChip label="Storno" onClick={() => onStorno(selectedSubmitted)} />
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Footer fisso */}
       <footer className="fixed bottom-0 left-0 right-0 z-30 border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
