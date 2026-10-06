@@ -15,16 +15,28 @@ export function ComandaHelp() {
       {open && (
         <ul className="space-y-1.5 border-t border-[hsl(var(--pg-border))] px-3 py-2 text-[hsl(var(--pg-muted-foreground))]">
           <li>
+            <strong className="text-[hsl(var(--pg-foreground))]">Ora / Segue / Dolce sopra il menu</strong> —
+            portata in cui entrano i piatti che tocchi.
+          </li>
+          <li>
+            <strong className="text-[hsl(var(--pg-foreground))]">Ora, &gt;1, &gt;2, Dolce nel carrello</strong> —
+            sposta la singola riga in un'altra portata.
+          </li>
+          <li>
+            <strong className="text-[hsl(var(--pg-foreground))]">− / +</strong> — cambia la quantità;
+            ✕ sull'ultimo pezzo elimina la riga.
+          </li>
+          <li>
+            <strong className="text-[hsl(var(--pg-foreground))]">Nota</strong> — testo per la cucina
+            (es. ben cotta); esce sulla comanda.
+          </li>
+          <li>
             <strong className="text-[hsl(var(--pg-foreground))]">Modifica</strong> — cambia
             ingredienti/varianti su una riga già nel carrello (prima di SPEDITO).
           </li>
           <li>
-            <strong className="text-[hsl(var(--pg-foreground))]">P1–P4 nel carrello</strong> — assegna
-            la portata alla singola riga.
-          </li>
-          <li>
-            <strong className="text-[hsl(var(--pg-foreground))]">P1–P4 in basso</strong> — CHIAMA
-            PORTATA: sollecito in cucina e sblocco piatti in HOLD.
+            <strong className="text-[hsl(var(--pg-foreground))]">Chiama …</strong> — sollecito in
+            cucina e sblocco dei piatti in HOLD di quella portata.
           </li>
           <li>
             <strong className="text-[hsl(var(--pg-foreground))]">HOLD</strong> — il piatto resta in

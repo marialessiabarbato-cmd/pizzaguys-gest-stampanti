@@ -1,8 +1,23 @@
 import { calculateLinePrice, isLinePriceValid } from "@pizzaguys/fiscal";
+import { normalizeCourse } from "./course";
 import type { CartLine, MenuSnapshot, Product, VariantGroup, VariantOption, VariantSelection } from "./order-types";
 
 export function localized(name: Record<string, string>) {
   return name.it ?? name.en ?? Object.values(name)[0] ?? "";
+}
+
+/** Ricerca tollerante: le lettere della query devono comparire in ordine (es. "mrgh" → Margherita). */
+export function fuzzyMatch(text: string, query: string): boolean {
+  const t = text.toLowerCase();
+  const q = query.toLowerCase().trim();
+  if (!q) return true;
+  let ti = 0;
+  for (const ch of q) {
+    ti = t.indexOf(ch, ti);
+    if (ti === -1) return false;
+    ti++;
+  }
+  return true;
 }
 
 export function resolvePrice(
@@ -40,12 +55,13 @@ export function variantsForProduct(product: Product, groups: VariantGroup[]): Va
   });
 }
 
-export function lineKey(productId: string, variants: VariantSelection[]): string {
+/** Stesso piatto + stesse varianti + stessa portata = stessa riga (come sul palmare). */
+export function lineKey(productId: string, variants: VariantSelection[], course = 1): string {
   const sig = variants
     .map((v) => v.variantId)
     .sort()
     .join(",");
-  return `${productId}:${sig}`;
+  return `${productId}:${sig}:${normalizeCourse(course)}`;
 }
 
 export function buildCartLine(
@@ -73,7 +89,8 @@ export function buildCartLine(
     quantity: 1,
     variants,
     course,
-    hold: product.hold ?? category.hold ?? false,
+    // Le portate Segue partono sempre in attesa (come spostando la riga su >1/>2/Dolce).
+    hold: normalizeCourse(course) >= 2 || (product.hold ?? category.hold ?? false),
     dessertDefer: product.dessert ?? category.dessert ?? false,
     allergenIds: product.allergenIds ?? [],
   };

@@ -68,6 +68,7 @@ export interface CartLine {
   course: number;
   hold: boolean;
   dessertDefer: boolean;
+  notes?: string;
   discountPercent?: number;
   discountToken?: string;
   allergenIds: string[];
