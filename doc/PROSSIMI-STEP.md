@@ -1,6 +1,6 @@
 # Prossimi step — checklist di validazione e todo
 
-> Da rivedere insieme. Aggiornato: **3 ottobre 2026** (T1–T3 e T19 completati) — branch `test-stampa`.
+> Da rivedere insieme. Aggiornato: **6 ottobre 2026** (T1–T3, T19 e UX palmare/cassa completati) — branch `fix-comanda-cassa`.
 > Legenda priorità: **P0** prima del pilota · **P1** consigliato per il pilota · **P2** dopo il pilota / Fase 7.
 
 ---
@@ -16,6 +16,7 @@
 | V3 | Intestazione preconto | Doppia dimensione | Dimensione normale (in doppia va a capo) | ✅ deciso 1/10 |
 | V4 | Ticket dolci (X DOLCE) | `*** SERVIZIO DOLCI TAVOLO [ID] ***` | Comanda normale con operatore "X DOLCE" | ☐ implementare? (T5) |
 | V5 | Annullo | `--- ANNULLO ---` invertito | `=== ANNULLO PIATTO ===` invertito | ☐ va bene così? |
+| V6 | Attesa delle portate (HOLD) | — | **Ora** parte subito; **Segue >1 / >2 / Dolce** sempre in attesa fino a Marcia/Chiama; niente interruttore manuale | ✅ deciso 6/10 |
 
 ### Verifiche sulla stampante reale (ST30) — `CHECKLIST-TEST-MANUALI.md` sezione S
 
@@ -31,7 +32,20 @@
 - [ ] **Smistamento reparti**: oggi tutte le categorie vanno in Pizzeria → definire quali categorie vanno a Cucina / Bar / Chef
 - [ ] **Copia non fiscale** (`RECEIPT_COPY_PRINT`): solo per i test o anche in produzione finché il fiscale è mock?
 - [ ] **Stampanti del pilota**: quante, quali modelli, IP previsti (piano rete FASE-6 usa `192.168.10.x`)
-- [ ] **Repository**: `test-stampa` va unito a un branch principale? In quale repo (`marialessiabarbato-cmd/...` o `wearedexin-git/...`)?
+- [ ] **Repository**: `fix-comanda-cassa` (= `unione-branch` + lavoro 5–6/10) va unito a `unione-branch` / `main`? In quale repo (`marialessiabarbato-cmd/...` o `wearedexin-git/...`)?
+- [ ] **PIN responsabile sullo storno**: oggi qualsiasi cameriere può annullare un piatto già inviato (gli sconti invece chiedono il PIN)
+- [ ] **X DOLCE**: resta un meccanismo separato (i dolci differiti aspettano "X DOLCE" anche in Ora) — confermare con la cucina
+
+### Fatto 5–6 ottobre (richieste del cliente)
+
+| Area | Modifica |
+|------|----------|
+| Turno | Senza turno cassa aperto: banner su palmare e cassa, bloccati invio comande, incassi e banco (anche lato Edge, `409 SHIFT_NOT_ACTIVE`, evento `SHIFT_STATUS`) |
+| Palmare | Piatto aggiunto evidente (avviso con Annulla, contatore n× sul menu, riga evidenziata); nota in un solo passaggio con note rapide; pannelli sopra la tastiera |
+| Testi | Font più grandi su palmare e cassa (scala comune `packages/ui/type-scale.ts`, `text-sm` 14→16 px) |
+| Comanda | **Stessa comanda su palmare e cassa** (`packages/comanda`): in cassa ora ci sono piatti già inviati con storno, prezzo, barra azioni, bozza per portata, Spedisci, Marcia, X DOLCE, sconto, sposta conto, filtro allergeni. Il Preconto in cassa resta solo nel Conto |
+| Cucina | HOLD deciso dalla portata (V6), applicato anche dall'Edge |
+| Correzioni | Note della cassa perse in comanda; piatto in un'altra portata sommato alla riga sbagliata; tavolo non rilasciato dal palmare dopo Spedisci; sconto rimasto applicato annullando il PIN |
 
 ---
 
@@ -58,7 +72,12 @@
 | T9 | e2e Playwright sui flussi critici (comanda → stampa → incasso → chiusura) | T6.5 ancora parziale: oggi 11 test smoke | 1–2 g |
 | T10 | `smoke-giro-test.py` che usa da solo il simulatore di stampa | Evitare decine di ticket sulla stampante reale | 0,25 g |
 | T11 | Stampante del pilota con IP sulla rete del locale (prenotazione DHCP o IP statico corretto) | Eliminare l'alias manuale `ifconfig` usato nei test | on-site |
-| T12 | Formazione staff (T6.6) con la nuova comanda Ora/Segue e Marcia | — | ½ giornata |
+| T12 | Formazione staff (T6.6) con la nuova comanda Ora/Segue e Marcia (uguale su palmare e cassa) | — | ½ giornata |
+| T20 | **Ticket ANNULLO al reparto giusto**: oggi esce sempre sulla stampante Cucina, anche per pizze e bevande | Con più stampanti l'annullo arriva al reparto sbagliato | 0,25 g |
+| T21 | **Bozza del palmare dopo un ricaricamento**: verificare che i piatti non spediti non si perdano se la pagina si ricarica con l'Edge online | Un tablet che si riavvia non deve perdere la comanda | 0,5 g |
+| T22 | **Libera tavolo**: pulsante per liberare un tavolo aperto per errore (senza comande né conto) | Oggi resta occupato finché non si incassa o si chiude la giornata | 0,25 g |
+| T23 | **Marcia ▶ suggerita** anche dopo Spedisci: oggi il suggerimento guarda solo la bozza, dopo l'invio chiede la portata | Un tocco in meno per il cameriere | 0,25 g |
+| T24 | **Script di reset dell'ambiente di test** (chiude turni, libera tavoli, svuota KDS) | Oggi la pulizia si fa a mano | 0,25 g |
 
 ### P2 — pulizia tecnica e Fase 7
 
@@ -93,5 +112,6 @@
 
 1. Giro di validazione della sezione 1 (30–45 min insieme, con la ST30 collegata)
 2. P0: ✅ T1, T2, T3, T19 · T4/T5/T6 on hold fino alle informazioni della sezione 2b
-3. Commit + push su `test-stampa`, aggiornamento di `CHECKLIST-TEST-MANUALI.md`
-4. P1 in base alla data del pilota
+3. Giro di prova con il cliente su `fix-comanda-cassa` (checklist sezione **T**, stampa sulla ST30)
+4. Decisioni aperte: PIN sullo storno, X DOLCE, unione del branch
+5. P1 in base alla data del pilota (T20–T23 sono piccoli e utili prima della formazione)

@@ -66,6 +66,20 @@ Senza queste variabili valgono i default (`pizzaguys-postgres` / `pizzaguys-redi
 | KDS simulato | http://localhost:5175 |
 | Edge API + WS | http://localhost:4100 — `ws://localhost:4100/ws` |
 
+Le porte API si possono cambiare da `.env` (`CLOUD_API_PORT`, `EDGE_API_PORT`): quelle della copia
+di sviluppo attuale sono in [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md).
+
+## Comanda (palmare e cassa)
+
+La comanda è **una sola** per palmare e cassa: logica e schermata stanno in `packages/comanda`
+(`useComanda` + `ComandaWorkspace`), le app scelgono solo l'impaginazione (`layout="handheld"` o
+`"cassa"`). Il pacchetto non ha una build: Vite e TypeScript leggono direttamente `src/`, e le
+configurazioni Tailwind di palmare e cassa includono `packages/comanda/src`. Una modifica alla
+comanda va fatta lì e vale per entrambe le app.
+
+Regole condivise in `packages/types`: attesa delle portate (`isHeldCourse`: Ora subito, Segue in attesa
+fino alla Marcia) e note rapide (`QUICK_NOTES`).
+
 ## Stampa
 
 | `HARDWARE_BRIDGE_MODE` | Comportamento |
