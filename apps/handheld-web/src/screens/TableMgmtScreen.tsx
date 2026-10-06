@@ -2,7 +2,7 @@ import { Button } from "@pizzaguys/ui";
 import type { TableStatus } from "@pizzaguys/types";
 import { ComandaHelp } from "../components/ComandaHelp";
 import { OrderHeader } from "../components/OrderHeader";
-import { courseLabel } from "../lib/course";
+import { courseLabel } from "@pizzaguys/comanda";
 import type { LiveTable, Operator, SubmittedLine } from "../lib/types";
 
 export function TableMgmtScreen({

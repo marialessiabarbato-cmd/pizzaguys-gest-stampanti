@@ -1,0 +1,138 @@
+/** Tipi della comanda condivisi da palmare e cassa. */
+
+export interface Operator {
+  id: string;
+  firstName: string;
+  lastName: string;
+  role?: string;
+}
+
+export interface LiveTable {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  defaultGuests: number;
+  isVirtual: boolean;
+  virtualType: string | null;
+  status: import("@pizzaguys/types").TableStatus;
+  lockedBy?: string;
+  lockedByName?: string;
+  guests?: number;
+  roomId?: string | null;
+  /** Capienza effettiva dopo unione tavoli */
+  tableCapacity?: number;
+  /** Somma coperti del gruppo (host + annessi) */
+  guestTotal?: number;
+  /** Tavoli uniti su questo (host) */
+  linkedTableIds?: string[];
+  /** Unito in un altro tavolo */
+  mergedIntoTableId?: string;
+  openedAt?: string | null;
+}
+
+export interface VariantOption {
+  id: string;
+  groupId: string;
+  name: Record<string, string>;
+  type: "ADD" | "REMOVE";
+  priceDelta: string;
+}
+
+export interface VariantGroup {
+  id: string;
+  name: Record<string, string>;
+  categoryIds: string[];
+  variants: VariantOption[];
+}
+
+export interface Product {
+  id: string;
+  categoryId: string;
+  name: Record<string, string>;
+  basePrice: string;
+  hold?: boolean;
+  dessert?: boolean;
+  allergenIds?: string[];
+}
+
+export interface Category {
+  id: string;
+  name: Record<string, string>;
+  colorHex: string;
+  sortOrder: number;
+  hold?: boolean;
+  dessert?: boolean;
+}
+
+export interface ProductPrice {
+  productId: string;
+  channel: "TABLE" | "TAKEAWAY" | "DELIVERY";
+  price: string | null;
+}
+
+export interface MenuSettings {
+  maxDiscountPercent: number;
+  tableLockTimeoutMinutes: number;
+}
+
+export interface MenuSnapshot {
+  categories: Category[];
+  products: Product[];
+  variantGroups: VariantGroup[];
+  prices: ProductPrice[];
+  settings: MenuSettings;
+}
+
+export interface VariantSelection {
+  variantId: string;
+  name: string;
+  type: "ADD" | "REMOVE";
+  priceDelta: number;
+}
+
+export interface CartLine {
+  lineId: string;
+  productId: string;
+  name: string;
+  basePrice: number;
+  unitPrice: number;
+  quantity: number;
+  variants: VariantSelection[];
+  course: number;
+  hold: boolean;
+  dessertDefer: boolean;
+  notes?: string;
+  discountPercent?: number;
+  discountToken?: string;
+  allergenIds: string[];
+  /** Destinazione fisica in unione (conto unico sull'host). */
+  forTableId?: string;
+  forTableLabel?: string;
+}
+
+/** Ultimo piatto aggiunto alla bozza; `seq` cambia a ogni aggiunta, anche dello stesso piatto. */
+export interface LastAddedLine {
+  seq: number;
+  lineId: string;
+  productId: string;
+  name: string;
+  course: number;
+}
+
+export interface SubmittedLine {
+  orderId: string;
+  lineId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  basePrice?: number;
+  variants?: VariantSelection[];
+  voidedQuantity?: number;
+  forTableId?: string;
+  forTableLabel?: string;
+}
+
+export type WorkspaceTab = "comanda" | "menu";

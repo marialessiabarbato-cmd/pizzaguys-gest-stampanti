@@ -1,4 +1,4 @@
-import type { UnionLink } from "../lib/table-display";
+import type { UnionLink } from "@pizzaguys/comanda";
 
 export function MapUnionLines({ links }: { links: UnionLink[] }) {
   if (links.length === 0) return null;

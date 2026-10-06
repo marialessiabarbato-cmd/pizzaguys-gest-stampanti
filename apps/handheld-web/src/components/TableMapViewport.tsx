@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { computeMapBounds, computeMapScale, type MapTableBounds } from "../lib/table-display";
+import { computeMapBounds, computeMapScale, type MapTableBounds } from "@pizzaguys/comanda";
 
 export function TableMapViewport({
   tables,

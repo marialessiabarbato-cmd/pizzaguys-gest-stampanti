@@ -2,9 +2,9 @@ import { Button } from "@pizzaguys/ui";
 import { useRef } from "react";
 import { ComandaHelp } from "../components/ComandaHelp";
 import { OrderHeader } from "../components/OrderHeader";
-import { VariantSheet } from "../components/VariantSheet";
-import { courseLabel, groupCartByCourse, isCourseOnHold } from "../lib/course";
-import { cartTotal, localized, variantsForProduct } from "../lib/menu";
+import { VariantSheet } from "@pizzaguys/comanda";
+import { courseLabel, groupCartByCourse, isCourseOnHold } from "@pizzaguys/comanda";
+import { cartTotal, localized, variantsForProduct } from "@pizzaguys/comanda";
 import type {
   CartLine,
   LiveTable,

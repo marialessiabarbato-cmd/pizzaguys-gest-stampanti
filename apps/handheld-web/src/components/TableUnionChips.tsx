@@ -1,5 +1,5 @@
 import type { LiveTable } from "../lib/types";
-import { unionMemberChipLabel, unionMembers } from "../lib/table-display";
+import { unionMemberChipLabel, unionMembers } from "@pizzaguys/comanda";
 
 /** Chip dei tavoli nel gruppo unito, con coperti per distinguere i membri. */
 export function TableUnionChips({

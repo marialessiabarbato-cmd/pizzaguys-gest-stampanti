@@ -1,9 +1,9 @@
 import { Button } from "@pizzaguys/ui";
 import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useMemo, useState } from "react";
-import type { Product, VariantOption, VariantSelection } from "../lib/order-types";
-import { localized } from "../lib/order-menu";
-import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
+import type { Product, VariantOption, VariantSelection } from "../types";
+import { localized } from "../menu";
+import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 type TypeFilter = "ALL" | "ADD" | "REMOVE";
 
@@ -123,8 +123,8 @@ export function VariantSheet({
     });
 
   return (
-    <OffCanvas widthClass="max-w-md" onClose={onCancel}>
-      <div className="flex shrink-0 items-center justify-between border-b border-[hsl(var(--pg-border))] px-5 py-4">
+    <BottomSheet maxHeightClass="max-h-[80dvh]">
+      <div className="flex shrink-0 items-center justify-between border-b border-[hsl(var(--pg-border))] px-4 py-3">
         <h2 className="text-lg font-bold">{localized(product.name)}</h2>
         <Button variant="ghost" className="min-h-11 min-w-11" onClick={onCancel}>
           ✕
@@ -132,7 +132,7 @@ export function VariantSheet({
       </div>
 
       {variants.length > 0 && (
-        <div className="shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] px-5 py-3">
+        <div className="shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] px-4 py-3">
           <input
             type="search"
             value={query}
@@ -168,7 +168,7 @@ export function VariantSheet({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {variants.length === 0 ? (
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
             Nessuna variante disponibile
@@ -211,11 +211,6 @@ export function VariantSheet({
                         Selezionata
                       </span>
                     )}
-                    {v.type === "REMOVE" && active && (
-                      <span className="text-xs font-medium text-[hsl(var(--pg-primary))]">
-                        Selezionata
-                      </span>
-                    )}
                   </button>
                   {v.type === "ADD" && active && (
                     <label className="mt-2 flex items-center justify-between gap-2 border-t border-[hsl(var(--pg-border))]/60 pt-2 text-sm">
@@ -227,7 +222,7 @@ export function VariantSheet({
                         <input
                           type="text"
                           inputMode="decimal"
-                          className="min-h-11 w-24 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-2 text-right text-base font-semibold tabular-nums"
+                          className="min-h-10 w-24 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-2 text-right font-semibold tabular-nums"
                           value={
                             priceDrafts[v.id] ??
                             formatEuroInput(selectedEntry?.priceDelta ?? catalogPrice)
@@ -245,19 +240,15 @@ export function VariantSheet({
         )}
       </div>
 
-      <div className={`${offCanvasFooterClass} items-center justify-between`}>
+      <div className={`${bottomSheetFooterClass} items-center justify-between`}>
         <div>
           <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">Totale riga</p>
           <span className="text-lg font-bold tabular-nums">€ {unitPrice.toFixed(2)}</span>
         </div>
-        <Button
-          className="min-h-12 px-6"
-          disabled={!canConfirm}
-          onClick={() => onConfirm(selected)}
-        >
+        <Button className="min-h-12" disabled={!canConfirm} onClick={() => onConfirm(selected)}>
           {confirmLabel}
         </Button>
       </div>
-    </OffCanvas>
+    </BottomSheet>
   );
 }

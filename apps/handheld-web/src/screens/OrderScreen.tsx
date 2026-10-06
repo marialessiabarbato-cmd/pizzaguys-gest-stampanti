@@ -1,8 +1,8 @@
 import { Button } from "@pizzaguys/ui";
-import { EU_ALLERGENS } from "../constants/allergens";
+import { EU_ALLERGENS } from "@pizzaguys/comanda";
 import { OrderHeader } from "../components/OrderHeader";
-import { VariantSheet } from "../components/VariantSheet";
-import { fuzzyMatch, localized, resolvePrice } from "../lib/menu";
+import { VariantSheet } from "@pizzaguys/comanda";
+import { fuzzyMatch, localized, resolvePrice } from "@pizzaguys/comanda";
 import type { CartLine, Category, LiveTable, MenuSnapshot, Operator, Product } from "../lib/types";
 
 export function OrderScreen({

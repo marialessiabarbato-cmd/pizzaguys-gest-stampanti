@@ -1,7 +1,7 @@
 import { Button } from "@pizzaguys/ui";
 import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useMemo, useState } from "react";
-import type { VariantSelection } from "../lib/types";
+import type { VariantSelection } from "../types";
 import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 function formatEuroInput(n: number): string {

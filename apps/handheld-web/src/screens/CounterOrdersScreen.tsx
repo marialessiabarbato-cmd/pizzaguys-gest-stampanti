@@ -1,8 +1,8 @@
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BottomSheet, bottomSheetFooterClass } from "../components/BottomSheet";
+import { BottomSheet, bottomSheetFooterClass } from "@pizzaguys/comanda";
 import { CounterCustomerPicker } from "../components/CounterCustomerPicker";
-import { ShiftInactiveBanner } from "../components/ShiftInactiveBanner";
+import { ShiftInactiveBanner } from "@pizzaguys/comanda";
 import { edgeApi } from "../lib/api";
 import {
   type CounterCustomerSelection,

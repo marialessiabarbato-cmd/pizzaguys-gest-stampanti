@@ -1,5 +1,5 @@
 import { Button } from "@pizzaguys/ui";
-import { ALL_ORDER_STEPS } from "../lib/course";
+import { ALL_ORDER_STEPS } from "../course";
 import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 
 export function CourseOptionsModal({

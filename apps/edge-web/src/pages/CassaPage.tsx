@@ -1,11 +1,11 @@
 import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
 import { Button, useTheme } from "@pizzaguys/ui";
+import { ComandaWorkspace, useComanda, type LiveTable as ComandaTable } from "@pizzaguys/comanda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
 import { OffCanvas, offCanvasFooterClass } from "../components/OffCanvas";
 import { CassaHeader } from "../components/CassaHeader";
 import { TableMapViewport } from "../components/TableMapViewport";
-import { ComandaPanel } from "../components/ComandaPanel";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
 import { DiscountModal } from "../components/DiscountModal";
@@ -315,6 +315,68 @@ export function CassaPage({
   const canComanda = operator?.role === "USER_ADMIN" || operator?.role === "CASHIER";
   const isComandaMode =
     !!selectedTable && panelTab === "comanda" && canComanda && !!operator;
+
+  // Comanda: stessa logica e schermata del palmare (@pizzaguys/comanda).
+  const comandaTables = useMemo<ComandaTable[]>(
+    () => tables.map((t) => ({ ...t, defaultGuests: t.defaultGuests ?? 0 })),
+    [tables],
+  );
+  const comandaTable: ComandaTable | null =
+    isComandaMode && selectedTable
+      ? { ...selectedTable, defaultGuests: selectedTable.defaultGuests ?? 0 }
+      : null;
+  const comanda = useComanda({
+    api: edgeApi,
+    send,
+    operator,
+    table: comandaTable,
+    tables: comandaTables,
+    isOffline: !connected,
+    setMessage,
+    // In cassa il preconto si stampa subito (dal palmare invece si chiede alla cassa).
+    onPreconto: async () => {
+      if (!selectedTable) return;
+      try {
+        await edgeApi(`/api/pos/tables/${selectedTable.id}/prebill`, { method: "POST" });
+        setMessage("Preconto stampato");
+        loadTables();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Errore preconto");
+      }
+    },
+    onSubmitted: () => {
+      loadTables();
+      if (selectedTable) void loadBill(selectedTable.id);
+    },
+  });
+  const comandaTableId = comandaTable?.id ?? null;
+  const openComanda = comanda.open;
+  useEffect(() => {
+    if (comandaTableId) void openComanda(comandaTableId, { resetNavigation: true });
+  }, [comandaTableId, openComanda]);
+
+  /** Uscita dalla comanda: bozza salvata, tavolo sbloccato, si torna al conto. */
+  const leaveComanda = async () => {
+    if (!selectedTable || !operator) return;
+    try {
+      await comanda.persistDraft();
+    } catch {
+      setMessage("Bozza non salvata — riprova");
+      return;
+    }
+    try {
+      await edgeApi(`/api/tables/${selectedTable.id}/unlock`, {
+        method: "POST",
+        body: JSON.stringify({ operatorId: operator.id }),
+      });
+    } catch {
+      send("RELEASE_TABLE_LOCK", { tableId: selectedTable.id, operatorId: operator.id });
+    }
+    comanda.reset();
+    setPanelTab("conto");
+    loadTables();
+    void loadBill(selectedTable.id);
+  };
   const isCounterOrderSelected = Boolean(bill?.counterOrder);
   const showCounterOrders = channelFilter === "ASPORTO" || channelFilter === "DELIVERY";
   const counterChannelLabel = channelFilter === "ASPORTO" ? "asporto" : "delivery";
@@ -1854,22 +1916,28 @@ export function CassaPage({
             isComandaMode ? "min-w-0 flex-1" : "w-full max-w-md lg:w-[28rem]"
           }`}
         >
-          {selectedTable && panelTab === "comanda" && canComanda && operator ? (
-            <ComandaPanel
-              table={selectedTable}
+          {comandaTable && operator ? (
+            <ComandaWorkspace
+              comanda={comanda}
+              layout="cassa"
+              table={comandaTable}
+              tables={comandaTables}
               operator={operator}
+              isOffline={!connected}
               shiftInactive={shiftInactive}
-              onClose={() => {
-                setPanelTab("conto");
-                loadTables();
-                void loadBill(selectedTable.id);
+              message=""
+              backLabel="← Conto"
+              onLeave={() => void leaveComanda()}
+              onEditGuests={() => {
+                setGuestsModalError("");
+                setShowEditGuestsModal(true);
               }}
-              onSubmitted={() => {
-                setPanelTab("conto");
-                loadTables();
-                void loadBill(selectedTable.id);
-                setMessage("Comanda inviata in cucina");
+              onOpenTransfer={() => setShowTransferModal(true)}
+              precontoCopy={{
+                title: "Stampare il preconto?",
+                message: "Il preconto del tavolo verrà stampato subito.",
               }}
+              showShiftBanner={false}
             />
           ) : selectedTable && bill ? (
             <>

@@ -1,50 +1,34 @@
-import { calculateLinePrice } from "@pizzaguys/fiscal";
-import { isHeldCourse } from "@pizzaguys/types";
+import {
+  ComandaWorkspace,
+  PinModal,
+  PinPad,
+  PrintAlertModal,
+  resolveLiveTable,
+  useComanda,
+} from "@pizzaguys/comanda";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal";
-import { ConfirmModal } from "./components/ConfirmModal";
-import { PrintAlertModal } from "./components/PrintAlertModal";
-import { PinPad } from "./components/PinPad";
-import { PinModal } from "./components/PinModal";
-import { PriceOverrideModal } from "./components/PriceOverrideModal";
-import { StornoQtyModal } from "./components/StornoQtyModal";
+import { TableTransferModal } from "./components/TableTransferModal";
 import { edgeApi } from "./lib/api";
-import { formatTableLabel, resolveLiveTable } from "./lib/table-display";
-import {
-  buildCartLine,
-  lineKey,
-  variantsForProduct,
-} from "./lib/menu";
-import { normalizeCourse, stepLabel } from "./lib/course";
 import { clearDraft, loadDraft, saveDraft } from "./lib/offline";
-import type {
-  CartLine,
-  LastAddedLine,
-  LiveTable,
-  MenuSnapshot,
-  Operator,
-  Product,
-  Screen,
-  SubmittedLine,
-  VariantSelection,
-  WorkspaceTab,
-} from "./lib/types";
+import type { LiveTable, Operator, Screen, WorkspaceTab } from "./lib/types";
 import { useEdgeWs } from "./lib/ws";
 import { CounterOrdersScreen } from "./screens/CounterOrdersScreen";
 import { MapScreen } from "./screens/MapScreen";
-import { TableWorkspace } from "./screens/TableWorkspace";
-import { VariantSheet } from "./components/VariantSheet";
-import { TableTransferModal } from "./components/TableTransferModal";
 
-type PinModalMode = "unlock" | "discount" | "guests-lock" | null;
+type PinModalMode = "unlock" | "guests-lock" | null;
+
+/** Bozza del palmare salvata sul dispositivo: sopravvive a una perdita di rete. */
+const deviceDraftStore = {
+  load: async (tableId: string) => (await loadDraft(tableId))?.cart ?? null,
+  save: saveDraft,
+  clear: clearDraft,
+};
 
 export default function App() {
   const { connected, send, on } = useEdgeWs();
   const [online, setOnline] = useState(navigator.onLine);
   const [screen, setScreen] = useState<Screen>("pin");
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("comanda");
-  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
-  const [selectedSubmittedId, setSelectedSubmittedId] = useState<string | null>(null);
   const pendingAfterLockRef = useRef<(() => void) | null>(null);
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
@@ -53,26 +37,9 @@ export default function App() {
   const [activeTable, setActiveTable] = useState<LiveTable | null>(null);
   const activeTableRef = useRef(activeTable);
   activeTableRef.current = activeTable;
-  const [menu, setMenu] = useState<MenuSnapshot | null>(null);
-  const [selectedCat, setSelectedCat] = useState<string | null>(null);
-  const [activeCourse, setActiveCourse] = useState(1);
-  /** Tavolo fisico di destinazione quando il conto è un gruppo unito. */
-  const [orderForTableId, setOrderForTableId] = useState<string | null>(null);
-  const [cart, setCart] = useState<CartLine[]>([]);
-  /** Ultimo piatto aggiunto alla bozza: guida avviso, evidenziazione riga e contatore menu. */
-  const [lastAdded, setLastAdded] = useState<LastAddedLine | null>(null);
-  const [submittedLines, setSubmittedLines] = useState<SubmittedLine[]>([]);
   const [message, setMessage] = useState("");
   const [printAlert, setPrintAlert] = useState<string[] | null>(null);
-  const showPrintWarnings = (warnings?: string[]) => {
-    if (warnings?.length) setPrintAlert(warnings);
-  };
   const [lockPending, setLockPending] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [allergenFilter, setAllergenFilter] = useState<string[]>([]);
-  const [variantProduct, setVariantProduct] = useState<Product | null>(null);
-  const [editCartLine, setEditCartLine] = useState<CartLine | null>(null);
-  const [noteLineId, setNoteLineId] = useState<string | null>(null);
   const [pinModal, setPinModal] = useState<PinModalMode>(null);
   const [pinModalError, setPinModalError] = useState("");
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
@@ -85,45 +52,78 @@ export default function App() {
     mode: "open" | "edit";
   } | null>(null);
   const [unlockOverridePin, setUnlockOverridePin] = useState<string | undefined>();
-  const [pendingDiscountLine, setPendingDiscountLine] = useState<string | null>(null);
-  const [exitConfirm, setExitConfirm] = useState(false);
-  const [submitConfirm, setSubmitConfirm] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
-  const [confirmCallCourse, setConfirmCallCourse] = useState<number | null>(null);
-  const [confirmReleaseDessert, setConfirmReleaseDessert] = useState(false);
-  const [confirmPayment, setConfirmPayment] = useState(false);
-  const [confirmStorno, setConfirmStorno] = useState<SubmittedLine | null>(null);
-  const [stornoQtyTarget, setStornoQtyTarget] = useState<{
-    line: SubmittedLine;
-    maxQty: number;
-  } | null>(null);
-  const [priceOverrideTarget, setPriceOverrideTarget] = useState<{
-    kind: "cart" | "submitted";
-    lineId: string;
-    name: string;
-    unitPrice: number;
-    basePrice?: number;
-    variants?: VariantSelection[];
-  } | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showEditGuestsModal, setShowEditGuestsModal] = useState(false);
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
-  const [pendingVariantSave, setPendingVariantSave] = useState<VariantSelection[] | null>(null);
-  const [confirmDiscountLine, setConfirmDiscountLine] = useState<string | null>(null);
-  const cartDirty = useRef(false);
 
   const isOffline = !connected || !online;
   /** null = stato non ancora noto: non blocchiamo nulla finché l'edge non risponde. */
   const [shiftActive, setShiftActive] = useState<boolean | null>(null);
   const shiftInactive = shiftActive === false;
-  const categories = menu?.categories ?? [];
-  const products = menu?.products ?? [];
-  const settings = menu?.settings ?? { maxDiscountPercent: 20, tableLockTimeoutMinutes: 15 };
   const hasLock =
     !!operator &&
     !!activeTable &&
     activeTable.lockedBy === operator.id &&
     (activeTable.status === "LOCKED" || activeTable.status === "OCCUPIED");
+
+  /** Il palmare deve prendere il tavolo prima di modificare la bozza. */
+  const ensureLock = (action: () => void) => {
+    if (!operator || !activeTable) return;
+    if (hasLock) {
+      action();
+      return;
+    }
+    pendingAfterLockRef.current = action;
+    void requestLock(activeTable);
+  };
+
+  /** Preconto dal palmare: la cassa riceve la richiesta e lo stampa. */
+  const requestPayment = () => {
+    if (!operator || !activeTable || isOffline) return;
+    send("REQUEST_PAYMENT", {
+      tableId: activeTable.id,
+      operatorId: operator.id,
+      operatorName: `${operator.firstName} ${operator.lastName}`,
+    });
+    setMessage("Pagamento richiesto — cassa notificata");
+    loadTables();
+  };
+
+  const comanda = useComanda({
+    api: edgeApi,
+    send,
+    operator,
+    table: activeTable,
+    tables,
+    isOffline,
+    setMessage,
+    ensureLock,
+    draftStore: deviceDraftStore,
+    onPrintWarnings: setPrintAlert,
+    onPreconto: requestPayment,
+    onSubmitted: async ({ remainingLines }) => {
+      if (!activeTable || !operator) return;
+      // Il lock resta all'operatore che ha appena inviato (lo gestisce l'Edge in submit).
+      const live = await edgeApi<LiveTable[]>("/api/tables/live");
+      setTables(live);
+      const refreshed = live.find((t) => t.id === activeTable.id);
+      if (refreshed) {
+        setActiveTable({
+          ...refreshed,
+          status: remainingLines > 0 ? "LOCKED" : "OCCUPIED",
+          lockedBy: remainingLines > 0 ? operator.id : refreshed.lockedBy,
+        });
+      }
+    },
+  });
+  const {
+    loadMenu,
+    reload: loadDraftForTable,
+    open: openComanda,
+    reset: resetComanda,
+    setOrderForTableId,
+  } = comanda;
 
   const openWorkspace = async (
     table: LiveTable,
@@ -132,14 +132,7 @@ export default function App() {
   ) => {
     if (!operator) return;
     setActiveTable(table);
-    setOrderForTableId(table.id);
-    await loadDraftForTable(table.id);
-    await loadMenu({ resetNavigation: options?.resetNavigation ?? false });
-    setWorkspaceTab(tab);
-    setActiveCourse(1);
-    setSelectedLineId(null);
-    setSelectedSubmittedId(null);
-    setLastAdded(null);
+    await comanda.open(table.id, { tab, resetNavigation: options?.resetNavigation ?? false });
     setScreen("table");
 
     // Asporto/delivery: chi apre l'ordine lo prende in carico subito (come in cassa).
@@ -174,132 +167,10 @@ export default function App() {
     }
   };
 
-  const ensureLock = (action: () => void) => {
-    if (!operator || !activeTable) return;
-    if (hasLock) {
-      action();
-      return;
-    }
-    pendingAfterLockRef.current = action;
-    requestLock(activeTable);
-  };
-
   const loadTables = useCallback(() => {
     void edgeApi<LiveTable[]>("/api/tables/live").then(setTables);
     void edgeApi<Array<{ id: string; name: string }>>("/api/rooms").then(setRooms);
   }, []);
-
-  const loadMenu = useCallback(async (options?: { resetNavigation?: boolean }) => {
-    const m = await edgeApi<{ snapshot: MenuSnapshot }>("/api/menu");
-    const snap = m.snapshot;
-    const cats = [...(snap?.categories ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
-    setMenu({ ...snap, categories: cats });
-    if (options?.resetNavigation && cats[0]) {
-      setSelectedCat(cats[0].id);
-    }
-  }, []);
-
-  const loadDraftForTable = useCallback(
-    async (tableId: string) => {
-      if (isOffline) {
-        const local = await loadDraft(tableId);
-        const lines = local?.cart ?? [];
-        setCart(lines);
-        setSubmittedLines([]);
-        return { cart: lines, submitted: [] as SubmittedLine[] };
-      }
-      const data = await edgeApi<{
-        draft: {
-          lines: Array<{
-            id: string;
-            productId: string;
-            name: string;
-            unitPrice: number;
-            basePrice?: number;
-            quantity: number;
-            variants?: CartLine["variants"];
-            course?: number;
-            hold?: boolean;
-            dessertDefer?: boolean;
-            notes?: string;
-            discountPercent?: number;
-            discountToken?: string;
-            forTableId?: string;
-            forTableLabel?: string;
-          }>;
-        } | null;
-        submitted: Array<{
-          id: string;
-          lines: Array<{
-            id: string;
-            name: string;
-            quantity: number;
-            unitPrice: number;
-            basePrice?: number;
-            variants?: CartLine["variants"];
-            voidedQuantity?: number;
-            forTableId?: string;
-            forTableLabel?: string;
-          }>;
-        }>;
-      }>(`/api/orders?tableId=${tableId}`);
-      const cartLines: CartLine[] = data.draft?.lines
-        ? data.draft.lines.map((l) => {
-            const variants = l.variants ?? [];
-            const variantSum = variants.reduce((s, v) => s + (v.priceDelta ?? 0), 0);
-            const inferredBase =
-              l.basePrice != null && l.basePrice > 0
-                ? l.basePrice
-                : Math.round((l.unitPrice - variantSum) * 100) / 100;
-            return {
-              lineId: l.id,
-              productId: l.productId,
-              name: l.name,
-              basePrice: inferredBase > 0 ? inferredBase : l.unitPrice,
-              unitPrice: l.unitPrice,
-              quantity: l.quantity,
-              variants,
-              course: normalizeCourse(l.course ?? 1),
-              hold: isHeldCourse(l.course ?? 1),
-              dessertDefer: l.dessertDefer ?? false,
-              notes: l.notes,
-              discountPercent: l.discountPercent,
-              discountToken: l.discountToken,
-              allergenIds: [],
-              forTableId: l.forTableId,
-              forTableLabel: l.forTableLabel,
-            };
-          })
-        : [];
-      setCart(cartLines);
-      const submitted: SubmittedLine[] = [];
-      for (const order of data.submitted ?? []) {
-        for (const line of order.lines) {
-          const variants = line.variants ?? [];
-          const variantSum = variants.reduce((s, v) => s + (v.priceDelta ?? 0), 0);
-          const inferredBase =
-            line.basePrice != null && line.basePrice > 0
-              ? line.basePrice
-              : Math.round((line.unitPrice - variantSum) * 100) / 100;
-          submitted.push({
-            orderId: order.id,
-            lineId: line.id,
-            name: line.name,
-            quantity: line.quantity,
-            unitPrice: line.unitPrice,
-            basePrice: inferredBase > 0 ? inferredBase : line.unitPrice,
-            variants,
-            voidedQuantity: line.voidedQuantity,
-            forTableId: line.forTableId,
-            forTableLabel: line.forTableLabel,
-          });
-        }
-      }
-      setSubmittedLines(submitted);
-      return { cart: cartLines, submitted };
-    },
-    [isOffline],
-  );
 
   const applyLockGranted = useCallback(
     async (table: LiveTable, guests?: number) => {
@@ -317,10 +188,7 @@ export default function App() {
         await loadDraftForTable(table.id);
         run();
       } else {
-        await loadDraftForTable(table.id);
-        await loadMenu({ resetNavigation: true });
-        setActiveCourse(1);
-        setWorkspaceTab("menu");
+        await openComanda(table.id, { tab: "menu", resetNavigation: true });
         setScreen("table");
       }
       setLockPending(null);
@@ -328,7 +196,7 @@ export default function App() {
       setPendingGuestsTable(null);
       setUnlockOverridePin(undefined);
     },
-    [operator, loadDraftForTable, loadMenu],
+    [operator, loadDraftForTable, openComanda, setOrderForTableId],
   );
 
   const requestLock = useCallback(
@@ -392,12 +260,6 @@ export default function App() {
     if (pendingGuestsTable || showEditGuestsModal) loadTables();
   }, [pendingGuestsTable, showEditGuestsModal, loadTables]);
 
-  useEffect(() => {
-    if (!activeTable || cart.length === 0) return;
-    cartDirty.current = true;
-    void saveDraft(activeTable.id, cart, operator?.id ?? "");
-  }, [cart, activeTable, operator]);
-
   // Stato turno: letto al login e a ogni riconnessione, poi aggiornato dal broadcast.
   useEffect(() => {
     if (!operator || !connected) return;
@@ -436,8 +298,7 @@ export default function App() {
       const p = payload as { tableId: string };
       if (activeTable?.id === p.tableId) {
         setMessage("Pagamento completato dalla cassa");
-        setCart([]);
-        setSubmittedLines([]);
+        resetComanda();
         setScreen("map");
         setActiveTable(null);
         loadTables();
@@ -454,8 +315,7 @@ export default function App() {
             setMessage("Conto spostato su altro tavolo");
             setScreen("map");
             setActiveTable(null);
-            setCart([]);
-            setSubmittedLines([]);
+            resetComanda();
           }
         });
       } else if (activeTable?.id === p.targetTableId) {
@@ -470,18 +330,18 @@ export default function App() {
       unsub5();
       unsub6();
     };
-  }, [on, loadTables, tables, operator, loadMenu, loadDraftForTable, applyLockGranted]);
+  }, [on, loadTables, tables, operator, loadDraftForTable, applyLockGranted, resetComanda, activeTable]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (screen === "table" && cart.length > 0) {
+      if (screen === "table" && comanda.cart.length > 0) {
         e.preventDefault();
         e.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [screen, cart]);
+  }, [screen, comanda.cart]);
 
   const verifyPin = async (value: string) => {
     setPinError("");
@@ -730,660 +590,33 @@ export default function App() {
     enterTable(table, value);
   };
 
-  const getChannel = (): "TABLE" | "TAKEAWAY" | "DELIVERY" => {
-    if (!activeTable?.isVirtual) return "TABLE";
-    if (activeTable.virtualType === "DELIVERY") return "DELIVERY";
-    return "TAKEAWAY";
-  };
-
-  const findCategory = (categoryId: string) =>
-    categories.find((c) => c.id === categoryId) ?? {
-      id: categoryId,
-      name: { it: "" },
-      colorHex: "#888888",
-      sortOrder: 0,
-    };
-
-  const mergeCartLine = (line: CartLine) => {
-    const key = lineKey(line.productId, line.variants, line.course, line.forTableId);
-    // L'id da selezionare va calcolato prima di setCart: l'updater può girare dopo.
-    const focusId =
-      cart.find((l) => lineKey(l.productId, l.variants, l.course, l.forTableId) === key)
-        ?.lineId ?? line.lineId;
-    setCart((prev) => {
-      const existing = prev.find(
-        (l) => lineKey(l.productId, l.variants, l.course, l.forTableId) === key,
-      );
-      if (existing) {
-        return prev.map((l) =>
-          lineKey(l.productId, l.variants, l.course, l.forTableId) === key
-            ? { ...l, quantity: l.quantity + 1 }
-            : l,
-        );
-      }
-      return [...prev, line];
-    });
-    setSelectedLineId(focusId);
-    setLastAdded((prev) => ({
-      seq: (prev?.seq ?? 0) + 1,
-      lineId: focusId,
-      productId: line.productId,
-      name: line.name,
-      course: line.course,
-    }));
-    navigator.vibrate?.(15);
-  };
-
-  const resolveOrderForTable = (): { id: string; label: string } | null => {
-    if (!activeTable) return null;
-    const live = resolveLiveTable(activeTable, tables);
-    if (!(live.linkedTableIds?.length)) return null;
-    const members = [
-      live,
-      ...live.linkedTableIds
-        .map((id) => tables.find((t) => t.id === id))
-        .filter((t): t is LiveTable => !!t),
-    ];
-    const selected = members.find((m) => m.id === orderForTableId) ?? members[0]!;
-    return { id: selected.id, label: selected.label };
-  };
-
-  const partitionCartForSpedito = (lines: CartLine[]) => {
-    const target = resolveOrderForTable();
-    if (!target || !activeTable) {
-      return { target: null as { id: string; label: string } | null, toSend: lines, remaining: [] as CartLine[] };
-    }
-    const hostId = activeTable.id;
-    const toSend = lines.filter((l) => (l.forTableId ?? hostId) === target.id);
-    const remaining = lines.filter((l) => (l.forTableId ?? hostId) !== target.id);
-    return { target, toSend, remaining };
-  };
-
-  const handleSelectCat = (catId: string) => {
-    setSelectedCat(catId);
-  };
-
-  const addProduct = (product: Product) => {
-    if (!menu) return;
-    const doAdd = () => {
-      const options = variantsForProduct(product, menu.variantGroups ?? []);
-      const channel = getChannel();
-      if (options.length > 0) {
-        setVariantProduct(product);
-        return;
-      }
-      const category = findCategory(product.categoryId);
-      const line = buildCartLine(
-        product,
-        category,
-        channel,
-        menu.prices ?? [],
-        [],
-        activeCourse,
-        resolveOrderForTable(),
-      );
-      if ("error" in line) {
-        setMessage(line.error);
-        return;
-      }
-      mergeCartLine(line);
-    };
-    ensureLock(doAdd);
-  };
-
-  const confirmVariants = (variants: VariantSelection[]) => {
-    if (!variantProduct || !menu) return;
-    const category = findCategory(variantProduct.categoryId);
-    const channel = getChannel();
-    const line = buildCartLine(
-      variantProduct,
-      category,
-      channel,
-      menu.prices ?? [],
-      variants,
-      activeCourse,
-      resolveOrderForTable(),
-    );
-    if ("error" in line) {
-      setMessage(line.error);
-    } else {
-      mergeCartLine(line);
-    }
-    setVariantProduct(null);
-  };
-
-  const mapLinePayload = (l: CartLine) => ({
-    id: l.lineId,
-    productId: l.productId,
-    name: l.name,
-    quantity: l.quantity,
-    unitPrice: l.unitPrice,
-    basePrice: l.basePrice,
-    channel: getChannel(),
-    notes: l.notes || undefined,
-    variants: l.variants,
-    course: normalizeCourse(l.course),
-    hold: l.hold,
-    dessertDefer: l.dessertDefer,
-    discountPercent: l.discountPercent,
-    discountToken: l.discountToken,
-    forTableId: l.forTableId,
-    forTableLabel: l.forTableLabel,
-  });
-
-  const persistDraft = async () => {
-    if (!operator || !activeTable || cart.length === 0) return;
-    await edgeApi("/api/orders", {
-      method: "POST",
-      body: JSON.stringify({
-        tableId: activeTable.id,
-        operatorId: operator.id,
-        operatorName: `${operator.firstName} ${operator.lastName}`,
-        channel: getChannel(),
-        lines: cart.map(mapLinePayload),
-      }),
-    });
-    await saveDraft(activeTable.id, cart, operator.id);
-  };
-
-  const submitOrder = async () => {
-    if (!operator || !activeTable || cart.length === 0) return;
-    if (isOffline) {
-      setMessage("Offline — SPEDITO disabilitato. Bozza salvata localmente.");
-      await saveDraft(activeTable.id, cart, operator.id);
-      return;
-    }
-    const live = resolveLiveTable(activeTable, tables);
-    const guests =
-      (live.guestTotal && live.guestTotal > 0 ? live.guestTotal : live.guests) ??
-      activeTable.defaultGuests ??
-      0;
-    if (!activeTable.isVirtual && guests <= 0) {
-      setMessage("Imposta i coperti prima di SPEDITO");
-      return;
-    }
-
-    const { target, toSend, remaining } = partitionCartForSpedito(cart);
-    if (toSend.length === 0) {
-      setMessage(
-        target
-          ? `Nessuna riga per ${formatTableLabel(target.label)} — seleziona il tavolo o aggiungi piatti`
-          : "Nessuna riga da spedire",
-      );
-      return;
-    }
-
-    const invalid = toSend.find((l) => l.unitPrice <= 0);
-    if (invalid) {
-      setMessage(`Prezzo non valido: ${invalid.name}`);
-      return;
-    }
-
-    const linesPayload = toSend.map((l) => {
-      const base = mapLinePayload(l);
-      if (target && !base.forTableId) {
-        return { ...base, forTableId: target.id, forTableLabel: target.label };
-      }
-      return base;
-    });
-
-    const order = await edgeApi<{ id: string }>("/api/orders", {
-      method: "POST",
-      body: JSON.stringify({
-        tableId: activeTable.id,
-        operatorId: operator.id,
-        operatorName: `${operator.firstName} ${operator.lastName}`,
-        channel: getChannel(),
-        lines: linesPayload,
-      }),
-    });
-
-    const result = await edgeApi<{
-      ok: boolean;
-      kdsTickets?: unknown[];
-      orderId: string;
-      tableId: string;
-      tableLabel: string;
-      printWarnings?: string[];
-    }>(`/api/orders/${order.id}/submit`, { method: "POST" });
-    showPrintWarnings(result.printWarnings);
-
-    if (result.ok) {
-      send("ORDER_SUBMIT", {
-        tableId: activeTable.id,
-        orderId: order.id,
-        tableLabel: result.tableLabel,
-        kdsTickets: result.kdsTickets,
-      });
-      const label = target ? formatTableLabel(target.label) : result.tableLabel;
-      setMessage(
-        target
-          ? `SPEDITO ${label} — ${toSend.length} ${toSend.length === 1 ? "riga" : "righe"} in cucina`
-          : "SPEDITO — comanda inviata in cucina",
-      );
-
-      setCart(remaining);
-      cartDirty.current = remaining.length > 0;
-      if (remaining.length > 0) {
-        await edgeApi("/api/orders", {
-          method: "POST",
-          body: JSON.stringify({
-            tableId: activeTable.id,
-            operatorId: operator.id,
-            operatorName: `${operator.firstName} ${operator.lastName}`,
-            channel: getChannel(),
-            lines: remaining.map(mapLinePayload),
-          }),
-        });
-        await saveDraft(activeTable.id, remaining, operator.id);
-      } else {
-        await clearDraft(activeTable.id);
-        // Il lock resta all'operatore che ha appena inviato (lo gestisce il backend
-        // in /api/orders/:id/submit) — niente banner "Prendi" per lui.
-      }
-
-      const tableId = activeTable.id;
-      await loadDraftForTable(tableId);
-      const refreshed = tables.find((t) => t.id === tableId);
-      if (refreshed) {
-        setActiveTable({
-          ...refreshed,
-          status: remaining.length > 0 ? "LOCKED" : "OCCUPIED",
-          lockedBy: remaining.length > 0 ? operator.id : refreshed.lockedBy,
-        });
-        setWorkspaceTab("comanda");
-        setScreen("table");
-      } else {
-        setActiveTable(null);
-        setScreen("map");
-      }
-      loadTables();
-    }
-  };
-
-  const callCourse = async (course: number) => {
-    if (!activeTable || isOffline) return;
-    const result = await edgeApi<{ printWarnings?: string[] }>("/api/orders/call-course", {
-      method: "POST",
-      body: JSON.stringify({ tableId: activeTable.id, course }),
-    });
-    showPrintWarnings(result.printWarnings);
-    setConfirmCallCourse(null);
-    setMessage(`Marcia — ${stepLabel(course)} inviata in cucina`);
-  };
-
-  const releaseDessert = async () => {
-    if (!activeTable || isOffline) return;
-    const result = await edgeApi<{ printWarnings?: string[] }>("/api/orders/release-dessert", {
-      method: "POST",
-      body: JSON.stringify({ tableId: activeTable.id }),
-    });
-    showPrintWarnings(result.printWarnings);
-    setConfirmReleaseDessert(false);
-    setMessage("X DOLCE — dolci inviati in cucina");
-  };
-
-  const requestPayment = () => {
-    if (!operator || !activeTable || isOffline) return;
-    send("REQUEST_PAYMENT", {
-      tableId: activeTable.id,
-      operatorId: operator.id,
-      operatorName: `${operator.firstName} ${operator.lastName}`,
-    });
-    setConfirmPayment(false);
-    setMessage("Pagamento richiesto — cassa notificata");
-    loadTables();
-  };
-
-  const applyDiscount = async (pin: string) => {
-    if (!pendingDiscountLine) return;
-    setPinModalError("");
-    try {
-      const line = cart.find((l) => l.lineId === pendingDiscountLine);
-      if (!line) return;
-      const percent = settings.maxDiscountPercent;
-      const auth = await edgeApi<{ token: string; percent: number }>("/api/staff/authorize-discount", {
-        method: "POST",
-        body: JSON.stringify({ managerPin: pin, discountPercent: percent }),
-      });
-      setCart((prev) =>
-        prev.map((l) =>
-          l.lineId === pendingDiscountLine
-            ? { ...l, discountPercent: auth.percent, discountToken: auth.token }
-            : l,
-        ),
-      );
-      setPinModal(null);
-      setPendingDiscountLine(null);
-      setMessage(`Sconto ${auth.percent}% autorizzato`);
-    } catch {
-      setPinModalError("PIN non valido o sconto rifiutato");
-    }
-  };
-
-  const executeStorno = async (line: SubmittedLine, quantity: number) => {
-    if (!operator) return;
-    try {
-      const stornoResult = await edgeApi<{ printWarnings?: string[] }>(`/api/orders/${line.orderId}/storno`, {
-        method: "POST",
-        body: JSON.stringify({
-          lineId: line.lineId,
-          operatorId: operator.id,
-          operatorName: `${operator.firstName} ${operator.lastName}`,
-          quantity,
-        }),
-      });
-      showPrintWarnings(stornoResult.printWarnings);
-      setSubmittedLines((prev) =>
-        prev.map((l) =>
-          l.lineId === line.lineId
-            ? { ...l, voidedQuantity: (l.voidedQuantity ?? 0) + quantity }
-            : l,
-        ),
-      );
-      setConfirmStorno(null);
-      setStornoQtyTarget(null);
-      setSelectedSubmittedId(null);
-      setMessage(
-        quantity > 1
-          ? `Storno di ${quantity}× inviato — ticket ANNULLO stampato`
-          : "Storno inviato — ticket ANNULLO stampato",
-      );
-    } catch {
-      setMessage("Storno non riuscito — riprova");
-    }
-  };
-
-  const requestStorno = (line: SubmittedLine) => {
-    const remaining = line.quantity - (line.voidedQuantity ?? 0);
-    if (remaining > 1) {
-      setStornoQtyTarget({ line, maxQty: remaining });
-      return;
-    }
-    setConfirmStorno(line);
-  };
-
-  const applyPriceOverride = async (result: {
-    unitPrice: number;
-    basePrice: number;
-    variants: VariantSelection[];
-  }) => {
-    if (!priceOverrideTarget || !operator || !activeTable) return;
-    const { kind, lineId, name } = priceOverrideTarget;
-    const { unitPrice, basePrice, variants } = result;
-
-    if (kind === "cart") {
-      setCart((prev) =>
-        prev.map((l) =>
-          l.lineId === lineId
-            ? { ...l, unitPrice, basePrice, variants }
-            : l,
-        ),
-      );
-    }
-
-    try {
-      await edgeApi("/api/orders/line-price", {
-        method: "POST",
-        body: JSON.stringify({
-          tableId: activeTable.id,
-          lineId,
-          unitPrice,
-          basePrice,
-          variants,
-          operatorId: operator.id,
-          operatorName: `${operator.firstName} ${operator.lastName}`,
-        }),
-      });
-      if (kind === "submitted") {
-        setSubmittedLines((prev) =>
-          prev.map((l) =>
-            l.lineId === lineId
-              ? { ...l, unitPrice, basePrice, variants }
-              : l,
-          ),
-        );
-      }
-      setPriceOverrideTarget(null);
-      setMessage(`Prezzo aggiornato: ${name} → € ${unitPrice.toFixed(2)}`);
-    } catch {
-      // Bozza locale: se la riga non è ancora sul server, l'update locale resta valido
-      if (kind === "cart") {
-        setPriceOverrideTarget(null);
-        setMessage(`Prezzo aggiornato in bozza: ${name} → € ${unitPrice.toFixed(2)}`);
-        return;
-      }
-      setMessage("Modifica prezzo non riuscita — riprova");
-    }
-  };
-
-  const openPriceOverride = (target: { kind: "cart" | "submitted"; lineId: string }) => {
-    if (target.kind === "cart") {
-      const line = cart.find((l) => l.lineId === target.lineId);
-      if (!line) return;
-      setPriceOverrideTarget({
-        kind: "cart",
-        lineId: line.lineId,
-        name: line.name,
-        unitPrice: line.unitPrice,
-        basePrice: line.basePrice,
-        variants: line.variants,
-      });
-      return;
-    }
-    const line = submittedLines.find((l) => l.lineId === target.lineId);
-    if (!line) return;
-    setPriceOverrideTarget({
-      kind: "submitted",
-      lineId: line.lineId,
-      name: line.name,
-      unitPrice: line.unitPrice,
-      basePrice: line.basePrice,
-      variants: line.variants,
-    });
-  };
-
   const releaseLockIfHeld = () => {
-    if (operator && activeTable?.status === "LOCKED") {
+    // Dopo Spedisci il tavolo è OCCUPIED ma resta assegnato a chi ha inviato: va rilasciato comunque.
+    if (operator && activeTable?.lockedBy === operator.id) {
       send("RELEASE_TABLE_LOCK", { tableId: activeTable.id, operatorId: operator.id });
     }
   };
 
+  /** Uscita dal tavolo (già confermata dalla comanda se c'erano piatti non spediti). */
   const leaveTable = () => {
-    if (cart.length > 0 && !exitConfirm) {
-      setExitConfirm(true);
-      return;
-    }
-    if (operator && activeTable && cart.length > 0) {
-      void persistDraft();
-    }
-    setExitConfirm(false);
+    if (comanda.cart.length > 0) void comanda.persistDraft();
     releaseLockIfHeld();
     setScreen("map");
     setActiveTable(null);
-    setSelectedLineId(null);
-    setSelectedSubmittedId(null);
-  };
-
-  const handleEditVariants = (line: CartLine) => {
-    if (!menu) return;
-    const product = products.find((p) => p.id === line.productId);
-    if (!product) return;
-    const options = variantsForProduct(product, menu.variantGroups ?? []);
-    if (options.length === 0) {
-      setMessage("Questo prodotto non ha varianti da modificare");
-      return;
-    }
-    setEditCartLine(line);
-  };
-
-  const handleEditNote = (line: CartLine) => {
-    setNoteLineId(line.lineId);
-  };
-
-  const stageVariantSave = (variants: VariantSelection[]) => {
-    if (!editCartLine) return;
-    const unitPrice = calculateLinePrice(
-      editCartLine.basePrice,
-      variants.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
-    );
-    if (unitPrice <= 0) {
-      setMessage("Prezzo riga non valido (vincolo fiscale)");
-      return;
-    }
-    setPendingVariantSave(variants);
-  };
-
-  const applyVariantSave = () => {
-    if (!editCartLine || !pendingVariantSave) return;
-    const unitPrice = calculateLinePrice(
-      editCartLine.basePrice,
-      pendingVariantSave.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
-    );
-    setCart((prev) =>
-      prev.map((l) =>
-        l.lineId === editCartLine.lineId
-          ? { ...l, variants: pendingVariantSave, unitPrice }
-          : l,
-      ),
-    );
-    setPendingVariantSave(null);
-    setEditCartLine(null);
-  };
-
-  const applyNoteSave = (lineId: string, note: string) => {
-    setCart((prev) =>
-      prev.map((l) => (l.lineId === lineId ? { ...l, notes: note || undefined } : l)),
-    );
-    setNoteLineId(null);
+    comanda.setSelectedLineId(null);
+    comanda.setSelectedSubmittedId(null);
   };
 
   const logout = () => {
     setOperator(null);
     setScreen("pin");
     setActiveTable(null);
-    setCart([]);
+    resetComanda();
   };
 
   const modals = (
     <>
-      {exitConfirm && (
-        <ConfirmModal
-          title="Attenzione!"
-          message="Ci sono comande non spedite. Se esci dal tavolo senza spedire, la bozza resta salvata ma il tavolo verrà sbloccato."
-          confirmLabel="Esci"
-          cancelLabel="Continua ordine"
-          onConfirm={leaveTable}
-          onCancel={() => setExitConfirm(false)}
-        />
-      )}
-      {submitConfirm && activeTable && (() => {
-        const { target, toSend } = partitionCartForSpedito(cart);
-        const n = toSend.length;
-        const where = target ? formatTableLabel(target.label) : null;
-        return (
-        <ConfirmModal
-          title="Inviare in cucina?"
-          message={
-            where
-              ? `SPEDITO solo per ${where}: ${n} ${n === 1 ? "riga" : "righe"}. Le altre restano in bozza (conto unico).`
-              : `Confermi SPEDITO per ${n} ${n === 1 ? "riga" : "righe"}?`
-          }
-          confirmLabel="SPEDITO"
-          onConfirm={() => {
-            setSubmitConfirm(false);
-            void submitOrder();
-          }}
-          onCancel={() => setSubmitConfirm(false)}
-        />
-        );
-      })()}
       {printAlert && <PrintAlertModal messages={printAlert} onClose={() => setPrintAlert(null)} />}
-      {confirmCallCourse != null && (
-        <ConfirmModal
-          title={`Chiamare ${stepLabel(confirmCallCourse)}?`}
-          message="Verrà inviato un sollecito in cucina e sbloccati i piatti in HOLD."
-          confirmLabel="Marcia"
-          onConfirm={() => void callCourse(confirmCallCourse)}
-          onCancel={() => setConfirmCallCourse(null)}
-        />
-      )}
-      {confirmReleaseDessert && (
-        <ConfirmModal
-          title="Inviare i dolci?"
-          message="I dessert differiti verranno stampati in cucina."
-          confirmLabel="X DOLCE"
-          onConfirm={() => void releaseDessert()}
-          onCancel={() => setConfirmReleaseDessert(false)}
-        />
-      )}
-      {confirmPayment && (
-        <ConfirmModal
-          title="Richiedere preconto?"
-          message="La cassa riceverà una notifica per stampare il preconto."
-          confirmLabel="Preconto"
-          onConfirm={requestPayment}
-          onCancel={() => setConfirmPayment(false)}
-        />
-      )}
-      {confirmStorno && (
-        <ConfirmModal
-          title="Stornare la riga?"
-          message={`Annullare ${confirmStorno.name}? Verrà stampato il ticket ANNULLO in cucina.`}
-          confirmLabel="Annulla piatto"
-          variant="danger"
-          onConfirm={() => void executeStorno(confirmStorno, 1)}
-          onCancel={() => setConfirmStorno(null)}
-        />
-      )}
-      {stornoQtyTarget && (
-        <StornoQtyModal
-          itemName={stornoQtyTarget.line.name}
-          maxQty={stornoQtyTarget.maxQty}
-          onConfirm={(qty) => void executeStorno(stornoQtyTarget.line, qty)}
-          onCancel={() => setStornoQtyTarget(null)}
-        />
-      )}
-      {priceOverrideTarget && (
-        <PriceOverrideModal
-          itemName={priceOverrideTarget.name}
-          currentPrice={priceOverrideTarget.unitPrice}
-          basePrice={priceOverrideTarget.basePrice}
-          variants={priceOverrideTarget.variants}
-          onConfirm={(result) => void applyPriceOverride(result)}
-          onCancel={() => setPriceOverrideTarget(null)}
-        />
-      )}
-      {pendingVariantSave && editCartLine && (
-        <ConfirmModal
-          title="Salvare le modifiche?"
-          message={`Confermi le varianti su «${editCartLine.name}»?`}
-          confirmLabel="Salva"
-          onConfirm={applyVariantSave}
-          onCancel={() => setPendingVariantSave(null)}
-        />
-      )}
-      {confirmDiscountLine && (
-        <ConfirmModal
-          title="Applicare sconto?"
-          message={`Richiedere sconto sulla riga «${
-            cart.find((l) => l.lineId === confirmDiscountLine)?.name ?? ""
-          }»? Serve PIN manager.`}
-          confirmLabel="Continua"
-          onConfirm={() => {
-            const lineId = confirmDiscountLine;
-            setConfirmDiscountLine(null);
-            setPendingDiscountLine(lineId);
-            setCart((prev) =>
-              prev.map((x) =>
-                x.lineId === lineId ? { ...x, discountPercent: settings.maxDiscountPercent } : x,
-              ),
-            );
-            setPinModal("discount");
-          }}
-          onCancel={() => setConfirmDiscountLine(null)}
-        />
-      )}
       {pinModal === "unlock" && (
         <PinModal
           title="PIN manager per sblocco tavolo"
@@ -1391,17 +624,6 @@ export default function App() {
           onCancel={() => {
             setPinModal(null);
             setPendingUnlockTable(null);
-          }}
-          error={pinModalError}
-        />
-      )}
-      {pinModal === "discount" && (
-        <PinModal
-          title="PIN manager per sconto"
-          onComplete={(v) => void applyDiscount(v)}
-          onCancel={() => {
-            setPinModal(null);
-            setPendingDiscountLine(null);
           }}
           error={pinModalError}
         />
@@ -1433,79 +655,23 @@ export default function App() {
   }
 
   if (screen === "table" && activeTable && operator) {
-    if (!menu) {
-      return (
-        <>
-          <main className="flex min-h-screen items-center justify-center bg-[hsl(var(--pg-background))] p-6">
-            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento…</p>
-          </main>
-          {modals}
-        </>
-      );
-    }
-
-    const channel = getChannel();
-    const editProduct = editCartLine
-      ? products.find((p) => p.id === editCartLine.productId) ?? null
-      : null;
-
     return (
       <>
-        <TableWorkspace
+        <ComandaWorkspace
+          comanda={comanda}
+          layout="handheld"
           table={activeTable}
           tables={tables}
           operator={operator}
-          menu={menu}
-          categories={categories}
-          cart={cart}
-          submittedLines={submittedLines}
-          workspaceTab={workspaceTab}
-          selectedLineId={selectedLineId}
-          selectedSubmittedId={selectedSubmittedId}
-          search={search}
-          allergenFilter={allergenFilter}
-          selectedCat={selectedCat}
-          variantProduct={variantProduct}
           isOffline={isOffline}
           shiftInactive={shiftInactive}
           hasLock={hasLock}
           message={message}
-          channel={channel}
-          activeCourse={activeCourse}
-          onActiveCourseChange={setActiveCourse}
-          orderForTableId={orderForTableId}
-          onOrderForTableChange={setOrderForTableId}
-          onTabChange={setWorkspaceTab}
-          onSelectLine={setSelectedLineId}
-          onSelectSubmitted={setSelectedSubmittedId}
-          onSearchChange={setSearch}
-          onAllergenToggle={(id) =>
-            setAllergenFilter((prev) =>
-              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-            )
-          }
-          onSelectCat={handleSelectCat}
-          onAddProduct={addProduct}
-          lastAdded={lastAdded}
-          onConfirmVariants={confirmVariants}
-          onCancelVariants={() => setVariantProduct(null)}
-          onUpdateCart={setCart}
-          onLeaveTable={leaveTable}
-          onSpedisci={() => ensureLock(() => setSubmitConfirm(true))}
-          onMarcia={(c) => setConfirmCallCourse(c)}
-          onPreconto={() => setConfirmPayment(true)}
-          onReleaseDessert={() => setConfirmReleaseDessert(true)}
-          onDiscountLine={(lineId) => setConfirmDiscountLine(lineId)}
-          onStorno={requestStorno}
-          onPriceOverride={openPriceOverride}
-          onEditVariants={handleEditVariants}
-          onEditNote={handleEditNote}
-          noteLineId={noteLineId}
-          onSaveNote={applyNoteSave}
-          onCancelNote={() => setNoteLineId(null)}
-          onAcquireLock={() => activeTable && ensureLock(() => setMessage("Tavolo acquisito"))}
-          onOpenTransfer={() => setShowTransferModal(true)}
+          backLabel="← Tavoli"
+          onLeave={leaveTable}
+          onAcquireLock={() => ensureLock(() => setMessage("Tavolo acquisito"))}
           onEditGuests={openEditGuests}
+          onOpenTransfer={() => setShowTransferModal(true)}
         />
         {showEditGuestsModal && activeTable && (() => {
           const primary = resolveLiveTable(activeTable, tables);
@@ -1530,8 +696,8 @@ export default function App() {
           <TableTransferModal
             sourceTable={activeTable}
             operator={operator}
-            cart={cart}
-            submittedLines={submittedLines}
+            cart={comanda.cart}
+            submittedLines={comanda.submittedLines}
             tables={tables}
             rooms={rooms}
             isOffline={isOffline}
@@ -1548,17 +714,6 @@ export default function App() {
               });
               loadTables();
             }}
-          />
-        )}
-        {editProduct && editCartLine && (
-          <VariantSheet
-            product={editProduct}
-            variants={variantsForProduct(editProduct, menu.variantGroups ?? [])}
-            basePrice={editCartLine.basePrice}
-            initialVariants={editCartLine.variants}
-            confirmLabel="Salva"
-            onConfirm={stageVariantSave}
-            onCancel={() => setEditCartLine(null)}
           />
         )}
         {modals}

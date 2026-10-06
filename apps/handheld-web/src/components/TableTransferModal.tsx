@@ -1,8 +1,8 @@
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useMemo, useState } from "react";
-import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
-import { ConfirmModal } from "./ConfirmModal";
-import { PinModal } from "./PinModal";
+import { BottomSheet, bottomSheetFooterClass } from "@pizzaguys/comanda";
+import { ConfirmModal } from "@pizzaguys/comanda";
+import { PinModal } from "@pizzaguys/comanda";
 import { edgeApi } from "../lib/api";
 import type { CartLine, LiveTable, Operator, SubmittedLine } from "../lib/types";
 

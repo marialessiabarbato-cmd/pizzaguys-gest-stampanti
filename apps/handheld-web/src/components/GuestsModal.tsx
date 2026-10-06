@@ -1,14 +1,14 @@
 import { Button } from "@pizzaguys/ui";
 import { useMemo, useState } from "react";
-import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
+import { BottomSheet, bottomSheetFooterClass } from "@pizzaguys/comanda";
 import { TableUnionChips } from "./TableUnionChips";
 import {
   combinedSeats,
   guestsAt,
   mergePartnerPool,
   tableSeats,
-} from "../lib/table-seats";
-import { formatTableLabel } from "../lib/table-display";
+} from "@pizzaguys/comanda";
+import { formatTableLabel } from "@pizzaguys/comanda";
 import type { LiveTable } from "../lib/types";
 
 export type GuestsConfirmPayload = {

@@ -121,6 +121,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.7)
+      '@pizzaguys/comanda':
+        specifier: workspace:*
+        version: link:../../packages/comanda
       '@pizzaguys/fiscal':
         specifier: workspace:*
         version: link:../../packages/fiscal
@@ -173,6 +176,9 @@ importers:
 
   apps/handheld-web:
     dependencies:
+      '@pizzaguys/comanda':
+        specifier: workspace:*
+        version: link:../../packages/comanda
       '@pizzaguys/fiscal':
         specifier: workspace:*
         version: link:../../packages/fiscal
@@ -265,6 +271,34 @@ importers:
       '@playwright/test':
         specifier: ^1.52.0
         version: 1.60.0
+
+  packages/comanda:
+    dependencies:
+      '@pizzaguys/fiscal':
+        specifier: workspace:*
+        version: link:../fiscal
+      '@pizzaguys/types':
+        specifier: workspace:*
+        version: link:../types
+      '@pizzaguys/ui':
+        specifier: workspace:*
+        version: link:../ui
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.1.6
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.2.7(react@19.2.7)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
   packages/db:
     dependencies:

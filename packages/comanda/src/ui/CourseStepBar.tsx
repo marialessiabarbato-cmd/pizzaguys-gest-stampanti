@@ -1,5 +1,5 @@
-import { ORDER_STEPS, normalizeCourse } from "../lib/course";
-import type { CartLine } from "../lib/types";
+import { ORDER_STEPS, normalizeCourse } from "../course";
+import type { CartLine } from "../types";
 
 export function CourseStepBar({
   activeCourse,

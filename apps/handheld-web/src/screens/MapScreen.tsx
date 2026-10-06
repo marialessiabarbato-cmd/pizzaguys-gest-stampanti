@@ -1,10 +1,10 @@
 import type { TableStatus } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useMemo, useState } from "react";
-import { ConfirmModal } from "../components/ConfirmModal";
+import { ConfirmModal } from "@pizzaguys/comanda";
 import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModal";
 import { RoomTabs } from "../components/RoomTabs";
-import { ShiftInactiveBanner } from "../components/ShiftInactiveBanner";
+import { ShiftInactiveBanner } from "@pizzaguys/comanda";
 import { TableMapViewport } from "../components/TableMapViewport";
 import {
   TABLE_STATUS_COLORS,
@@ -15,7 +15,7 @@ import {
   isUnionHost,
   mapTableMeta,
   tableLabelFontClass,
-} from "../lib/table-display";
+} from "@pizzaguys/comanda";
 import type { LiveTable, Operator } from "../lib/types";
 
 export function MapScreen({

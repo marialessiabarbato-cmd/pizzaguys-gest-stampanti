@@ -208,6 +208,9 @@ Il locale è "in turno" se almeno un turno cassa è aperto. Senza turno l'Edge r
 | T5 | Aggiunta piatto              | Palmare: tocca un piatto (anche due volte lo stesso)                   | Avviso "✓ piatto · portata" con **Annulla**, contatore "n×" sul menu, riga evidenziata | ok  |
 | T6 | Nota riga                    | Seleziona riga → **Nota** → note rapide / testo → **Salva**           | Un solo passaggio; tap fuori chiude senza salvare; nota visibile sulla riga | ok  |
 | T7 | Nota con tastiera reale      | Su tablet/iPad reale apri la nota                                     | Il foglio resta sopra la tastiera, Salva visibile                     | ☐ (serve tablet) |
+| T8 | Comanda cassa = palmare      | Cassa: tavolo → Comanda. Aggiungi in Ora/Segue, nota, Spedisci, Marcia, Preconto, storno di un piatto già inviato | Stessa schermata e stesse azioni del palmare; pannelli laterali; Preconto stampa subito | ok  |
+| T9 | Segue in attesa              | Aggiungi un piatto in Segue >1 (palmare o cassa) e Spedisci            | Comanda `-- SEGUE >1 (in attesa) --`; KDS "in attesa" fino a Marcia    | ok  |
+| T10| Tavolo libero dopo Spedisci  | Palmare: Spedisci, poi ← Tavoli; apri lo stesso tavolo in cassa        | Nessun PIN di sblocco richiesto                                        | ok  |
 
 ---
 
