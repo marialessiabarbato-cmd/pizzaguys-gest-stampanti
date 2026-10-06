@@ -333,17 +333,6 @@ export function CassaPage({
     tables: comandaTables,
     isOffline: !connected,
     setMessage,
-    // In cassa il preconto si stampa subito (dal palmare invece si chiede alla cassa).
-    onPreconto: async () => {
-      if (!selectedTable) return;
-      try {
-        await edgeApi(`/api/pos/tables/${selectedTable.id}/prebill`, { method: "POST" });
-        setMessage("Preconto stampato");
-        loadTables();
-      } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Errore preconto");
-      }
-    },
     onSubmitted: () => {
       loadTables();
       if (selectedTable) void loadBill(selectedTable.id);
@@ -1933,10 +1922,6 @@ export function CassaPage({
                 setShowEditGuestsModal(true);
               }}
               onOpenTransfer={() => setShowTransferModal(true)}
-              precontoCopy={{
-                title: "Stampare il preconto?",
-                message: "Il preconto del tavolo verrà stampato subito.",
-              }}
               showShiftBanner={false}
             />
           ) : selectedTable && bill ? (

@@ -41,8 +41,11 @@ export interface UseComandaOptions {
   ensureLock?: (action: () => void) => void;
   draftStore?: ComandaDraftStore;
   onPrintWarnings?: (warnings: string[]) => void;
-  /** Preconto confermato: il palmare avvisa la cassa, la cassa lo stampa. */
-  onPreconto: () => void | Promise<void>;
+  /**
+   * Preconto confermato (il palmare avvisa la cassa). Se assente il pulsante non compare:
+   * in cassa il preconto si fa dal pannello Conto.
+   */
+  onPreconto?: () => void | Promise<void>;
   /** Dopo uno Spedisci riuscito (aggiornare tavoli, conto, stato tavolo). */
   onSubmitted?: (info: { remainingLines: number }) => void | Promise<void>;
 }
@@ -524,7 +527,7 @@ export function useComanda(options: UseComandaOptions) {
 
   const preconto = async () => {
     setConfirmPreconto(false);
-    if (isOffline) return;
+    if (isOffline || !onPreconto) return;
     await onPreconto();
   };
 
@@ -749,6 +752,7 @@ export function useComanda(options: UseComandaOptions) {
     confirmReleaseDessert,
     setConfirmReleaseDessert,
     releaseDessert,
+    hasPreconto: !!onPreconto,
     confirmPreconto,
     setConfirmPreconto,
     preconto,

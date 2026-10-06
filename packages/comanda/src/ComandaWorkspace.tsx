@@ -518,7 +518,7 @@ export function ComandaWorkspace({
   ) : null;
 
   const footerButtons = (
-    <div className="grid grid-cols-4 gap-2">
+    <div className={`grid gap-2 ${c.hasPreconto ? "grid-cols-4" : "grid-cols-3"}`}>
       <Button
         className="min-h-12 text-sm leading-tight"
         disabled={speditoLines.length === 0 || isOffline || needsLock || shiftInactive}
@@ -537,14 +537,16 @@ export function ComandaWorkspace({
       <Button variant="outline" className="min-h-12 text-sm" disabled={isOffline} onClick={handleMarciaClick}>
         {suggestedMarcia != null ? "Marcia ▶" : "Marcia"}
       </Button>
-      <Button
-        variant="outline"
-        className="min-h-12 text-sm"
-        disabled={isOffline}
-        onClick={() => c.setConfirmPreconto(true)}
-      >
-        Preconto
-      </Button>
+      {c.hasPreconto && (
+        <Button
+          variant="outline"
+          className="min-h-12 text-sm"
+          disabled={isOffline}
+          onClick={() => c.setConfirmPreconto(true)}
+        >
+          Preconto
+        </Button>
+      )}
       <Button variant="outline" className="min-h-12 px-0 text-lg" onClick={() => setMoreOpen(true)} aria-label="Altre opzioni">
         ≡
       </Button>
