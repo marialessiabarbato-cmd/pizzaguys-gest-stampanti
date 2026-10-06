@@ -1,4 +1,5 @@
 import { calculateLinePrice } from "@pizzaguys/fiscal";
+import { isHeldCourse } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { edgeApi } from "../lib/api";
@@ -116,7 +117,7 @@ export function ComandaPanel({
           quantity: l.quantity,
           variants: l.variants ?? [],
           course: l.course ?? 1,
-          hold: l.hold ?? false,
+          hold: isHeldCourse(l.course),
           dessertDefer: l.dessertDefer ?? false,
           notes: l.notes,
           allergenIds: [],
@@ -645,9 +646,7 @@ export function ComandaPanel({
                                       ? {
                                           ...x,
                                           course: step.course,
-                                          hold: isOraCourse(step.course)
-                                            ? false
-                                            : x.hold || true,
+                                          hold: isHeldCourse(step.course),
                                         }
                                       : x,
                                   ),
@@ -664,21 +663,9 @@ export function ComandaPanel({
                           );
                         })}
                         {!isOraCourse(l.course) && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCart((prev) =>
-                                prev.map((x) =>
-                                  x.lineId === l.lineId ? { ...x, hold: !x.hold } : x,
-                                ),
-                              )
-                            }
-                            className={`min-h-10 rounded-xl px-2.5 text-sm font-semibold ${
-                              l.hold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-muted))]"
-                            }`}
-                          >
-                            {l.hold ? "HOLD" : "Via"}
-                          </button>
+                          <span className="inline-flex min-h-10 items-center px-1 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
+                            in attesa
+                          </span>
                         )}
                       </div>
                     </li>

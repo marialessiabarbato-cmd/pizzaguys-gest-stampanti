@@ -1,5 +1,6 @@
 import { calculateLinePrice, isLinePriceValid } from "@pizzaguys/fiscal";
-import { defaultCourseForCategory, defaultHoldForCourse, normalizeCourse } from "./course";
+import { isHeldCourse } from "@pizzaguys/types";
+import { defaultCourseForCategory, normalizeCourse } from "./course";
 import type { CartLine, Category, MenuSnapshot, Product, VariantGroup, VariantOption, VariantSelection } from "./types";
 
 export function localized(name: Record<string, string>) {
@@ -94,7 +95,7 @@ export function buildCartLine(
     quantity: 1,
     variants,
     course,
-    hold: product.hold ?? defaultHoldForCourse(course, category),
+    hold: isHeldCourse(course),
     dessertDefer: product.dessert ?? category.dessert ?? false,
     allergenIds: product.allergenIds ?? [],
     ...(forTable

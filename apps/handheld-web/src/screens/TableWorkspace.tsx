@@ -1,3 +1,4 @@
+import { isHeldCourse } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useRef, useState } from "react";
 import { BottomSheet, bottomSheetFooterClass } from "../components/BottomSheet";
@@ -11,7 +12,6 @@ import { ShiftInactiveBanner } from "../components/ShiftInactiveBanner";
 import { VariantSheet } from "../components/VariantSheet";
 import {
   groupCartByCourse,
-  isCourseOnHold,
   isOraCourse,
   normalizeCourse,
   stepLabel,
@@ -35,7 +35,6 @@ export type WorkspaceTab = "comanda" | "menu";
 type EditConfirm =
   | { type: "delete"; line: CartLine }
   | { type: "qty"; line: CartLine; nextQty: number }
-  | { type: "hold"; course: number; enable: boolean }
   | { type: "course"; lineId: string; lineName: string; course: number };
 
 function lineTotal(l: CartLine): number {
@@ -281,19 +280,12 @@ export function TableWorkspace({
           ? {
               ...l,
               course: c,
-              hold: isOraCourse(c) ? false : l.hold || true,
+              hold: isHeldCourse(c),
             }
           : l,
       ),
     );
     setCourseModalLineId(null);
-  };
-
-  const applyHold = (course: number, enable: boolean) => {
-    const c = normalizeCourse(course);
-    onUpdateCart((prev) =>
-      prev.map((l) => (normalizeCourse(l.course) === c ? { ...l, hold: enable } : l)),
-    );
   };
 
   const executeEditConfirm = () => {
@@ -304,9 +296,6 @@ export function TableWorkspace({
         break;
       case "qty":
         applyQty(editConfirm.line, editConfirm.nextQty);
-        break;
-      case "hold":
-        applyHold(editConfirm.course, editConfirm.enable);
         break;
       case "course":
         applyCourseToLine(editConfirm.lineId, editConfirm.course);
@@ -349,11 +338,6 @@ export function TableWorkspace({
     setCourseModalLineId(null);
   };
 
-  const requestHoldToggle = (course: number) => {
-    const onHold = isCourseOnHold(groups.get(course) ?? []);
-    setEditConfirm({ type: "hold", course, enable: !onHold });
-  };
-
   const editConfirmCopy = (c: EditConfirm) => {
     switch (c.type) {
       case "delete":
@@ -367,14 +351,6 @@ export function TableWorkspace({
         return {
           title: "Modificare quantità?",
           message: `Portare «${c.line.name}» da ${c.line.quantity} a ${c.nextQty}?`,
-          confirmLabel: "Conferma",
-        };
-      case "hold":
-        return {
-          title: c.enable ? "Attivare HOLD?" : "Togliere HOLD?",
-          message: c.enable
-            ? `Sospendere in cucina tutti i piatti di ${stepLabel(c.course)}?`
-            : `Inviare subito in preparazione i piatti di ${stepLabel(c.course)}?`,
           confirmLabel: "Conferma",
         };
       case "course":
@@ -486,7 +462,6 @@ export function TableWorkspace({
       ) : (
         cart.length > 0 &&
         [...groups.entries()].map(([course, lines]) => {
-          const onHold = isCourseOnHold(lines);
           return (
             <section key={course}>
               <div
@@ -502,16 +477,11 @@ export function TableWorkspace({
                     ({lines.reduce((n, l) => n + l.quantity, 0)})
                   </span>
                 </span>
+                {/* Il HOLD non si sceglie: i Segue aspettano sempre la Marcia. */}
                 {!isOraCourse(course) && (
-                  <button
-                    type="button"
-                    onClick={() => requestHoldToggle(course)}
-                    className={`min-h-9 rounded-full px-3.5 py-1.5 text-xs font-medium ${
-                      onHold ? "bg-orange-500 text-white" : "bg-[hsl(var(--pg-background))]"
-                    }`}
-                  >
-                    {onHold ? "HOLD" : "Via"}
-                  </button>
+                  <span className="rounded-full bg-[hsl(var(--pg-background))] px-3 py-1 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
+                    in attesa · Marcia
+                  </span>
                 )}
               </div>
               <ul className="space-y-2">

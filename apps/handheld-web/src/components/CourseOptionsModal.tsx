@@ -34,7 +34,7 @@ export function CourseOptionsModal({
                   <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">{opt.hint}</p>
                 </div>
                 {opt.course >= 2 && currentCourse !== opt.course && (
-                  <span className="text-xs text-[hsl(var(--pg-muted-foreground))]">HOLD</span>
+                  <span className="text-xs text-[hsl(var(--pg-muted-foreground))]">in attesa</span>
                 )}
               </button>
             </li>

@@ -36,11 +36,12 @@ export function ComandaHelp() {
           </li>
           <li>
             <strong className="text-[hsl(var(--pg-foreground))]">Chiama …</strong> — sollecito in
-            cucina e sblocco dei piatti in HOLD di quella portata.
+            cucina e sblocco dei piatti in attesa di quella portata.
           </li>
           <li>
-            <strong className="text-[hsl(var(--pg-foreground))]">HOLD</strong> — il piatto resta in
-            attesa fino a CHIAMA PORTATA.
+            <strong className="text-[hsl(var(--pg-foreground))]">In attesa</strong> — i piatti in
+            Segue &gt;1, Segue &gt;2 e Dolce aspettano in cucina fino a Chiama; quelli in Ora
+            partono subito.
           </li>
           <li>
             <strong className="text-[hsl(var(--pg-foreground))]">%</strong> — sconto sulla riga; oltre

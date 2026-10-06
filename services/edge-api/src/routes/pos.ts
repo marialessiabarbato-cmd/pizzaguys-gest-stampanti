@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { buildPrebillTicket } from "@pizzaguys/escpos";
 import { edgeState, printers, tables } from "@pizzaguys/edge-db";
+import { isHeldCourse } from "@pizzaguys/types";
 import {
   analyticSplitSchema,
   applyPosDiscountSchema,
@@ -604,7 +605,7 @@ export async function posRoutes(app: FastifyInstance) {
       notes: l.notes,
       variants: l.variants,
       course: l.course,
-      hold: l.hold,
+      hold: isHeldCourse(l.course),
       dessertDefer: l.dessertDefer,
     }));
 

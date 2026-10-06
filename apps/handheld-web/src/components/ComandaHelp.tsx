@@ -21,8 +21,9 @@ export function ComandaHelp({ context = "cart" }: { context?: "cart" | "table" }
                 eredita lo step dalla categoria; puoi sovrascriverlo con Antipasto / Primo / Secondo.
               </li>
               <li>
-                <strong className="text-[hsl(var(--pg-foreground))]">HOLD sul gruppo</strong> — sospende
-                tutta la portata fino a CHIAMA PORTATA dalla gestione tavolo.
+                <strong className="text-[hsl(var(--pg-foreground))]">Segue</strong> — i piatti in
+                Segue &gt;1, Segue &gt;2 e Dolce restano in attesa in cucina fino alla Marcia; quelli in
+                Ora partono subito.
               </li>
               <li>
                 <strong className="text-[hsl(var(--pg-foreground))]">Tieni premuto</strong> su una riga
@@ -45,7 +46,7 @@ export function ComandaHelp({ context = "cart" }: { context?: "cart" | "table" }
               </li>
               <li>
                 <strong className="text-[hsl(var(--pg-foreground))]">CHIAMA PORTATA</strong> — dalla
-                gestione tavolo sblocca in cucina gli step in HOLD.
+                gestione tavolo sblocca in cucina i piatti in attesa di quella portata.
               </li>
               <li>
                 <strong className="text-[hsl(var(--pg-foreground))]">X DOLCE</strong> — invia i dessert

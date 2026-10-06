@@ -1,4 +1,5 @@
 import { calculateLinePrice } from "@pizzaguys/fiscal";
+import { isHeldCourse } from "@pizzaguys/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal";
 import { ConfirmModal } from "./components/ConfirmModal";
@@ -259,7 +260,7 @@ export default function App() {
               quantity: l.quantity,
               variants,
               course: normalizeCourse(l.course ?? 1),
-              hold: l.hold ?? false,
+              hold: isHeldCourse(l.course ?? 1),
               dessertDefer: l.dessertDefer ?? false,
               notes: l.notes,
               discountPercent: l.discountPercent,
@@ -760,10 +761,7 @@ export default function App() {
             : l,
         );
       }
-      const courseHold = prev.some(
-        (l) => normalizeCourse(l.course) === normalizeCourse(line.course) && l.hold,
-      );
-      return [...prev, courseHold ? { ...line, hold: true } : line];
+      return [...prev, line];
     });
     setSelectedLineId(focusId);
     setLastAdded((prev) => ({

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { buildCancelTicket, buildKitchenTicket } from "@pizzaguys/escpos";
 import { isLinePriceValid } from "@pizzaguys/fiscal";
 import { edgeState, printers, tables } from "@pizzaguys/edge-db";
+import { isHeldCourse } from "@pizzaguys/types";
 import {
   authorizeDiscountSchema,
   callCourseSchema,
@@ -382,7 +383,8 @@ export async function orderRoutes(app: FastifyInstance) {
       notes: l.notes,
       variants: l.variants,
       course: l.course,
-      hold: l.hold,
+      // Il HOLD dipende solo dalla portata: Ora parte subito, i Segue aspettano la Marcia.
+      hold: isHeldCourse(l.course),
       dessertDefer: l.dessertDefer,
       discountPercent: l.discountPercent,
       discountToken: l.discountToken,

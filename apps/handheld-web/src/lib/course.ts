@@ -77,11 +77,6 @@ export function suggestedCourseForCategory(cat: Category): number {
   return defaultCourseForCategory(cat);
 }
 
-export function defaultHoldForCourse(course: number, category: { hold?: boolean }): boolean {
-  if (category.hold) return true;
-  return course >= 2;
-}
-
 export function groupCartByCourse(cart: CartLine[]): Map<number, CartLine[]> {
   const groups = new Map<number, CartLine[]>();
   for (const line of cart) {

@@ -3,3 +3,4 @@ export * from "./daily-report.js";
 export * from "./websocket.js";
 export * from "./api.js";
 export * from "./quick-notes.js";
+export * from "./course.js";

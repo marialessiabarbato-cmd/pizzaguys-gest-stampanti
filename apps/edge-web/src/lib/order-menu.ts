@@ -1,4 +1,5 @@
 import { calculateLinePrice, isLinePriceValid } from "@pizzaguys/fiscal";
+import { isHeldCourse } from "@pizzaguys/types";
 import { normalizeCourse } from "./course";
 import type { CartLine, MenuSnapshot, Product, VariantGroup, VariantOption, VariantSelection } from "./order-types";
 
@@ -89,8 +90,7 @@ export function buildCartLine(
     quantity: 1,
     variants,
     course,
-    // Le portate Segue partono sempre in attesa (come spostando la riga su >1/>2/Dolce).
-    hold: normalizeCourse(course) >= 2 || (product.hold ?? category.hold ?? false),
+    hold: isHeldCourse(course),
     dessertDefer: product.dessert ?? category.dessert ?? false,
     allergenIds: product.allergenIds ?? [],
   };
