@@ -1,7 +1,20 @@
 import { QUICK_NOTES } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useRef, useState } from "react";
+import { EU_ALLERGENS } from "../allergens";
 import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
+
+/** Testo inserito in nota per un allergene: maiuscolo per farlo risaltare in comanda. */
+export function allergenNoteTag(label: string): string {
+  return `ALLERGIA ${label.toLocaleUpperCase("it-IT")}`;
+}
+
+function noteParts(note: string): string[] {
+  return note
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
 
 export function NoteModal({
   lineName,
@@ -29,6 +42,20 @@ export function NoteModal({
       const current = prev.trim();
       if (current.toLowerCase().includes(text.toLowerCase())) return prev;
       return current ? `${current}, ${text.toLowerCase()}` : text;
+    });
+    textareaRef.current?.focus();
+  };
+
+  const hasAllergen = (label: string) =>
+    noteParts(note).some((p) => p.toLocaleUpperCase("it-IT") === allergenNoteTag(label));
+
+  /** Un tocco aggiunge "ALLERGIA X" alla nota, un secondo tocco lo toglie. */
+  const toggleAllergen = (label: string) => {
+    const tag = allergenNoteTag(label);
+    setNote((prev) => {
+      const parts = noteParts(prev);
+      const rest = parts.filter((p) => p.toLocaleUpperCase("it-IT") !== tag);
+      return (rest.length < parts.length ? rest : [...parts, tag]).join(", ");
     });
     textareaRef.current?.focus();
   };
@@ -86,6 +113,26 @@ export function NoteModal({
               {q}
             </button>
           ))}
+        </div>
+        <h3 className="mb-2 mt-4 text-sm font-semibold text-red-700">Allergie e intolleranze</h3>
+        <div className="flex flex-wrap gap-2">
+          {EU_ALLERGENS.map((a) => {
+            const active = hasAllergen(a.label);
+            return (
+              <button
+                key={a.id}
+                type="button"
+                aria-pressed={active}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => toggleAllergen(a.label)}
+                className={`min-h-10 rounded-full border px-3.5 text-sm font-medium ${
+                  active ? "border-red-600 bg-red-600 text-white" : "border-red-200 bg-red-50 text-red-700"
+                }`}
+              >
+                {a.label}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className={bottomSheetFooterClass}>

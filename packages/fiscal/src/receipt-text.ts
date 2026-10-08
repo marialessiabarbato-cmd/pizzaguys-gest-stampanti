@@ -1,14 +1,91 @@
-import type { PaymentMethod, PaymentSplit } from "@pizzaguys/types";
-import type { MockReceipt } from "./mock-receipt.js";
-import { calculateNetAmount, calculateVatAmount } from "./vat.js";
+import type { PaymentMethod, PaymentSplit, VatRate } from "@pizzaguys/types";
+import type { MockReceipt, MockReceiptLine } from "./mock-receipt.js";
+import { calculateVatAmount } from "./vat.js";
 
+/** Diciture dei pagamenti come sul documento commerciale RT. */
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
-  CASH: "CONTANTI",
-  POS: "POS / CARTA",
-  MEAL_VOUCHER: "BUONI PASTO",
-  SATISPAY: "SATISPAY",
-  OTHER: "ALTRO",
+  CASH: "Pagamento contante",
+  POS: "Pagamento elettronico",
+  SATISPAY: "Pagamento elettronico",
+  MEAL_VOUCHER: "Buoni pasto",
+  OTHER: "Altro pagamento",
 };
+
+/** Caratteri per riga su carta 80 mm (POS Italia ST30), come LINE_WIDTH di @pizzaguys/escpos. */
+export const RECEIPT_WIDTH = 48;
+
+/** Colonne righe articolo: DESCRIZIONE | IVA | Prezzo(€). */
+const VAT_WIDTH = 7;
+const PRICE_WIDTH = 8;
+const DESC_WIDTH = RECEIPT_WIDTH - VAT_WIDTH - PRICE_WIDTH;
+
+/** Importo senza simbolo, come sul documento commerciale (la colonna dice "Prezzo(€)"). */
+function money(amount: number): string {
+  return amount.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Testo a sinistra e a destra sulla stessa riga; se non ci stanno, il destro va a capo. */
+function row(left: string, right: string): string[] {
+  if (left.length + right.length + 1 > RECEIPT_WIDTH) {
+    return [left, right.padStart(RECEIPT_WIDTH)];
+  }
+  return [(left + right.padStart(RECEIPT_WIDTH - left.length)).trimEnd()];
+}
+
+function center(text: string): string {
+  return " ".repeat(Math.max(0, Math.floor((RECEIPT_WIDTH - text.length) / 2))) + text;
+}
+
+/** Spezza il testo in righe di al massimo `width` caratteri, a parole. */
+function wrap(text: string, width: number): string[] {
+  const out: string[] = [];
+  let current = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (!current) current = word;
+    else if (current.length + 1 + word.length <= width) current += ` ${word}`;
+    else {
+      out.push(current);
+      current = word;
+    }
+    while (current.length > width) {
+      out.push(current.slice(0, width));
+      current = current.slice(width);
+    }
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Riga articolo RT: "Q x prezzo" sopra se quantità ≠ 1, poi descrizione | IVA% | importo. */
+function itemLines(line: MockReceiptLine): string[] {
+  const out: string[] = [];
+  if (line.quantity !== 1) {
+    out.push(`${line.quantity} x ${money(line.unitPrice)}`);
+  }
+  const desc = wrap(line.name.toLocaleUpperCase("it-IT"), DESC_WIDTH);
+  const vat = `${money(line.vatRate)}%`;
+  const total = money(round2(line.quantity * line.unitPrice));
+  out.push((desc[0] ?? "").padEnd(DESC_WIDTH) + vat.padStart(VAT_WIDTH) + total.padStart(PRICE_WIDTH));
+  out.push(...desc.slice(1));
+  return out;
+}
+
+/** IVA totale calcolata per aliquota (lordo = prezzi IVA inclusa). */
+function totalVat(lines: MockReceiptLine[]): number {
+  const grossByRate = new Map<number, number>();
+  for (const line of lines) {
+    grossByRate.set(line.vatRate, (grossByRate.get(line.vatRate) ?? 0) + line.quantity * line.unitPrice);
+  }
+  let vat = 0;
+  for (const [rate, gross] of grossByRate) {
+    vat += calculateVatAmount(round2(gross), rate as VatRate);
+  }
+  return round2(vat);
+}
 
 export function formatMockReceiptText(
   receipt: MockReceipt,
@@ -27,91 +104,77 @@ export function formatMockReceiptText(
   const issued = new Date(receipt.issuedAt);
 
   if (meta?.reprint) {
-    lines.push("*** RISTAMPA ***");
-    lines.push("");
+    lines.push(center("*** RISTAMPA ***"), "");
   }
 
-  const docLabel =
-    receipt.documentType === "INVOICE"
-      ? "Fattura"
-      : receipt.documentType === "TRAINING"
-        ? "Addestramento"
-        : "Scontrino";
-  const docNum = meta?.documentNumber != null ? ` # ${meta.documentNumber}` : "";
-  lines.push(`${docLabel}${docNum}`);
-  if (meta?.tableLabel) {
-    lines.push(`Tavolo ${meta.tableLabel}`);
-  }
-  if (meta?.serviceTypeLabel) {
-    lines.push(`Tipo di servizio ${meta.serviceTypeLabel}`);
+  lines.push(center("DOCUMENTO COMMERCIALE"), center("di vendita o prestazione"));
+  if (receipt.documentType === "TRAINING") {
+    lines.push(center("*** ADDESTRAMENTO ***"));
   }
   lines.push("");
 
+  // "Prezzo(€)" è più largo della colonna importi: "IVA" va centrato sopra la percentuale.
+  lines.push(...row("DESCRIZIONE", "IVA Prezzo(€)"));
   for (const line of receipt.lines) {
-    const lineTotal = Math.round(line.quantity * line.unitPrice * 100) / 100;
-    lines.push(`${line.quantity} ${line.name}`.padEnd(28) + `EUR ${lineTotal.toFixed(2)}`);
+    lines.push(...itemLines(line));
   }
+  lines.push("");
 
-  lines.push("");
-  lines.push(`Totale EUR ${receipt.total.toFixed(2)}`);
-  lines.push("");
+  lines.push(...row("SUBTOTALE", money(receipt.total)));
+  lines.push(...row("TOTALE COMPLESSIVO", money(receipt.total)));
+  lines.push(...row("di cui IVA", money(totalVat(receipt.lines))));
+
+  // Importi per dicitura di pagamento; il contante è quello ricevuto (il resto è sotto).
+  const splits = meta?.paymentSplits ?? receipt.paymentSplits;
+  const payments = new Map<string, number>();
+  const addPayment = (method: PaymentMethod, amount: number) => {
+    const label = PAYMENT_LABELS[method] ?? method;
+    payments.set(label, round2((payments.get(label) ?? 0) + amount));
+  };
+  if (splits && splits.length > 0) {
+    for (const split of splits) {
+      const cash = split.paymentMethod === "CASH";
+      addPayment(split.paymentMethod, cash ? (split.amountReceived ?? split.amount) : split.amount);
+    }
+  } else {
+    const cashGiven = receipt.paymentMethod === "CASH" ? meta?.amountReceived : undefined;
+    addPayment(receipt.paymentMethod, cashGiven ?? receipt.total);
+  }
+  for (const [label, amount] of payments) {
+    lines.push(...row(label, money(amount)));
+  }
+  if (receipt.change != null && receipt.change > 0) {
+    lines.push(...row("Resto", money(receipt.change)));
+  }
+  lines.push(...row("Importo pagato", money(receipt.total)));
 
   if (receipt.fiscalNote) {
-    lines.push(`*** ${receipt.fiscalNote} ***`);
-    lines.push("");
-  }
-
-  lines.push(PAYMENT_LABELS[receipt.paymentMethod] ?? receipt.paymentMethod);
-  const splits = meta?.paymentSplits ?? receipt.paymentSplits;
-  if (splits && splits.length > 1) {
-    for (const split of splits) {
-      lines.push(
-        `  ${PAYMENT_LABELS[split.paymentMethod] ?? split.paymentMethod}: EUR ${split.amount.toFixed(2)}`,
-      );
-    }
-  } else if (splits?.length === 1 && splits[0]!.paymentMethod === "MEAL_VOUCHER") {
-    lines.push(`Buono pasto: EUR ${splits[0]!.amount.toFixed(2)}`);
-  }
-  if (receipt.paymentMethod === "CASH" && meta?.amountReceived != null) {
-    lines.push(`Contante dato: ${meta.amountReceived.toFixed(2)}`);
-    if (receipt.change != null && receipt.change > 0) {
-      lines.push(`Resto: ${receipt.change.toFixed(2)}`);
-    }
+    lines.push("", center(`*** ${receipt.fiscalNote} ***`));
   }
   lines.push("");
 
-  const vatRate = receipt.lines[0]?.vatRate ?? 10;
-  const net = calculateNetAmount(receipt.total, vatRate as 4 | 10 | 22);
-  const vat = calculateVatAmount(receipt.total, vatRate as 4 | 10 | 22);
-  lines.push("% Iva  Netto   Lordo   IVA");
-  lines.push(
-    `${vatRate.toFixed(2).padStart(5)}  ${net.toFixed(2).padStart(6)}  ${receipt.total.toFixed(2).padStart(6)}  ${vat.toFixed(2).padStart(5)}`,
-  );
-  lines.push("");
-
-  lines.push(
-    issued.toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }) +
-      " - " +
-      issued.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
-  );
+  const guests = meta?.guests != null && meta.guests > 0 ? `Ospiti: ${meta.guests}` : "";
+  if (meta?.tableLabel || guests) {
+    lines.push(...row(meta?.tableLabel ? `Tavolo: ${meta.tableLabel}` : "", guests));
+  }
+  if (meta?.serviceTypeLabel) {
+    lines.push(`Servizio: ${meta.serviceTypeLabel}`);
+  }
   if (meta?.operatorName) {
-    lines.push(`Op: ${meta.operatorName}`);
     lines.push(`Vi ha servito: ${meta.operatorName}`);
   }
-  if (meta?.tableLabel) {
-    lines.push(`Tavolo: ${meta.tableLabel}`);
+
+  const date = issued
+    .toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })
+    .replaceAll("/", "-");
+  const time = issued.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  lines.push(`${date} ${time}`);
+  if (meta?.documentNumber != null) {
+    lines.push(`DOCUMENTO N. ${String(meta.documentNumber).padStart(4, "0")}`);
   }
-  if (meta?.guests != null && meta.guests > 0) {
-    lines.push(`Ospiti: ${meta.guests}`);
-  }
-  lines.push(`Scontrino mock: ${receipt.id}`);
+
   if (meta?.reprint) {
-    lines.push("");
-    lines.push("*** RISTAMPA ***");
+    lines.push("", center("*** RISTAMPA ***"));
   }
 
   return lines.join("\n");

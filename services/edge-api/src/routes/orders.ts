@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildCancelTicket, buildKitchenTicket } from "@pizzaguys/escpos";
+import { buildCancelTicket, buildGeneralTicket, buildKitchenTicket } from "@pizzaguys/escpos";
 import { isLinePriceValid } from "@pizzaguys/fiscal";
 import { edgeState, printers, tables } from "@pizzaguys/edge-db";
 import { isHeldCourse } from "@pizzaguys/types";
@@ -450,32 +450,58 @@ export async function orderRoutes(app: FastifyInstance) {
       byCenter.set(center, group);
     }
 
+    const toTicketLine = (l: OrderLine) => ({
+      name: kitchenLineName(l),
+      quantity: l.quantity,
+      variants: variantLabels(l),
+      notes: l.notes,
+      course: l.course,
+      hold: l.hold,
+    });
+
     const printResults = [];
+    const generalSections = [];
     for (const [center, lines] of byCenter) {
       const activeLines = lines.filter((l) => !l.dessertDefer);
       if (activeLines.length === 0) continue;
       const printer = printerList.find((p) => p.workCenter === center && p.enabled);
       const hold = activeLines.some((l) => l.hold);
+      const ticketLines = activeLines.map(toTicketLine);
+      generalSections.push({ workCenter: center, lines: ticketLines });
       const payload = buildKitchenTicket({
         workCenter: center,
         tableLabel: ticketTableLabel,
         guests: guestCount,
         operatorName: order.operatorName,
         hold,
-        lines: activeLines.map((l) => ({
-          name: kitchenLineName(l),
-          quantity: l.quantity,
-          variants: variantLabels(l),
-          notes: l.notes,
-          course: l.course,
-          hold: l.hold,
-        })),
+        lines: ticketLines,
       });
       const result = await hardware.printEscPos(
         printer?.id ?? center.toLowerCase(),
         payload,
         order.id,
         printer ? { host: printer.host, port: printer.port } : undefined,
+      );
+      printResults.push(result);
+    }
+
+    // Comanda generale sulla stampante Bar: tutto l'invio diviso per reparto.
+    // Se l'invio è solo Bar sarebbe un doppione della comanda di reparto.
+    if (generalSections.some((s) => s.workCenter !== "BAR")) {
+      const barPrinter = printerList.find((p) => p.workCenter === "BAR" && p.enabled);
+      const sectionOrder = ["BAR", "CUCINA", "PIZZERIA", "CHEF"];
+      const rank = (c: string) => (sectionOrder.includes(c) ? sectionOrder.indexOf(c) : sectionOrder.length);
+      const payload = buildGeneralTicket({
+        tableLabel: ticketTableLabel,
+        guests: guestCount,
+        operatorName: order.operatorName,
+        sections: generalSections.sort((a, b) => rank(a.workCenter) - rank(b.workCenter)),
+      });
+      const result = await hardware.printEscPos(
+        barPrinter?.id ?? "bar",
+        payload,
+        `${order.id}-generale`,
+        barPrinter ? { host: barPrinter.host, port: barPrinter.port } : undefined,
       );
       printResults.push(result);
     }

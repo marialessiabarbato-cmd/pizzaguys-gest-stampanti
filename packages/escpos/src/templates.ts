@@ -2,12 +2,16 @@ import {
   CMD_ALIGN_CENTER,
   CMD_ALIGN_LEFT,
   CMD_CUT,
+  CMD_DOUBLE_HEIGHT,
   CMD_DOUBLE_SIZE,
   CMD_INIT,
   CMD_NORMAL_SIZE,
   CMD_REVERSE_OFF,
   CMD_REVERSE_ON,
+  LINE_WIDTH,
   concatBuffers,
+  separatorLine,
+  stripEscPos,
   textLine,
 } from "./commands.js";
 
@@ -31,7 +35,8 @@ export function courseLabel(course: number): string {
 }
 
 function lineDetailLines(line: OrderLine): Buffer[] {
-  const parts = (line.variants ?? []).map((v) => textLine(`  + ${v}`));
+  // Le rimozioni arrivano già come "NO …": il "+" resta solo per le aggiunte.
+  const parts = (line.variants ?? []).map((v) => textLine(v.startsWith("NO ") ? `  ${v}` : `  + ${v}`));
   const note = line.notes?.trim();
   if (note) parts.push(textLine(`  NOTA: ${note}`));
   return parts;
@@ -47,55 +52,137 @@ export interface KitchenTicketParams {
   reprint?: boolean;
 }
 
-export function buildKitchenTicket(params: KitchenTicketParams): Buffer {
+/** Riga articolo in doppia altezza (leggibile da lontano), dettagli in font normale. */
+function kitchenItemLines(line: OrderLine): Buffer[] {
+  return [
+    CMD_DOUBLE_HEIGHT,
+    textLine(`${line.quantity} x ${line.name.toLocaleUpperCase("it-IT")}`),
+    CMD_NORMAL_SIZE,
+    ...lineDetailLines(line),
+  ];
+}
+
+function fineComandaLine(): Buffer {
+  const label = " Fine Comanda ";
+  const side = Math.floor((LINE_WIDTH - label.length) / 2);
+  return textLine(`${"-".repeat(side)}${label}${"-".repeat(LINE_WIDTH - label.length - side)}`);
+}
+
+/** Intestazione comanda: eventuale titolo, ristampa e tavolo in negativo. */
+function comandaHeader(tableLabel: string, reprint?: boolean, title?: string): Buffer[] {
   const parts: Buffer[] = [CMD_INIT, CMD_ALIGN_CENTER, CMD_DOUBLE_SIZE];
+  if (reprint) parts.push(textLine("*** RISTAMPA ***"));
+  if (title) parts.push(textLine(title));
+  parts.push(CMD_REVERSE_ON, textLine(` TAVOLO ${tableLabel} `), CMD_REVERSE_OFF);
+  parts.push(CMD_NORMAL_SIZE, CMD_ALIGN_LEFT, separatorLine());
+  return parts;
+}
 
-  if (params.reprint) {
-    parts.push(textLine("*** RISTAMPA ***"));
-  }
-
-  parts.push(textLine(params.workCenter.toUpperCase()));
-  parts.push(CMD_DOUBLE_SIZE, textLine(`TAVOLO ${params.tableLabel}`));
-  parts.push(CMD_NORMAL_SIZE, CMD_ALIGN_LEFT);
-
+/** Articoli divisi per portata (Ora / Segue / Dolce), come nel palmare. */
+function comandaBody(lines: OrderLine[], hold?: boolean): Buffer[] {
+  const parts: Buffer[] = [];
   const byCourse = new Map<number, OrderLine[]>();
-  for (const line of params.lines) {
+  for (const line of lines) {
     const course = line.course ?? 1;
     byCourse.set(course, [...(byCourse.get(course) ?? []), line]);
   }
 
   if (byCourse.size === 1 && byCourse.has(1)) {
     // Solo portata "Ora": formato semplice senza intestazioni di sezione.
-    if (params.hold) {
+    if (hold) {
       parts.push(textLine("*** IN ATTESA / HOLD ***"));
     }
-    for (const line of params.lines) {
-      parts.push(textLine(`${line.quantity}x ${line.name}`), ...lineDetailLines(line));
+    for (const line of lines) {
+      parts.push(...kitchenItemLines(line));
     }
   } else {
     for (const course of [...byCourse.keys()].sort((a, b) => a - b)) {
-      const lines = byCourse.get(course)!;
-      const waiting = lines.every((l) => l.hold) ? " (in attesa)" : "";
+      const courseLines = byCourse.get(course)!;
+      const waiting = courseLines.every((l) => l.hold) ? " (in attesa)" : "";
       parts.push(textLine(`-- ${courseLabel(course)}${waiting} --`));
-      for (const line of lines) {
-        parts.push(textLine(`${line.quantity}x ${line.name}`), ...lineDetailLines(line));
+      for (const line of courseLines) {
+        parts.push(...kitchenItemLines(line));
       }
     }
   }
+  return parts;
+}
 
-  parts.push(
-    textLine("---"),
+/** Piede comanda: data/ora, ospiti, articoli, operatore e "Fine Comanda". */
+function comandaFooter(params: {
+  guests: number;
+  itemCount: number;
+  operatorName: string;
+  reprint?: boolean;
+}): Buffer[] {
+  const now = new Date();
+  const date = now.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const time = now.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  const parts: Buffer[] = [
+    separatorLine(),
+    CMD_DOUBLE_HEIGHT,
+    textLine(`Data: ${date}  Ora: ${time}`),
+    CMD_NORMAL_SIZE,
     textLine(`Ospiti: ${params.guests}`),
-    textLine(`Articoli: ${params.lines.reduce((s, l) => s + l.quantity, 0)}`),
+    textLine(`Articoli: ${params.itemCount}`),
     textLine(`Operatore: ${params.operatorName}`),
-    textLine(new Date().toLocaleString("it-IT")),
-  );
-
+  ];
   if (params.reprint) {
     parts.push(textLine("** Reprint **"));
   }
+  parts.push(fineComandaLine(), CMD_CUT);
+  return parts;
+}
 
-  parts.push(CMD_CUT);
+function itemCount(lines: OrderLine[]): number {
+  return lines.reduce((s, l) => s + l.quantity, 0);
+}
+
+export function buildKitchenTicket(params: KitchenTicketParams): Buffer {
+  return concatBuffers(
+    ...comandaHeader(params.tableLabel, params.reprint),
+    ...comandaBody(params.lines, params.hold),
+    ...comandaFooter({
+      guests: params.guests,
+      itemCount: itemCount(params.lines),
+      operatorName: params.operatorName,
+      reprint: params.reprint,
+    }),
+  );
+}
+
+export interface GeneralTicketSection {
+  /** Reparto (es. "BAR", "CUCINA"), stampato come intestazione della sezione. */
+  workCenter: string;
+  lines: OrderLine[];
+}
+
+export interface GeneralTicketParams {
+  tableLabel: string;
+  guests: number;
+  operatorName: string;
+  sections: GeneralTicketSection[];
+}
+
+/** Comanda generale: tutto l'invio di Spedisci in un unico ticket, diviso per reparto. */
+export function buildGeneralTicket(params: GeneralTicketParams): Buffer {
+  const parts: Buffer[] = comandaHeader(params.tableLabel, false, "COMANDA GENERALE");
+  params.sections.forEach((section, i) => {
+    if (i > 0) parts.push(textLine(""));
+    parts.push(
+      CMD_REVERSE_ON,
+      textLine(` ${section.workCenter.toUpperCase()} `),
+      CMD_REVERSE_OFF,
+      ...comandaBody(section.lines),
+    );
+  });
+  parts.push(
+    ...comandaFooter({
+      guests: params.guests,
+      itemCount: itemCount(params.sections.flatMap((s) => s.lines)),
+      operatorName: params.operatorName,
+    }),
+  );
   return concatBuffers(...parts);
 }
 
@@ -290,15 +377,20 @@ export function buildReceiptCopyTicket(params: ReceiptCopyTicketParams): Buffer 
     textLine("PIZZA GUYS"),
     CMD_NORMAL_SIZE,
     CMD_ALIGN_LEFT,
-    textLine("---"),
+    textLine(""),
   ];
 
   for (const line of params.receiptText.trimEnd().split("\n")) {
-    parts.push(textLine(line));
+    // La riga del totale (formatMockReceiptText) va in doppia altezza, come gli articoli in comanda.
+    if (line.startsWith("TOTALE ")) {
+      parts.push(CMD_DOUBLE_HEIGHT, textLine(line), CMD_NORMAL_SIZE);
+    } else {
+      parts.push(textLine(line));
+    }
   }
 
   parts.push(
-    textLine("---"),
+    textLine(""),
     CMD_ALIGN_CENTER,
     textLine("*** NON VALIDO AI FINI FISCALI ***"),
     CMD_CUT,
@@ -308,6 +400,5 @@ export function buildReceiptCopyTicket(params: ReceiptCopyTicketParams): Buffer 
 
 /** Preview testuale per UI dev (senza byte binari) */
 export function kitchenTicketPreview(params: KitchenTicketParams): string {
-  const buf = buildKitchenTicket(params);
-  return buf.toString("latin1").replace(/[^\x20-\x7E\n]/g, "");
+  return stripEscPos(buildKitchenTicket(params)).replace(/[^\x20-\x7E\n]/g, "");
 }

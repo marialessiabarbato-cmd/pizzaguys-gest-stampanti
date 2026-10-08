@@ -13,8 +13,13 @@ export const CMD_ALIGN_CENTER = Buffer.from([ESC, 0x61, 0x01]);
 export const CMD_ALIGN_LEFT = Buffer.from([ESC, 0x61, 0x00]);
 export const CMD_DOUBLE_SIZE = Buffer.from([GS, 0x21, 0x11]);
 export const CMD_NORMAL_SIZE = Buffer.from([GS, 0x21, 0x00]);
+/** Solo altezza doppia: lettere alte e strette, la riga resta di LINE_WIDTH caratteri. */
+export const CMD_DOUBLE_HEIGHT = Buffer.from([GS, 0x21, 0x01]);
 export const CMD_REVERSE_ON = Buffer.from([GS, 0x42, 0x01]);
 export const CMD_REVERSE_OFF = Buffer.from([GS, 0x42, 0x00]);
+
+/** Caratteri per riga in font normale su carta 80 mm (es. POS Italia ST30). */
+export const LINE_WIDTH = 48;
 /**
  * Righe di avanzamento prima del taglio: la lama è ~15 mm sopra la testina
  * (es. POS Italia ST30), senza avanzamento il taglio cade sulle ultime righe.
@@ -61,6 +66,28 @@ export function encodeText(text: string): Buffer {
 
 export function textLine(text: string): Buffer {
   return encodeText(`${text}\n`);
+}
+
+/** Riga di separazione a tutta larghezza (font normale). */
+export function separatorLine(char = "-"): Buffer {
+  return textLine(char.repeat(LINE_WIDTH));
+}
+
+/**
+ * Rimuove i comandi ESC/POS usati nei template (ESC @ da 2 byte, gli altri da 3)
+ * lasciando solo il testo: per preview e test.
+ */
+export function stripEscPos(buf: Buffer): string {
+  const out: number[] = [];
+  for (let i = 0; i < buf.length; i++) {
+    const b = buf[i]!;
+    if (b === ESC || b === GS) {
+      i += b === ESC && buf[i + 1] === 0x40 ? 1 : 2;
+      continue;
+    }
+    out.push(b);
+  }
+  return Buffer.from(out).toString("latin1");
 }
 
 export function concatBuffers(...parts: Buffer[]): Buffer {
