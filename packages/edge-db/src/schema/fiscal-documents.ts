@@ -16,6 +16,7 @@ export const fiscalDocuments = sqliteTable("fiscal_documents", {
   operatorStaffId: text("operator_staff_id"),
   operatorName: text("operator_name"),
   shiftId: text("shift_id"),
+  cashSessionId: text("cash_session_id"),
   status: text("status").notNull().default("ISSUED"),
   voidedAt: text("voided_at"),
   voidedByStaffId: text("voided_by_staff_id"),

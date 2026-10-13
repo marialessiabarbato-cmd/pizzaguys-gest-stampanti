@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { edgeState, staffShifts, tables } from "@pizzaguys/edge-db";
-import { closureCompleteSchema, closureReconcileSchema } from "@pizzaguys/validators";
-import { eq, isNull, sql } from "drizzle-orm";
+import { edgeState, tables } from "@pizzaguys/edge-db";
+import { closureCompleteSchema } from "@pizzaguys/validators";
+import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
@@ -25,10 +25,6 @@ import {
   type DailyClosureRecord,
 } from "../lib/closure-state.js";
 import {
-  clearDayLedger,
-  clearShiftLedger,
-} from "../lib/shift-ledger.js";
-import {
   clearTableOrders,
   getAllTableRuntime,
   getPendingPaymentRequests,
@@ -41,22 +37,24 @@ import {
   getDayTheoretical,
 } from "../lib/day-report-ledger.js";
 import { formatDailyReportHtml, formatDailyReportText } from "../lib/daily-report-format.js";
-import { broadcastShiftStatus } from "../lib/shift-guard.js";
+import { localDateKey } from "../lib/business-date.js";
+import {
+  currentBusinessDate,
+  getOpenCashSession,
+  summarizeBusinessDay,
+} from "../lib/cash-session.js";
+import { endAllOperatorShifts } from "../lib/operator-shifts.js";
 import { broadcastTableStatus } from "../lib/ws-hub.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
-
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function writeDailyReportFiles(
   app: FastifyInstance,
   params: { printedBy: string; zNumber?: number; closureDate?: string },
 ) {
   const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
-  const closureDate = params.closureDate ?? todayKey();
+  const closureDate = params.closureDate ?? localDateKey();
   const snapshot = buildDailyReportSnapshot(app.edgeDb, {
     locationName: state?.locationName ?? "Pizza Guys",
     closureDate,
@@ -78,24 +76,26 @@ async function writeDailyReportFiles(
 }
 
 export async function closureRoutes(app: FastifyInstance) {
+  /** Giornata contabile da chiudere (anche se la Z si fa dopo mezzanotte). */
+  const todayKey = () => currentBusinessDate(app.edgeDb);
+
   app.get("/api/closure/pre-check", async () => {
     const openTables = getAllTableRuntime().filter((t) => t.status !== "FREE");
     const pendingPayments = getPendingPaymentRequests();
-    const openShifts = app.edgeDb
-      .select()
-      .from(staffShifts)
-      .where(isNull(staffShifts.endedAt))
-      .all();
+    const openCashSession = getOpenCashSession(app.edgeDb);
+    const closureDate = todayKey();
 
     const blockers: string[] = [];
+    if (openCashSession) {
+      blockers.push(
+        `cassa ${openCashSession.service === "LUNCH" ? "pranzo" : "cena"} ancora aperta: chiudila prima`,
+      );
+    }
     if (openTables.length > 0) {
       blockers.push(`${openTables.length} tavolo/i con conto aperto`);
     }
     if (pendingPayments.length > 0) {
       blockers.push(`${pendingPayments.length} richiesta/e pagamento pendente`);
-    }
-    if (openShifts.length > 0) {
-      blockers.push(`${openShifts.length} turno/i cassa ancora aperti`);
     }
 
     return {
@@ -107,9 +107,13 @@ export async function closureRoutes(app: FastifyInstance) {
         tableLabel: p.tableLabel,
         total: p.total,
       })),
-      openShifts: openShifts.map((s) => ({ id: s.id, staffId: s.staffId })),
+      openCashSession: openCashSession
+        ? { id: openCashSession.id, service: openCashSession.service }
+        : null,
+      closureDate,
+      cashSessions: summarizeBusinessDay(app.edgeDb, closureDate),
       zReportIssued: getZReportToday() != null,
-      theoretical: getDayTheoretical(app.edgeDb),
+      theoretical: getDayTheoretical(app.edgeDb, closureDate),
     };
   });
 
@@ -126,7 +130,7 @@ export async function closureRoutes(app: FastifyInstance) {
     }
 
     setZReportToday(result.zNumber);
-    const theoretical = getDayTheoretical(app.edgeDb);
+    const theoretical = getDayTheoretical(app.edgeDb, todayKey());
     const dailyReport = await writeDailyReportFiles(app, {
       printedBy: "Cassa",
       zNumber: result.zNumber,
@@ -171,30 +175,20 @@ export async function closureRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/api/closure/reconcile", async (req, reply) => {
-    const parsed = closureReconcileSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
-    }
+  /** Quadratura della giornata: somma delle sessioni di cassa chiuse (niente nuovo conteggio). */
+  app.post("/api/closure/reconcile", async (_req, reply) => {
     if (!getZReportToday()) {
       return reply.status(400).send({ error: "Emetti prima la Chiusura Z" });
     }
-
-    const theoretical = getDayTheoretical(app.edgeDb);
-    const cashDiscrepancy =
-      Math.round((parsed.data.cashDeclared - theoretical.cash) * 100) / 100;
-    const posDiscrepancy =
-      Math.round((parsed.data.posDeclared - theoretical.pos) * 100) / 100;
-
+    const closureDate = todayKey();
+    const day = summarizeBusinessDay(app.edgeDb, closureDate);
     return {
       ok: true,
-      theoretical,
-      declared: { cash: parsed.data.cashDeclared, pos: parsed.data.posDeclared },
-      discrepancy: {
-        cash: cashDiscrepancy,
-        pos: posDiscrepancy,
-        total: Math.round((cashDiscrepancy + posDiscrepancy) * 100) / 100,
-      },
+      closureDate,
+      theoretical: getDayTheoretical(app.edgeDb, closureDate),
+      cashSessions: day,
+      declared: { cash: day.cashDeclared, pos: day.posDeclared },
+      discrepancy: { cash: day.discrepancyCash, pos: day.discrepancyPos, total: day.discrepancyTotal },
     };
   });
 
@@ -306,24 +300,21 @@ export async function closureRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Pre-check fallito", blockers: check.blockers });
     }
 
-    const theoretical = getDayTheoretical(app.edgeDb);
-    const cashDiscrepancy =
-      Math.round((parsed.data.cashDeclared - theoretical.cash) * 100) / 100;
-    const posDiscrepancy =
-      Math.round((parsed.data.posDeclared - theoretical.pos) * 100) / 100;
-
     const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
     const closureDate = todayKey();
+    const theoretical = getDayTheoretical(app.edgeDb, closureDate);
+    // Contanti e POS sono già stati contati e validati alla chiusura di ogni sessione di cassa.
+    const day = summarizeBusinessDay(app.edgeDb, closureDate);
     const record: DailyClosureRecord = {
       id: randomUUID(),
       closureDate,
       zNumber: z.zNumber,
       theoretical,
-      declared: { cash: parsed.data.cashDeclared, pos: parsed.data.posDeclared },
+      declared: { cash: day.cashDeclared, pos: day.posDeclared },
       discrepancy: {
-        cash: cashDiscrepancy,
-        pos: posDiscrepancy,
-        total: Math.round((cashDiscrepancy + posDiscrepancy) * 100) / 100,
+        cash: day.discrepancyCash,
+        pos: day.discrepancyPos,
+        total: day.discrepancyTotal,
       },
       operatorName: parsed.data.operatorName,
       createdAt: new Date().toISOString(),
@@ -342,19 +333,9 @@ export async function closureRoutes(app: FastifyInstance) {
       broadcastTableStatus(table.id, "FREE");
     }
 
-    const openShifts = app.edgeDb
-      .select()
-      .from(staffShifts)
-      .where(isNull(staffShifts.endedAt))
-      .all();
-    const now = new Date().toISOString();
-    for (const shift of openShifts) {
-      app.edgeDb.update(staffShifts).set({ endedAt: now }).where(eq(staffShifts.id, shift.id)).run();
-      clearShiftLedger(shift.id);
-    }
-    if (openShifts.length > 0) broadcastShiftStatus(app.edgeDb);
+    // D6: a fine giornata si chiudono i turni operatore rimasti aperti.
+    const operatorShiftsClosed = endAllOperatorShifts(app.edgeDb);
 
-    clearDayLedger(closureDate);
     clearDayReportLedger(app.edgeDb, closureDate);
     saveClosure(record);
     persistClosureArchive(app.edgeDb, record, parsed.data.operatorId);
@@ -377,8 +358,8 @@ export async function closureRoutes(app: FastifyInstance) {
         byPaymentMethod: theoretical.byPaymentMethod,
       },
       reconciliation: {
-        cashDeclared: parsed.data.cashDeclared,
-        posDeclared: parsed.data.posDeclared,
+        cashDeclared: day.cashDeclared,
+        posDeclared: day.posDeclared,
         discrepancy: record.discrepancy.total,
       },
       receipts: [
@@ -432,6 +413,7 @@ export async function closureRoutes(app: FastifyInstance) {
         operatorName: parsed.data.operatorName,
         discrepancy: record.discrepancy,
         tablesReset: dbTables.length,
+        operatorShiftsClosed,
         syncQueued,
       },
     });

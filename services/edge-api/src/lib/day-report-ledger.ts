@@ -12,6 +12,7 @@ import {
   getSubmittedOrdersByTable,
   type OrderLine,
 } from "./runtime.js";
+import { localDateKey } from "./business-date.js";
 
 export type { DailyReportSnapshot };
 
@@ -113,7 +114,7 @@ function readStornos(db: EdgeDatabase, date: string): DayStorno[] {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function localizedName(value: unknown): string {

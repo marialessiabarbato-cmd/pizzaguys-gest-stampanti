@@ -1,3 +1,4 @@
+import { CASH_SERVICE_LABELS, type CashService } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { HeaderMenu, HeaderMenuItem } from "./HeaderMenu";
 
@@ -18,7 +19,8 @@ export function CassaHeader({
   operatorName,
   locationName,
   connected,
-  activeShift,
+  cashSession,
+  canOperateCash,
   openTableCount,
   pendingPaymentCount,
   canManage,
@@ -28,8 +30,10 @@ export function CassaHeader({
   onClosureHistory,
   onClosureDay,
   onInternalClosure,
-  onStartShift,
-  onCloseShift,
+  onOpenCash,
+  onCloseCash,
+  onCashMovements,
+  onOperatorShifts,
   onAdmin,
   onProfile,
   onLogout,
@@ -37,7 +41,10 @@ export function CassaHeader({
   operatorName: string;
   locationName?: string;
   connected: boolean;
-  activeShift: { startedAt: string } | null;
+  /** Sessione di cassa aperta (null = cassa chiusa, undefined = stato non ancora noto). */
+  cashSession: { service: CashService; openedAt: string; openedByName: string } | null | undefined;
+  /** Operatore cassa (Cassiere o Admin): può aprire, movimentare e chiudere la cassa. */
+  canOperateCash: boolean;
   openTableCount: number;
   pendingPaymentCount: number;
   canManage: boolean;
@@ -47,8 +54,10 @@ export function CassaHeader({
   onClosureHistory: () => void;
   onClosureDay: () => void;
   onInternalClosure: () => void;
-  onStartShift: () => void;
-  onCloseShift: () => void;
+  onOpenCash: () => void;
+  onCloseCash: () => void;
+  onCashMovements: () => void;
+  onOperatorShifts: () => void;
   onAdmin: () => void;
   onProfile: () => void;
   onLogout: () => void;
@@ -65,15 +74,16 @@ export function CassaHeader({
           >
             {connected ? "Online" : "Offline"}
           </span>
-          {activeShift ? (
+          {cashSession ? (
             <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-800">
-              Turno attivo · dalle {formatShiftTime(activeShift.startedAt)}
+              Cassa aperta · {CASH_SERVICE_LABELS[cashSession.service]} · dalle{" "}
+              {formatShiftTime(cashSession.openedAt)} · {cashSession.openedByName}
             </span>
-          ) : (
+          ) : cashSession === null ? (
             <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-900">
-              Nessun turno
+              Cassa chiusa
             </span>
-          )}
+          ) : null}
         </div>
         <p className="truncate text-sm text-[hsl(var(--pg-muted-foreground))]">
           {operatorName}
@@ -94,13 +104,19 @@ export function CassaHeader({
           </>
         )}
 
-        {activeShift ? (
-          <Button variant="default" className="h-9 px-3 text-sm" onClick={onCloseShift}>
-            Chiudi turno
-          </Button>
-        ) : (
-          <Button variant="default" className="h-9 px-3 text-sm" onClick={onStartShift}>
-            Avvia turno
+        {canOperateCash && cashSession && (
+          <>
+            <Button variant="outline" className="h-9 px-3 text-sm" onClick={onCashMovements}>
+              Prelievi
+            </Button>
+            <Button variant="default" className="h-9 px-3 text-sm" onClick={onCloseCash}>
+              Chiudi cassa
+            </Button>
+          </>
+        )}
+        {canOperateCash && cashSession === null && (
+          <Button variant="default" className="h-9 px-3 text-sm" onClick={onOpenCash}>
+            Apri cassa
           </Button>
         )}
 
@@ -120,6 +136,7 @@ export function CassaHeader({
 
         <HeaderMenu label="Account" variant="ghost" align="right">
           <HeaderMenuItem onClick={onProfile}>Profilo</HeaderMenuItem>
+          <HeaderMenuItem onClick={onOperatorShifts}>Operatori in turno</HeaderMenuItem>
           {canManage && (
             <>
               <HeaderMenuItem onClick={onDocumentList}>Lista documenti</HeaderMenuItem>

@@ -31,6 +31,8 @@ export const locations = pgTable("locations", {
   /** Calendario settimanale (anche più fasce per giorno, es. pranzo+cena) in cui
    *  la Cassa ricorda di avviare il turno se non è stato ancora fatto. */
   shiftReminderSchedule: jsonb("shift_reminder_schedule").$type<ShiftReminderWindow[]>(),
+  /** Scostamento (€, in valore assoluto) oltre cui la nota di chiusura cassa è obbligatoria. */
+  cashDiscrepancyThreshold: real("cash_discrepancy_threshold").notNull().default(5),
   apiTokenHash: text("api_token_hash"),
   schemaVersion: integer("schema_version").notNull().default(1),
   healthStatus: locationHealthEnum("health_status").notNull().default("OFFLINE"),

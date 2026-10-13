@@ -261,6 +261,57 @@ export function createEdgeDb(dbPath: string) {
     );
   `);
 
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS cash_sessions (
+      id TEXT PRIMARY KEY,
+      business_date TEXT NOT NULL,
+      service TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      opened_by_staff_id TEXT NOT NULL,
+      opened_by_name TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      opening_fund REAL NOT NULL,
+      opening_fund_breakdown TEXT,
+      closed_by_staff_id TEXT,
+      closed_by_name TEXT,
+      closed_at TEXT,
+      counted_cash REAL,
+      counted_cash_breakdown TEXT,
+      pos_declared REAL,
+      closing_fund_left REAL,
+      theoretical_json TEXT,
+      discrepancy_cash REAL,
+      discrepancy_pos REAL,
+      notes TEXT,
+      report_path TEXT,
+      synced_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cash_sessions_date_service
+      ON cash_sessions(business_date, service);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cash_sessions_single_open
+      ON cash_sessions(status) WHERE status = 'OPEN';
+    CREATE TABLE IF NOT EXISTS cash_movements (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES cash_sessions(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      reason TEXT,
+      staff_id TEXT NOT NULL,
+      staff_name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id);
+  `);
+
+  try {
+    sqlite.exec(`ALTER TABLE fiscal_documents ADD COLUMN cash_session_id TEXT`);
+  } catch {
+    /* colonna già presente */
+  }
+  sqlite.exec(
+    `CREATE INDEX IF NOT EXISTS idx_fiscal_docs_cash_session ON fiscal_documents(cash_session_id)`,
+  );
+
   const row = db.select().from(schema.edgeState).get();
   if (!row) {
     db.insert(schema.edgeState)

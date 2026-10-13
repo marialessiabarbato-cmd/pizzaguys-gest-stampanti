@@ -1,26 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { staff, staffShifts } from "@pizzaguys/edge-db";
-import {
-  closeBlindSchema,
-  createStaffSchema,
-  startShiftSchema,
-  updateStaffSchema,
-} from "@pizzaguys/validators";
+import { staff } from "@pizzaguys/edge-db";
+import { createStaffSchema, startShiftSchema, updateStaffSchema } from "@pizzaguys/validators";
 import bcrypt from "bcryptjs";
-import { desc, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { getAllTableRuntime } from "../lib/runtime.js";
+import { writeEdgeAudit } from "../lib/audit.js";
 import {
-  clearShiftLedger,
-  getShiftPayments,
-  getShiftTheoretical,
-} from "../lib/shift-ledger.js";
-import { broadcastShiftStatus } from "../lib/shift-guard.js";
+  endOperatorShift,
+  listOpenOperatorShifts,
+  startOperatorShift,
+} from "../lib/operator-shifts.js";
+import { getActiveStaffById } from "../lib/staff-auth.js";
 import { enqueueStaffSync, tryImmediateStaffSync } from "../lib/sync-queue.js";
-
-const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 
 async function hasActivePinConflict(
   app: FastifyInstance,
@@ -143,7 +134,7 @@ export async function staffRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/staff/verify-pin", async (req, reply) => {
-    const body = req.body as { pin?: string };
+    const body = req.body as { pin?: string; startShift?: boolean };
     if (!body.pin || !/^[0-9]{4}$/.test(body.pin)) {
       return reply.status(400).send({ error: "PIN non valido" });
     }
@@ -151,151 +142,51 @@ export async function staffRoutes(app: FastifyInstance) {
     for (const member of members) {
       const valid = await bcrypt.compare(body.pin, member.pinHash);
       if (valid) {
+        // D6: l'accesso con PIN da cassa o palmare avvia il turno dell'operatore.
+        const shift = body.startShift ? startOperatorShift(app.edgeDb, member.id).shift : null;
         return {
           id: member.id,
           firstName: member.firstName,
           lastName: member.lastName,
           role: member.role,
+          shiftId: shift?.id,
         };
       }
     }
     return reply.status(401).send({ error: "PIN errato" });
   });
 
-  app.get("/api/shifts", async () => {
-    return app.edgeDb
-      .select()
-      .from(staffShifts)
-      .where(isNull(staffShifts.endedAt))
-      .orderBy(desc(staffShifts.startedAt))
-      .all();
-  });
+  // Turni operatore (presenze): non sbloccano il locale, che dipende dalla sessione di cassa.
+  app.get("/api/shifts", async () => listOpenOperatorShifts(app.edgeDb));
 
   app.post("/api/shifts/start", async (req, reply) => {
     const parsed = startShiftSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }
-    const member = app.edgeDb.select().from(staff).where(eq(staff.id, parsed.data.staffId)).get();
-    if (!member || !member.isActive) {
-      return reply.status(404).send({ error: "Operatore non trovato" });
-    }
-    const row = {
-      id: randomUUID(),
-      staffId: parsed.data.staffId,
-      startedAt: new Date().toISOString(),
-      endedAt: null,
-    };
-    app.edgeDb.insert(staffShifts).values(row).run();
-    broadcastShiftStatus(app.edgeDb);
-    return reply.status(201).send(row);
+    const member = getActiveStaffById(app.edgeDb, parsed.data.staffId);
+    if (!member) return reply.status(404).send({ error: "Operatore non trovato" });
+    const { shift, created } = startOperatorShift(app.edgeDb, member.id);
+    return reply.status(created ? 201 : 200).send(shift);
   });
 
   app.post<{ Params: { id: string } }>("/api/shifts/:id/end", async (req, reply) => {
-    const updated = app.edgeDb
-      .update(staffShifts)
-      .set({ endedAt: new Date().toISOString() })
-      .where(eq(staffShifts.id, req.params.id))
-      .returning()
-      .get();
-    if (!updated) return reply.status(404).send({ error: "Turno non trovato" });
-    clearShiftLedger(req.params.id);
-    broadcastShiftStatus(app.edgeDb);
-    return updated;
-  });
-
-  app.get<{ Params: { id: string } }>("/api/shifts/:id/summary", async (req, reply) => {
-    const shift = app.edgeDb
-      .select()
-      .from(staffShifts)
-      .where(eq(staffShifts.id, req.params.id))
-      .get();
-    if (!shift) return reply.status(404).send({ error: "Turno non trovato" });
-
-    const member = app.edgeDb.select().from(staff).where(eq(staff.id, shift.staffId)).get();
-    const theoretical = getShiftTheoretical(req.params.id);
-    const openTables = getAllTableRuntime().filter((t) => t.status !== "FREE");
-
-    return {
-      shiftId: shift.id,
-      staffId: shift.staffId,
-      staffName: member ? `${member.firstName} ${member.lastName}` : shift.staffId,
-      startedAt: shift.startedAt,
-      endedAt: shift.endedAt,
-      theoretical,
-      payments: getShiftPayments(req.params.id),
-      openTables: openTables.map((t) => ({ tableId: t.tableId, status: t.status })),
-      canClose: openTables.length === 0,
-    };
-  });
-
-  app.post<{ Params: { id: string } }>("/api/shifts/:id/close-blind", async (req, reply) => {
-    const parsed = closeBlindSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    const body = (req.body ?? {}) as { requestedByStaffId?: string };
+    if (!body.requestedByStaffId) {
+      return reply.status(400).send({ error: "requestedByStaffId obbligatorio" });
     }
-
-    const shift = app.edgeDb
-      .select()
-      .from(staffShifts)
-      .where(eq(staffShifts.id, req.params.id))
-      .get();
-    if (!shift) return reply.status(404).send({ error: "Turno non trovato" });
-    if (shift.endedAt) return reply.status(409).send({ error: "Turno già chiuso" });
-
-    const openTables = getAllTableRuntime().filter((t) => t.status !== "FREE");
-    if (openTables.length > 0) {
-      return reply.status(400).send({
-        error: "Sala non chiusa — tavoli o conti ancora aperti",
-        openTables: openTables.map((t) => ({ tableId: t.tableId, status: t.status })),
+    const requester = getActiveStaffById(app.edgeDb, body.requestedByStaffId);
+    if (!requester) return reply.status(404).send({ error: "Operatore non trovato" });
+    const result = endOperatorShift(app.edgeDb, req.params.id, requester);
+    if (!result.ok) return reply.status(result.status).send({ error: result.error });
+    if (result.shift.staffId !== requester.id) {
+      writeEdgeAudit(app.edgeDb, {
+        staffId: requester.id,
+        operation: "OPERATOR_SHIFT_ENDED_BY_CASHIER",
+        severity: "INFO",
+        nextState: { shiftId: result.shift.id, staffId: result.shift.staffId },
       });
     }
-
-    const theoretical = getShiftTheoretical(req.params.id);
-    const cashDiscrepancy =
-      Math.round((parsed.data.cashDeclared - theoretical.cash) * 100) / 100;
-    const posDiscrepancy =
-      Math.round((parsed.data.posDeclared - theoretical.pos) * 100) / 100;
-    const totalDiscrepancy = Math.round((cashDiscrepancy + posDiscrepancy) * 100) / 100;
-
-    const member = app.edgeDb.select().from(staff).where(eq(staff.id, shift.staffId)).get();
-    const report = {
-      mock: true,
-      shiftId: shift.id,
-      staffName: member ? `${member.firstName} ${member.lastName}` : shift.staffId,
-      closedAt: new Date().toISOString(),
-      theoretical,
-      declared: {
-        cash: parsed.data.cashDeclared,
-        pos: parsed.data.posDeclared,
-      },
-      discrepancy: {
-        cash: cashDiscrepancy,
-        pos: posDiscrepancy,
-        total: totalDiscrepancy,
-      },
-      transactionCount: theoretical.transactionCount,
-    };
-
-    await mkdir(PRINT_DIR, { recursive: true });
-    const reportPath = join(PRINT_DIR, `${Date.now()}-shift-close-${shift.id}.json`);
-    await writeFile(reportPath, JSON.stringify(report, null, 2));
-
-    const updated = app.edgeDb
-      .update(staffShifts)
-      .set({ endedAt: new Date().toISOString() })
-      .where(eq(staffShifts.id, req.params.id))
-      .returning()
-      .get();
-
-    clearShiftLedger(req.params.id);
-    broadcastShiftStatus(app.edgeDb);
-
-    return {
-      ok: true,
-      report,
-      reportPath,
-      shift: updated,
-    };
+    return result.shift;
   });
 }

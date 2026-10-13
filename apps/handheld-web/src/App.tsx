@@ -59,8 +59,9 @@ export default function App() {
 
   const isOffline = !connected || !online;
   /** null = stato non ancora noto: non blocchiamo nulla finché l'edge non risponde. */
-  const [shiftActive, setShiftActive] = useState<boolean | null>(null);
-  const shiftInactive = shiftActive === false;
+  /** Stato della cassa: invio comande e banco solo con una sessione aperta. null = non noto. */
+  const [cashOpen, setCashOpen] = useState<boolean | null>(null);
+  const cashClosed = cashOpen === false;
   const hasLock =
     !!operator &&
     !!activeTable &&
@@ -260,17 +261,17 @@ export default function App() {
     if (pendingGuestsTable || showEditGuestsModal) loadTables();
   }, [pendingGuestsTable, showEditGuestsModal, loadTables]);
 
-  // Stato turno: letto al login e a ogni riconnessione, poi aggiornato dal broadcast.
+  // Stato cassa: letto al login e a ogni riconnessione, poi aggiornato dal broadcast.
   useEffect(() => {
     if (!operator || !connected) return;
-    edgeApi<{ shift?: { active: boolean } }>("/api/status")
-      .then((s) => setShiftActive(s.shift?.active ?? null))
+    edgeApi<{ cashSession?: { open: boolean } }>("/api/status")
+      .then((s) => setCashOpen(s.cashSession?.open ?? null))
       .catch(() => {});
   }, [operator, connected]);
 
   useEffect(() => {
-    const unsub = on("SHIFT_STATUS", (payload) => {
-      setShiftActive((payload as { active: boolean }).active);
+    const unsub = on("CASH_SESSION_STATUS", (payload) => {
+      setCashOpen((payload as { open: boolean }).open);
     });
     return () => {
       unsub();
@@ -348,7 +349,7 @@ export default function App() {
     try {
       const op = await edgeApi<Operator>("/api/staff/verify-pin", {
         method: "POST",
-        body: JSON.stringify({ pin: value }),
+        body: JSON.stringify({ pin: value, startShift: true }),
       });
       setOperator(op);
       setPin("");
@@ -607,6 +608,21 @@ export default function App() {
     comanda.setSelectedSubmittedId(null);
   };
 
+  /** Fine turno: chiude la presenza dell'operatore e torna al PIN. */
+  const endShiftAndLogout = async () => {
+    if (operator?.shiftId) {
+      try {
+        await edgeApi(`/api/shifts/${operator.shiftId}/end`, {
+          method: "POST",
+          body: JSON.stringify({ requestedByStaffId: operator.id }),
+        });
+      } catch {
+        /* turno già chiuso (es. dalla cassa): si esce comunque */
+      }
+    }
+    logout();
+  };
+
   const logout = () => {
     setOperator(null);
     setScreen("pin");
@@ -664,7 +680,7 @@ export default function App() {
           tables={tables}
           operator={operator}
           isOffline={isOffline}
-          shiftInactive={shiftInactive}
+          cashClosed={cashClosed}
           hasLock={hasLock}
           message={message}
           backLabel="← Tavoli"
@@ -730,7 +746,7 @@ export default function App() {
           rooms={rooms}
           message={message}
           isOffline={isOffline}
-          shiftInactive={shiftInactive}
+          cashClosed={cashClosed}
           lockPending={lockPending}
           logoutConfirm={logoutConfirm}
           pendingGuestsTable={pendingGuestsTable}
@@ -742,6 +758,10 @@ export default function App() {
           onConfirmLogout={() => {
             setLogoutConfirm(false);
             logout();
+          }}
+          onEndShift={() => {
+            setLogoutConfirm(false);
+            void endShiftAndLogout();
           }}
           onCancelLogout={() => setLogoutConfirm(false)}
           onConfirmGuests={confirmGuests}
@@ -762,7 +782,7 @@ export default function App() {
         <CounterOrdersScreen
           operator={operator}
           isOffline={isOffline}
-          shiftInactive={shiftInactive}
+          cashClosed={cashClosed}
           message={message}
           onBack={() => setScreen("map")}
           onMessage={setMessage}

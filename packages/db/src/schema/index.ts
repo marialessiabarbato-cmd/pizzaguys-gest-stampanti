@@ -4,6 +4,7 @@ export * from "./users.js";
 export * from "./menu.js";
 export * from "./audit.js";
 export * from "./daily-closures.js";
+export * from "./cash-sessions.js";
 export * from "./electronic-invoices.js";
 export * from "./settings.js";
 export * from "./invoice-customers.js";

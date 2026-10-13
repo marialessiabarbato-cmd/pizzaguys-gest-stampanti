@@ -169,7 +169,6 @@ export const payTableSchema = z
     operatorId: z.string().min(1),
     operatorName: z.string().min(1),
     paymentRequestId: z.string().uuid().optional(),
-    shiftId: z.string().uuid().optional(),
     splitMode: z.enum(["FULL", "ROMAN", "ANALYTIC"]).default("FULL"),
     checkId: z.string().uuid().optional(),
     documentType: z.enum(["RECEIPT", "INVOICE", "TRAINING"]).default("RECEIPT"),
@@ -225,16 +224,13 @@ export const analyticSplitSchema = z.object({
     .optional(),
 });
 
-export const closeBlindSchema = z.object({
+export const closureReconcileSchema = z.object({
   cashDeclared: z.number().min(0),
   posDeclared: z.number().min(0).default(0),
 });
 
-export const closureReconcileSchema = closeBlindSchema;
-
+/** Chiusura giornata: contanti e POS arrivano dalle sessioni di cassa del giorno. */
 export const closureCompleteSchema = z.object({
-  cashDeclared: z.number().min(0),
-  posDeclared: z.number().min(0).default(0),
   operatorId: z.string().min(1),
   operatorName: z.string().min(1),
 });

@@ -1,4 +1,5 @@
-import type { FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
+import type { CashService, CashSessionStatusPayload, FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
+import { isCashOperatorRole } from "@pizzaguys/types";
 import { Button, useTheme } from "@pizzaguys/ui";
 import { ComandaWorkspace, useComanda, type LiveTable as ComandaTable } from "@pizzaguys/comanda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +23,10 @@ import { InternalClosureWizard } from "../components/InternalClosureWizard";
 import { DocumentListModal } from "../components/DocumentListModal";
 import { OpenTablesModal } from "../components/OpenTablesModal";
 import { ReservationsModal } from "../components/ReservationsModal";
-import { ShiftCloseModal } from "../components/ShiftCloseModal";
+import { CashCloseWizard } from "../components/CashCloseWizard";
+import { CashMovementModal } from "../components/CashMovementModal";
+import { CashOpenModal } from "../components/CashOpenModal";
+import { OperatorShiftsPanel } from "../components/OperatorShiftsPanel";
 import { TableTransferModal } from "../components/TableTransferModal";
 import { edgeApi } from "../lib/api";
 import { dedupeRecentCustomers } from "../lib/counter-customers";
@@ -76,6 +80,8 @@ function formatOpenedElapsed(openedAt: string | null | undefined, nowMs: number)
   const m = Math.floor((ms % 3_600_000) / 60_000);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
+
+type CashStatus = CashSessionStatusPayload & { suggestedService: CashService };
 
 interface ShiftReminderWindow {
   day: number;
@@ -174,12 +180,6 @@ interface CounterOrderRow {
   lineCount: number;
 }
 
-interface Shift {
-  id: string;
-  staffId: string;
-  startedAt: string;
-}
-
 interface PaymentRequest {
   requestId: string;
   tableId: string;
@@ -266,9 +266,7 @@ export function CassaPage({
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [confirmPrebill, setConfirmPrebill] = useState(false);
   const [confirmRomanSplit, setConfirmRomanSplit] = useState(false);
-  const [confirmStartShift, setConfirmStartShift] = useState(false);
   const [confirmClosure, setConfirmClosure] = useState(false);
-  const [confirmShiftClose, setConfirmShiftClose] = useState(false);
   const [confirmClosePanel, setConfirmClosePanel] = useState(false);
   const [confirmCancelSplit, setConfirmCancelSplit] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -281,15 +279,17 @@ export function CassaPage({
   const [payPrepareOpen, setPayPrepareOpen] = useState(false);
   const [rooms, setRooms] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedRoomId, setSelectedRoomId] = useState("");
-  const [activeShift, setActiveShift] = useState<Shift | null>(null);
-  const [activeShiftLoaded, setActiveShiftLoaded] = useState(false);
   const [shiftReminderSchedule, setShiftReminderSchedule] = useState<ShiftReminderWindow[]>([]);
   const [activeShiftReminderWindow, setActiveShiftReminderWindow] =
     useState<ShiftReminderWindow | null>(null);
-  const [showShiftClose, setShowShiftClose] = useState(false);
-  /** Turno del locale (almeno un turno cassa aperto). null = non ancora noto. */
-  const [shiftActive, setShiftActive] = useState<boolean | null>(null);
-  const shiftInactive = shiftActive === false;
+  /** Stato della cassa: il locale è operativo solo con una sessione aperta. null = non ancora noto. */
+  const [cashStatus, setCashStatus] = useState<CashStatus | null>(null);
+  const cashClosed = cashStatus?.open === false;
+  const canOperateCash = isCashOperatorRole(operator?.role);
+  const [showCashOpen, setShowCashOpen] = useState(false);
+  const [showCashClose, setShowCashClose] = useState(false);
+  const [showCashMovements, setShowCashMovements] = useState(false);
+  const [showOperatorShifts, setShowOperatorShifts] = useState(false);
   const [showClosureWizard, setShowClosureWizard] = useState(false);
   const [showInternalClosureWizard, setShowInternalClosureWizard] = useState(false);
   const [showClosureHistory, setShowClosureHistory] = useState(false);
@@ -389,10 +389,10 @@ export function CassaPage({
       venueCapacityWarning?: string | null;
       shiftReminderSchedule?: ShiftReminderWindow[];
       runtimeRestore?: RuntimeRestoreInfo | null;
-      shift?: { active: boolean };
+      cashSession?: CashStatus;
     }>("/api/status").then((s) => {
       setVenueCapacityWarning(s.venueCapacityWarning ?? null);
-      setShiftActive(s.shift?.active ?? null);
+      setCashStatus(s.cashSession ?? null);
       setShiftReminderSchedule(s.shiftReminderSchedule ?? []);
       setRuntimeRestore(s.runtimeRestore ?? null);
     });
@@ -429,46 +429,29 @@ export function CassaPage({
     }
   }, []);
 
-  const loadActiveShift = useCallback(async (staffId: string) => {
-    const shifts = await edgeApi<Shift[]>("/api/shifts");
-    setActiveShift(shifts.find((s) => s.staffId === staffId) ?? null);
-    setActiveShiftLoaded(true);
+  const loadCashStatus = useCallback(() => {
+    void edgeApi<CashStatus>("/api/cash-sessions/current").then(setCashStatus);
   }, []);
 
-  const startShift = async () => {
-    if (!operator) return;
-    const row = await edgeApi<Shift>("/api/shifts/start", {
-      method: "POST",
-      body: JSON.stringify({ staffId: operator.id }),
-    });
-    setActiveShift(row);
-    setActiveShiftReminderWindow(null);
-    setMessage("Turno avviato");
-  };
-
+  /** Orario di lavoro configurato dal Cloud: a cassa chiusa il banner lo ricorda. */
   useEffect(() => {
-    if (!operator || !activeShiftLoaded || shiftReminderSchedule.length === 0) return;
-
-    const check = () => {
-      if (activeShift) {
-        setActiveShiftReminderWindow(null);
-        return;
-      }
+    if (!cashClosed || shiftReminderSchedule.length === 0) {
+      setActiveShiftReminderWindow(null);
+      return;
+    }
+    const check = () =>
       setActiveShiftReminderWindow(findActiveShiftWindow(new Date(), shiftReminderSchedule));
-    };
-
     check();
     const interval = setInterval(check, 60_000);
     return () => clearInterval(interval);
-  }, [operator, activeShift, activeShiftLoaded, shiftReminderSchedule]);
+  }, [cashClosed, shiftReminderSchedule]);
 
   useEffect(() => {
     if (!operator) return;
-    setActiveShiftLoaded(false);
     loadTables();
     loadPendingPayments();
     loadCounterOrders();
-    void loadActiveShift(operator.id);
+    loadCashStatus();
     void edgeApi<{
       snapshot?: {
         settings?: { maxDiscountPercent?: number; pinDiscountThresholdPercent?: number };
@@ -489,7 +472,7 @@ export function CassaPage({
         ),
       );
     });
-  }, [operator, loadTables, loadPendingPayments, loadCounterOrders, loadActiveShift]);
+  }, [operator, loadTables, loadPendingPayments, loadCounterOrders, loadCashStatus]);
 
   useEffect(() => {
     if (rooms.length === 0) {
@@ -539,8 +522,11 @@ export function CassaPage({
       });
       loadTables();
     });
-    const offShiftStatus = on("SHIFT_STATUS", (payload) => {
-      setShiftActive((payload as { active: boolean }).active);
+    const offCashStatus = on("CASH_SESSION_STATUS", (payload) => {
+      setCashStatus((prev) => ({
+        suggestedService: prev?.suggestedService ?? "LUNCH",
+        ...(payload as CashSessionStatusPayload),
+      }));
     });
     const offPrintFailed = on("PRINT_FAILED", (payload) => {
       const p = payload as PrintFailedPayload;
@@ -594,7 +580,7 @@ export function CassaPage({
       offStatus();
       offPending();
       offPrintFailed();
-      offShiftStatus();
+      offCashStatus();
       offComplete();
       offGranted();
       offDenied();
@@ -617,7 +603,7 @@ export function CassaPage({
     try {
       const op = await edgeApi<Operator>("/api/staff/verify-pin", {
         method: "POST",
-        body: JSON.stringify({ pin: value }),
+        body: JSON.stringify({ pin: value, startShift: true }),
       });
       setOperator(op);
       setPin("");
@@ -890,8 +876,8 @@ export function CassaPage({
   };
 
   const openCounterModal = (channel: CounterChannel) => {
-    if (shiftInactive) {
-      setMessage("Turno non attivo — avvia il turno per incassare, inviare comande e aprire ordini al banco");
+    if (cashClosed) {
+      setMessage("Cassa chiusa — l'operatore cassa deve aprire il servizio per incassare, inviare comande e aprire ordini al banco");
       return;
     }
     setCounterModalChannel(channel);
@@ -1146,8 +1132,8 @@ export function CassaPage({
   );
 
   const openPayment = (requestId?: string, checkId?: string) => {
-    if (shiftInactive) {
-      setMessage("Turno non attivo — avvia il turno per incassare, inviare comande e aprire ordini al banco");
+    if (cashClosed) {
+      setMessage("Cassa chiusa — l'operatore cassa deve aprire il servizio per incassare, inviare comande e aprire ordini al banco");
       return;
     }
     setPaymentMethod("CASH");
@@ -1182,7 +1168,6 @@ export function CassaPage({
       operatorId: operator.id,
       operatorName: `${operator.firstName} ${operator.lastName}`,
       paymentRequestId,
-      shiftId: activeShift?.id,
       splitMode: isAnalyticPay ? "ANALYTIC" : isRomanPay ? "ROMAN" : "FULL",
       checkId: analyticCheckId,
       documentType,
@@ -1422,7 +1407,8 @@ export function CassaPage({
         operatorName={`${operator.firstName} ${operator.lastName}`}
         locationName={locationName}
         connected={connected}
-        activeShift={activeShift}
+        cashSession={cashStatus ? cashStatus.session : undefined}
+        canOperateCash={canOperateCash}
         openTableCount={openTableCount}
         pendingPaymentCount={pendingPayments.length}
         canManage={canComanda}
@@ -1432,8 +1418,10 @@ export function CassaPage({
         onClosureHistory={() => setShowClosureHistory(true)}
         onClosureDay={() => setConfirmClosure(true)}
         onInternalClosure={() => setShowInternalClosureWizard(true)}
-        onStartShift={() => setConfirmStartShift(true)}
-        onCloseShift={() => setConfirmShiftClose(true)}
+        onOpenCash={() => setShowCashOpen(true)}
+        onCloseCash={() => setShowCashClose(true)}
+        onCashMovements={() => setShowCashMovements(true)}
+        onOperatorShifts={() => setShowOperatorShifts(true)}
         onAdmin={onAdmin}
         onProfile={() => setShowProfileModal(true)}
         onLogout={() => setConfirmLogout(true)}
@@ -1445,37 +1433,28 @@ export function CassaPage({
           <strong>Capienza sede:</strong> {venueCapacityWarning}
         </div>
       )}
-      {shiftInactive && (
+      {cashClosed && (
         <div
           role="alert"
           className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm text-amber-900"
         >
           <span>
-            <strong>Turno non attivo</strong> — incassi, invio comande e ordini al banco sono
+            <strong>Cassa chiusa</strong> — incassi, invio comande e ordini al banco sono
             bloccati, anche sui palmari.
+            {activeShiftReminderWindow
+              ? ` Oggi si lavora ${activeShiftReminderWindow.start}–${activeShiftReminderWindow.end}.`
+              : ""}
+            {!canOperateCash ? " Solo l'operatore cassa può aprirla." : ""}
           </span>
-          <button
-            type="button"
-            className="shrink-0 font-medium underline underline-offset-2"
-            onClick={() => void startShift()}
-          >
-            Avvia turno
-          </button>
-        </div>
-      )}
-      {activeShiftReminderWindow && !shiftInactive && (
-        <div className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900">
-          <span>
-            Turno non avviato — oggi si lavora {activeShiftReminderWindow.start}–
-            {activeShiftReminderWindow.end}.
-          </span>
-          <button
-            type="button"
-            className="shrink-0 font-medium underline underline-offset-2"
-            onClick={() => void startShift()}
-          >
-            Avvia turno
-          </button>
+          {canOperateCash && (
+            <button
+              type="button"
+              className="shrink-0 font-medium underline underline-offset-2"
+              onClick={() => setShowCashOpen(true)}
+            >
+              Apri cassa
+            </button>
+          )}
         </div>
       )}
       {runtimeRestore && runtimeRestore.restoredAt !== dismissedRestoreAt && (
@@ -1566,7 +1545,6 @@ export function CassaPage({
           <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3">
             <OpenTablesModal
               embedded
-              shiftId={activeShift?.id}
               rooms={rooms}
               onClose={() => setWorkspace("main")}
               onSelectTable={(tableId) => {
@@ -1816,7 +1794,7 @@ export function CassaPage({
               {canComanda && !showCounterModal && (
                 <Button
                   className="h-10 shrink-0 px-4 text-sm"
-                  disabled={shiftInactive}
+                  disabled={cashClosed}
                   onClick={() =>
                     openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
                   }
@@ -1847,7 +1825,7 @@ export function CassaPage({
                       </p>
                       <Button
                         className="h-10 px-4"
-                        disabled={shiftInactive}
+                        disabled={cashClosed}
                         onClick={() =>
                           openCounterModal(channelFilter === "ASPORTO" ? "TAKEAWAY" : "DELIVERY")
                         }
@@ -1913,7 +1891,7 @@ export function CassaPage({
               tables={comandaTables}
               operator={operator}
               isOffline={!connected}
-              shiftInactive={shiftInactive}
+              cashClosed={cashClosed}
               message=""
               backLabel="← Conto"
               onLeave={() => void leaveComanda()}
@@ -1922,7 +1900,7 @@ export function CassaPage({
                 setShowEditGuestsModal(true);
               }}
               onOpenTransfer={() => setShowTransferModal(true)}
-              showShiftBanner={false}
+              showCashBanner={false}
             />
           ) : selectedTable && bill ? (
             <>
@@ -2127,8 +2105,8 @@ export function CassaPage({
                   {!hasAnalyticSplit ? (
                     <Button
                       className="min-h-14 text-lg"
-                      disabled={loading || bill.lines.length === 0 || shiftInactive}
-                      title={shiftInactive ? "Turno non attivo — avvia il turno per incassare" : undefined}
+                      disabled={loading || bill.lines.length === 0 || cashClosed}
+                      title={cashClosed ? "Turno non attivo — avvia il turno per incassare" : undefined}
                       onClick={() => {
                         if (isRomanPay || bill.romanSplit) {
                           openPayment(paymentRequestId);
@@ -2434,26 +2412,13 @@ export function CassaPage({
         />
       )}
 
-      {confirmStartShift && (
-        <ConfirmModal
-          title="Avviare turno cassa?"
-          message="Il turno verrà associato al tuo operatore."
-          confirmLabel="Avvia"
-          onConfirm={() => {
-            setConfirmStartShift(false);
-            void startShift();
-          }}
-          onCancel={() => setConfirmStartShift(false)}
-        />
-      )}
-
       {confirmClosure && (
         <ConfirmModal
           title="Avviare chiusura giornaliera?"
           message={
-            activeShift
-              ? "Chiudi prima il turno cassa (pulsante in alto), poi verifica che non ci siano tavoli aperti o pagamenti in attesa."
-              : "Procedura irreversibile: verifica tavoli e turni aperti."
+            cashStatus?.open
+              ? "Chiudi prima la cassa (pulsante in alto), poi verifica che non ci siano tavoli aperti o pagamenti in attesa."
+              : "Procedura irreversibile: verifica tavoli aperti e pagamenti in attesa."
           }
           confirmLabel="Procedi"
           variant="danger"
@@ -2462,19 +2427,6 @@ export function CassaPage({
             setShowClosureWizard(true);
           }}
           onCancel={() => setConfirmClosure(false)}
-        />
-      )}
-
-      {confirmShiftClose && (
-        <ConfirmModal
-          title="Chiudere il turno?"
-          message="Conteggio cieco contanti e POS."
-          confirmLabel="Procedi"
-          onConfirm={() => {
-            setConfirmShiftClose(false);
-            setShowShiftClose(true);
-          }}
-          onCancel={() => setConfirmShiftClose(false)}
         />
       )}
 
@@ -2629,7 +2581,7 @@ export function CassaPage({
             setShowClosureWizard(false);
             loadTables();
           }}
-          onCloseShift={() => setConfirmShiftClose(true)}
+          onCloseCash={canOperateCash && cashStatus?.open ? () => setShowCashClose(true) : undefined}
         />
       )}
 
@@ -2680,16 +2632,39 @@ export function CassaPage({
 
       
 
-      {showShiftClose && activeShift && (
-        <ShiftCloseModal
-          shiftId={activeShift.id}
-          onClose={() => setShowShiftClose(false)}
-          onComplete={() => {
-            setShowShiftClose(false);
-            setActiveShift(null);
-            setMessage("Turno chiuso");
+      {showCashOpen && cashStatus && (
+        <CashOpenModal
+          suggestedService={cashStatus.suggestedService}
+          suggestedOpeningFund={cashStatus.suggestedOpeningFund}
+          onClose={() => setShowCashOpen(false)}
+          onOpened={() => {
+            setShowCashOpen(false);
+            loadCashStatus();
+            setMessage("Cassa aperta");
           }}
         />
+      )}
+
+      {showCashMovements && cashStatus?.session && (
+        <CashMovementModal
+          sessionId={cashStatus.session.id}
+          onClose={() => setShowCashMovements(false)}
+        />
+      )}
+
+      {showCashClose && cashStatus?.session && (
+        <CashCloseWizard
+          sessionId={cashStatus.session.id}
+          onClose={() => {
+            setShowCashClose(false);
+            loadCashStatus();
+          }}
+          onClosed={() => loadCashStatus()}
+        />
+      )}
+
+      {showOperatorShifts && operator && (
+        <OperatorShiftsPanel operator={operator} onClose={() => setShowOperatorShifts(false)} />
       )}
 
       {showTransferModal && selectedTable && operator && bill && (

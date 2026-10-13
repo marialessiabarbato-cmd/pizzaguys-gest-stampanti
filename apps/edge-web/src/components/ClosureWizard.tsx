@@ -1,3 +1,4 @@
+import { CASH_SERVICE_LABELS, type CashSession } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
 import { edgeApi, edgeApiDownload } from "../lib/api";
@@ -12,18 +13,34 @@ interface Theoretical {
   byPaymentMethod: Record<string, number>;
 }
 
+interface DaySessions {
+  sessions: CashSession[];
+  cashSales: number;
+  posSales: number;
+  withdrawals: number;
+  expenses: number;
+  cashDeclared: number;
+  posDeclared: number;
+  discrepancyCash: number;
+  discrepancyPos: number;
+  discrepancyTotal: number;
+}
+
 interface PreCheck {
   canClose: boolean;
   blockers: string[];
   openTables: Array<{ tableId: string; status: string }>;
   pendingPayments?: Array<{ requestId: string; tableLabel: string; total: number }>;
-  openShifts?: Array<{ id: string; staffId: string }>;
+  openCashSession?: { id: string; service: "LUNCH" | "DINNER" } | null;
+  closureDate?: string;
+  cashSessions?: DaySessions;
   zReportIssued: boolean;
   theoretical: Theoretical;
 }
 
 interface ReconcileResult {
   theoretical: Theoretical;
+  cashSessions: DaySessions;
   declared: { cash: number; pos: number };
   discrepancy: { cash: number; pos: number; total: number };
 }
@@ -57,17 +74,16 @@ export function ClosureWizard({
   operatorId,
   operatorName,
   onClose,
-  onCloseShift,
+  onCloseCash,
 }: {
   operatorId: string;
   operatorName: string;
   onClose: () => void;
-  onCloseShift?: () => void;
+  /** Apre la chiusura della cassa ancora aperta (solo operatore cassa). */
+  onCloseCash?: () => void;
 }) {
   const [step, setStep] = useState<Step>("precheck");
   const [preCheck, setPreCheck] = useState<PreCheck | null>(null);
-  const [cashDeclared, setCashDeclared] = useState("");
-  const [posDeclared, setPosDeclared] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [zNumber, setZNumber] = useState<number | null>(null);
@@ -107,10 +123,6 @@ export function ClosureWizard({
     try {
       const result = await edgeApi<ReconcileResult>("/api/closure/reconcile", {
         method: "POST",
-        body: JSON.stringify({
-          cashDeclared: Number.parseFloat(cashDeclared.replace(",", ".")) || 0,
-          posDeclared: Number.parseFloat(posDeclared.replace(",", ".")) || 0,
-        }),
       });
       setReconcile(result);
     } catch (err) {
@@ -127,8 +139,6 @@ export function ClosureWizard({
       const result = await edgeApi<CompleteResult>("/api/closure/complete", {
         method: "POST",
         body: JSON.stringify({
-          cashDeclared: Number.parseFloat(cashDeclared.replace(",", ".")) || 0,
-          posDeclared: Number.parseFloat(posDeclared.replace(",", ".")) || 0,
           operatorId,
           operatorName,
         }),
@@ -176,23 +186,25 @@ export function ClosureWizard({
                   ))}
                 </ul>
 
-                {(preCheck.openShifts?.length ?? 0) > 0 && (
+                {preCheck.openCashSession && (
                   <div className="rounded-lg border border-red-300/60 bg-[hsl(var(--pg-background))] p-3 text-[hsl(var(--pg-foreground))]">
-                    <p className="font-medium">Turno cassa aperto</p>
-                    <p className="mt-1 text-xs text-[hsl(var(--pg-muted-foreground))]">
-                      Usa <strong>Chiudi turno</strong> in alto a destra, fai il conteggio cieco
-                      contanti/POS, poi riapri la chiusura giornata.
+                    <p className="font-medium">
+                      Cassa {CASH_SERVICE_LABELS[preCheck.openCashSession.service].toLowerCase()} aperta
                     </p>
-                    {onCloseShift && (
+                    <p className="mt-1 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                      Chiudi la cassa (conteggio contanti, POS e prelievi), poi riapri la chiusura
+                      giornata.
+                    </p>
+                    {onCloseCash && (
                       <Button
                         variant="outline"
                         className="mt-3 h-10 w-full"
                         onClick={() => {
                           onClose();
-                          onCloseShift();
+                          onCloseCash();
                         }}
                       >
-                        Chiudi turno ora
+                        Chiudi cassa ora
                       </Button>
                     )}
                   </div>
@@ -284,48 +296,60 @@ export function ClosureWizard({
               </div>
             )}
 
-            <p className="text-sm">Conteggio cieco — inserisci i valori reali:</p>
-            <label className="block text-sm">
-              Contanti (€)
-              <input
-                className="mt-1 w-full rounded-lg border px-3 py-3 text-lg"
-                value={cashDeclared}
-                onChange={(e) => setCashDeclared(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              POS (€)
-              <input
-                className="mt-1 w-full rounded-lg border px-3 py-3 text-lg"
-                value={posDeclared}
-                onChange={(e) => setPosDeclared(e.target.value)}
-              />
-            </label>
+            <p className="text-sm">
+              Contanti e POS sono già stati contati alla chiusura di ogni cassa: qui trovi la
+              quadratura della giornata.
+            </p>
 
             {reconcile && (
               <div className="space-y-2 rounded-lg border border-[hsl(var(--pg-border))] p-3 text-sm">
-                <div className="grid grid-cols-3 gap-2 border-b border-[hsl(var(--pg-border))] pb-2 font-medium">
-                  <span />
-                  <span className="text-right">Teorico</span>
-                  <span className="text-right">Dichiarato</span>
+                <div className="grid grid-cols-4 gap-2 border-b border-[hsl(var(--pg-border))] pb-2 font-medium">
+                  <span>Servizio</span>
+                  <span className="text-right">Incassato</span>
+                  <span className="text-right">Contanti</span>
+                  <span className="text-right">POS</span>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <span>Contanti</span>
-                  <span className="text-right tabular-nums">{euro(reconcile.theoretical.cash)}</span>
-                  <span className="text-right tabular-nums">{euro(reconcile.declared.cash)}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <span>POS</span>
-                  <span className="text-right tabular-nums">{euro(reconcile.theoretical.pos)}</span>
-                  <span className="text-right tabular-nums">{euro(reconcile.declared.pos)}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 font-semibold">
-                  <span>Totale</span>
-                  <span className="text-right tabular-nums">{euro(reconcile.theoretical.total)}</span>
-                  <span className="text-right tabular-nums">
-                    {euro(reconcile.declared.cash + reconcile.declared.pos)}
-                  </span>
-                </div>
+                {reconcile.cashSessions.sessions.length === 0 && (
+                  <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    Nessuna sessione di cassa chiusa per questa giornata.
+                  </p>
+                )}
+                {[...reconcile.cashSessions.sessions]
+                  .sort((x, y) => x.openedAt.localeCompare(y.openedAt))
+                  .map((session) => (
+                    <div key={session.id} className="grid grid-cols-4 gap-2">
+                      <span>{CASH_SERVICE_LABELS[session.service]}</span>
+                      <span className="text-right tabular-nums">
+                        {euro(session.theoretical?.totalSales ?? 0)}
+                      </span>
+                      <span
+                        className={`text-right tabular-nums ${
+                          (session.discrepancyCash ?? 0) < 0
+                            ? "text-red-600"
+                            : (session.discrepancyCash ?? 0) > 0
+                              ? "text-orange-600"
+                              : ""
+                        }`}
+                      >
+                        {euro(session.discrepancyCash ?? 0)}
+                      </span>
+                      <span
+                        className={`text-right tabular-nums ${
+                          (session.discrepancyPos ?? 0) < 0
+                            ? "text-red-600"
+                            : (session.discrepancyPos ?? 0) > 0
+                              ? "text-orange-600"
+                              : ""
+                        }`}
+                      >
+                        {euro(session.discrepancyPos ?? 0)}
+                      </span>
+                    </div>
+                  ))}
+                <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                  Prelievi del giorno {euro(reconcile.cashSessions.withdrawals)} · spese{" "}
+                  {euro(reconcile.cashSessions.expenses)}
+                </p>
                 <div
                   className={`rounded-lg p-3 text-center font-bold ${
                     reconcile.discrepancy.total < 0
@@ -335,7 +359,7 @@ export function ClosureWizard({
                         : "bg-green-500/10 text-green-600"
                   }`}
                 >
-                  Scostamento: {euro(reconcile.discrepancy.total)}
+                  Scostamento giornata: {euro(reconcile.discrepancy.total)}
                 </div>
                 <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
                   Transazioni: {reconcile.theoretical.transactionCount}
@@ -350,7 +374,7 @@ export function ClosureWizard({
               </Button>
               {!reconcile ? (
                 <Button className="flex-1" disabled={loading} onClick={() => void previewReconcile()}>
-                  Verifica
+                  Mostra quadratura
                 </Button>
               ) : (
                 <Button className="flex-1" disabled={loading} onClick={() => void complete()}>

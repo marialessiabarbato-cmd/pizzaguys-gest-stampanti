@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 import uuid
 from datetime import date
 
-CLOUD = "http://localhost:4000"
-EDGE = "http://localhost:4100"
+# Porte da .env diverse dai default (es. 4001/4101): CLOUD_API_URL / EDGE_API_URL.
+CLOUD = os.environ.get("CLOUD_API_URL", "http://localhost:4000")
+EDGE = os.environ.get("EDGE_API_URL", "http://localhost:4100")
 TODAY = date.today().isoformat()
 
 PASS: list[str] = []
@@ -155,13 +157,21 @@ def main() -> int:
     code, hist_list = req(EDGE, "GET", "/api/internal-closure/history")
     expect("internal-closure history list", code, 200, hist_list if isinstance(hist_list, dict) else {})
 
-    # Banco, invio comande e incassi richiedono un turno cassa aperto (409 SHIFT_NOT_ACTIVE).
-    started_shift_id = None
-    code, open_shifts = req(EDGE, "GET", "/api/shifts")
-    if operator and code == 200 and isinstance(open_shifts, list) and not open_shifts:
-        code, shift = req(EDGE, "POST", "/api/shifts/start", {"staffId": operator.get("id")})
-        if expect("avvia turno per il test", code, {200, 201}, shift):
-            started_shift_id = shift.get("id")
+    # Banco, invio comande e incassi richiedono la cassa aperta (409 CASH_SESSION_CLOSED).
+    # La apre l'operatore cassa (PIN 1234 = Admin di sede, o 5678 = Cassiere) e la richiude a fine test.
+    opened_cash = None
+    code, cash = req(EDGE, "GET", "/api/cash-sessions/current")
+    if code == 200 and not cash.get("open"):
+        for cash_pin in ("1234", "5678"):
+            code, session = req(EDGE, "POST", "/api/cash-sessions/open", {
+                "pin": cash_pin, "service": cash.get("suggestedService", "DINNER"), "openingFund": 0,
+            })
+            if code == 201:
+                ok(f"apre la cassa per il test (PIN {cash_pin})")
+                opened_cash = (session["id"], cash_pin)
+                break
+        else:
+            bad("apre la cassa per il test", f"HTTP {code} {session}")
 
     # Counter orders list (handheld delivery)
     print("\n--- Asporto/Delivery ---")
@@ -374,9 +384,17 @@ def main() -> int:
             code, vg = req(CLOUD, "GET", "/api/v2/variant-groups", token=token)
             expect("variant-groups (filtri UI)", code, 200, vg if isinstance(vg, dict) else {})
 
-    if started_shift_id:
-        code, ended = req(EDGE, "POST", f"/api/shifts/{started_shift_id}/end")
-        expect("chiudi turno del test", code, 200, ended if isinstance(ended, dict) else {})
+    if opened_cash:
+        sid, cash_pin = opened_cash
+        _, summary = req(EDGE, "GET", f"/api/cash-sessions/{sid}/summary")
+        theo = summary.get("theoretical", {}) if isinstance(summary, dict) else {}
+        code, closed = req(EDGE, "POST", f"/api/cash-sessions/{sid}/close", {
+            "pin": cash_pin,
+            "countedCash": theo.get("expectedCash", 0),
+            "posDeclared": theo.get("posSales", 0),
+            "closingFundLeft": 0,
+        })
+        expect("chiude la cassa del test", code, 200, closed if isinstance(closed, dict) else {})
 
     print(f"\n=== Risultato: {len(PASS)} OK, {len(FAIL)} FAIL ===")
     for f in FAIL:

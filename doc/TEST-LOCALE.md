@@ -15,7 +15,7 @@ branch `fix-comanda-cassa`. Aggiornato: **6 ottobre 2026**.
 API (solo per script/debug): Cloud `http://localhost:4001`, Edge `http://localhost:4101`
 (porte da `.env`: `CLOUD_API_PORT`, `EDGE_API_PORT`; i default senza `.env` sono 4000 / 4100).
 
-Per i test del turno conviene usare due PIN diversi: `1111` sul palmare e `1234` in cassa.
+Per i test della cassa conviene usare due PIN diversi: `1111` sul palmare (cameriere: non può aprire la cassa) e `1234` in cassa (Admin di sede: è operatore cassa).
 
 ## Dati di test (sede Caserta — Corso Trieste)
 
@@ -43,11 +43,15 @@ Per i test del turno conviene usare due PIN diversi: `1111` sul palmare e `1234`
 | `HARDWARE_BRIDGE_MODE` | `network` | Ticket ESC/POS inviati in rete alla ST30 (`mock` = file in `tmp/prints/`) |
 | `RECEIPT_COPY_PRINT` | non impostata | Nessuna copia non fiscale dello scontrino (`true` per attivarla) |
 
-## Turno di cassa
+## Cassa (pranzo / cena)
 
-Senza **almeno un turno cassa aperto** l'Edge blocca invio comande, incassi e ordini al banco
-(errore `409 SHIFT_NOT_ACTIVE`): palmare e cassa mostrano il banner "Turno non attivo".
-In cassa: **Avvia turno** (banner o barra in alto). Per chiudere il turno la sala deve essere libera.
+Senza una **sessione di cassa aperta** l'Edge blocca invio comande, incassi e ordini al banco
+(errore `409 CASH_SESSION_CLOSED`): palmare e cassa mostrano il banner "Cassa chiusa".
+Solo l'operatore cassa (Cassiere o Admin di sede) apre la cassa: **Apri cassa** → servizio, fondo
+iniziale, PIN. **Chiudi cassa**: prelievi, conteggio contanti, strisciata POS, scostamenti, fondo
+lasciato, PIN; il report esce sulla stampante Bar. I conti in attesa bloccano la chiusura, i tavoli
+aperti no. I turni degli operatori partono all'accesso con PIN e sono solo presenze (Account →
+**Operatori in turno**). Regole complete: [`PIANO-TURNI-CASSA.md`](PIANO-TURNI-CASSA.md).
 
 ## Stampante reale (POS Italia ST30)
 
@@ -106,7 +110,7 @@ Il README indica Node 22 (`.nvmrc`); su questo Mac l'ambiente gira anche con Nod
 ## Ripartire da zero
 
 Non c'è ancora uno script di reset. Per un ambiente pulito: incassare (o stornare) i tavoli aperti,
-poi **Chiudi turno** in cassa. Un tavolo aperto senza piatti non si può ancora liberare dall'app
+poi **Chiudi cassa** in cassa. Un tavolo aperto senza piatti non si può ancora liberare dall'app
 (vedi `PROSSIMI-STEP.md`, T22).
 
 ## Test automatici
@@ -114,16 +118,32 @@ poi **Chiudi turno** in cassa. Un tavolo aperto senza piatti non si può ancora 
 ```bash
 pnpm typecheck && pnpm test                 # typecheck + unit (+ e2e se servizi attivi)
 pnpm test:e2e                               # Playwright (servizi avviati)
-python3 scripts/smoke-feature-richieste.py  # feature richieste cliente (apre e chiude un turno se serve)
+python3 scripts/smoke-feature-richieste.py  # feature richieste cliente (apre e chiude la cassa se serve)
 python3 scripts/smoke-giro-test.py          # giro completo API cloud + edge (vedi nota PIN sopra)
 python3 scripts/smoke-restart.py            # T19: stato operativo dopo riavvio Edge (--crash per kill -9)
 ```
 
-Lo stato operativo (tavoli aperti, ordini, KDS, split, asporti, incassi del turno) è salvato nella
+Con le porte di questa copia (4001/4101) gli script e Playwright vanno lanciati così:
+
+```bash
+CLOUD_API_URL=http://localhost:4001 EDGE_API_URL=http://localhost:4101 python3 scripts/smoke-feature-richieste.py
+```
+
+```bash
+cd e2e && CLOUD_API_URL=http://localhost:4001 EDGE_API_URL=http://localhost:4101 npx playwright test
+```
+
+I test dell'interfaccia Cloud con Playwright richiedono il browser: `npx playwright install chromium`
+(da lanciare una volta).
+
+`pnpm db:migrate` legge il `.env` della copia (porta Postgres 5433): prima del 13/10 usava sempre la
+5432, cioè il database dell'altra copia.
+
+Lo stato operativo (tavoli aperti, ordini, KDS, split, asporti) è salvato nella
 tabella `runtime_state` di `tmp/edge.sqlite` e ricaricato all'avvio dell'Edge.
 
 > ⚠️ `smoke-giro-test.py` esegue decine di ordini e incassi: con la ST30 collegata stampa decine di
 > ticket. Prima di lanciarlo puntare le stampanti al simulatore (vedi sopra).
 
 Checklist manuale: [`CHECKLIST-TEST-MANUALI.md`](CHECKLIST-TEST-MANUALI.md) — sezione **S** per la stampa,
-sezione **T** per turno, comanda palmare/cassa e HOLD.
+sezione **K** per la cassa (apertura, prelievi, chiusura), **T** per blocchi, turni operatore e comanda.

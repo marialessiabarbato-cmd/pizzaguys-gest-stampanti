@@ -43,6 +43,7 @@ export const shiftReminderScheduleSchema = z.array(shiftReminderWindowSchema).ma
 export const updateLocationSchema = z.object({
   coverChargeAmount: z.number().min(0).max(100).optional(),
   maxGuestCapacity: z.number().int().min(0).max(10000).optional(),
+  cashDiscrepancyThreshold: z.number().min(0).max(1000).optional(),
   sendClosureEmail: z.boolean().optional(),
   partnerEmails: partnerEmailsSchema.optional(),
   /** Array vuoto per disattivare il promemoria apertura turno */

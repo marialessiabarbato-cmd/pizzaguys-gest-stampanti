@@ -2,7 +2,7 @@ import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BottomSheet, bottomSheetFooterClass } from "@pizzaguys/comanda";
 import { CounterCustomerPicker } from "../components/CounterCustomerPicker";
-import { ShiftInactiveBanner } from "@pizzaguys/comanda";
+import { CashClosedBanner } from "@pizzaguys/comanda";
 import { edgeApi } from "../lib/api";
 import {
   type CounterCustomerSelection,
@@ -77,7 +77,7 @@ function buildScheduledAt(asap: boolean, hour: number, minute: number): string |
 export function CounterOrdersScreen({
   operator,
   isOffline,
-  shiftInactive,
+  cashClosed,
   message,
   onBack,
   onOpenOrder,
@@ -85,7 +85,7 @@ export function CounterOrdersScreen({
 }: {
   operator: Operator;
   isOffline: boolean;
-  shiftInactive: boolean;
+  cashClosed: boolean;
   message: string;
   onBack: () => void;
   onOpenOrder: (table: LiveTable) => void;
@@ -237,7 +237,7 @@ export function CounterOrdersScreen({
         </Button>
       </header>
 
-      {shiftInactive && <ShiftInactiveBanner />}
+      {cashClosed && <CashClosedBanner />}
 
       {message && (
         <p className="shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))] px-4 py-2 text-sm">
@@ -271,7 +271,7 @@ export function CounterOrdersScreen({
       <div className="flex shrink-0 gap-2 p-3">
         <Button
           className="min-h-12 flex-1"
-          disabled={isOffline || shiftInactive}
+          disabled={isOffline || cashClosed}
           onClick={() => openCreate("TAKEAWAY")}
         >
           + Asporto
@@ -279,7 +279,7 @@ export function CounterOrdersScreen({
         <Button
           className="min-h-12 flex-1"
           variant="outline"
-          disabled={isOffline || shiftInactive}
+          disabled={isOffline || cashClosed}
           onClick={() => openCreate("DELIVERY")}
         >
           + Delivery
@@ -507,7 +507,7 @@ export function CounterOrdersScreen({
               <Button
                 type="button"
                 className="min-h-12 flex-1 font-semibold"
-                disabled={creating || isOffline || shiftInactive}
+                disabled={creating || isOffline || cashClosed}
                 onClick={() => void createOrder()}
               >
                 {creating ? "..." : "Apri comanda"}

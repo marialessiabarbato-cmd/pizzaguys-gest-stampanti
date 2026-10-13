@@ -398,6 +398,66 @@ export function buildReceiptCopyTicket(params: ReceiptCopyTicketParams): Buffer 
   return concatBuffers(...parts);
 }
 
+export interface CashSessionReportRow {
+  label: string;
+  /** Importo in euro; assente = riga di sola etichetta (titolo di sezione). */
+  amount?: number;
+  /** Riga in evidenza (doppia altezza): atteso, contato, scostamento. */
+  emphasis?: boolean;
+}
+
+export interface CashSessionReportTicketParams {
+  title: string;
+  subtitle: string;
+  sections: CashSessionReportRow[][];
+  notes?: string | null;
+  footer: string[];
+}
+
+/** Riga a due colonne su LINE_WIDTH caratteri: etichetta a sinistra, importo a destra. */
+export function twoColumnLine(label: string, amount: number, width = LINE_WIDTH): string {
+  const value = `${amount < 0 ? "-" : ""}€ ${Math.abs(amount).toFixed(2)}`;
+  const space = Math.max(1, width - value.length);
+  const left = label.length > space - 1 ? label.slice(0, space - 1) : label;
+  return left + " ".repeat(width - left.length - value.length) + value;
+}
+
+/** Report di chiusura cassa (pranzo/cena) per la stampante Bar: non fiscale. */
+export function buildCashSessionReportTicket(params: CashSessionReportTicketParams): Buffer {
+  const parts: Buffer[] = [
+    CMD_INIT,
+    CMD_ALIGN_CENTER,
+    textLine("*** DOCUMENTO NON FISCALE ***"),
+    CMD_DOUBLE_SIZE,
+    textLine(params.title),
+    CMD_NORMAL_SIZE,
+    textLine(params.subtitle),
+    CMD_ALIGN_LEFT,
+  ];
+
+  for (const section of params.sections) {
+    parts.push(separatorLine());
+    for (const row of section) {
+      if (row.amount == null) {
+        parts.push(textLine(row.label));
+      } else if (row.emphasis) {
+        parts.push(CMD_DOUBLE_HEIGHT, textLine(twoColumnLine(row.label, row.amount)), CMD_NORMAL_SIZE);
+      } else {
+        parts.push(textLine(twoColumnLine(row.label, row.amount)));
+      }
+    }
+  }
+
+  if (params.notes) {
+    parts.push(separatorLine(), textLine(`NOTA: ${params.notes}`));
+  }
+
+  parts.push(separatorLine());
+  for (const line of params.footer) parts.push(textLine(line));
+  parts.push(CMD_CUT);
+  return concatBuffers(...parts);
+}
+
 /** Preview testuale per UI dev (senza byte binari) */
 export function kitchenTicketPreview(params: KitchenTicketParams): string {
   return stripEscPos(buildKitchenTicket(params)).replace(/[^\x20-\x7E\n]/g, "");

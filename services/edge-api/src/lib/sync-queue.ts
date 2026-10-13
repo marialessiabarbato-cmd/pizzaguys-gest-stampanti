@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { MockElectronicInvoice } from "@pizzaguys/fiscal";
-import { closureArchive, edgeState, syncQueue } from "@pizzaguys/edge-db";
+import { cashSessions, closureArchive, edgeState, syncQueue } from "@pizzaguys/edge-db";
+import type { CashMovement, CashSession } from "@pizzaguys/types";
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
-import { cloudDailyClosure, cloudInvoiceSync, cloudCustomerProfileSync, cloudStaffSync } from "./cloud.js";
+import {
+  cloudCashSessionSync,
+  cloudDailyClosure,
+  cloudInvoiceSync,
+  cloudCustomerProfileSync,
+  cloudStaffSync,
+} from "./cloud.js";
 import { writeEdgeAudit } from "./audit.js";
 
 export const SYNC_RETRY_INTERVAL_MS = 15 * 60 * 1000;
@@ -39,6 +46,75 @@ export function enqueueDailyClosureSync(db: EdgeDatabase, job: DailyClosureSyncJ
       createdAt: now,
     })
     .run();
+}
+
+export interface CashSessionSyncJob {
+  locationId: string;
+  session: CashSession;
+  movements: CashMovement[];
+}
+
+/** Accoda la sessione chiusa e prova subito l'invio; se il Cloud non risponde riprova ogni 15 minuti. */
+export async function enqueueCashSessionSync(db: EdgeDatabase, job: CashSessionSyncJob) {
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  db.insert(syncQueue)
+    .values({
+      id,
+      operation: "CASH_SESSION_SYNC",
+      payload: JSON.stringify(job),
+      status: "PENDING",
+      attempts: 0,
+      createdAt: now,
+    })
+    .run();
+
+  const state = db.select().from(edgeState).where(sql`id = 1`).get();
+  const item = db.select().from(syncQueue).where(eq(syncQueue.id, id)).get();
+  if (!state?.apiToken || state.status !== "ACTIVE" || !item) return false;
+  return processCashSessionSyncItem(
+    db,
+    { info: () => {}, warn: () => {} } as unknown as FastifyBaseLogger,
+    state.apiToken,
+    item,
+  );
+}
+
+async function processCashSessionSyncItem(
+  db: EdgeDatabase,
+  log: FastifyBaseLogger,
+  apiToken: string,
+  item: typeof syncQueue.$inferSelect,
+): Promise<boolean> {
+  const job = JSON.parse(item.payload) as CashSessionSyncJob;
+  const attemptAt = new Date().toISOString();
+  try {
+    const result = await cloudCashSessionSync(apiToken, job);
+    db.update(syncQueue)
+      .set({
+        status: "COMPLETED",
+        attempts: item.attempts + 1,
+        lastAttemptAt: attemptAt,
+        completedAt: result.receivedAt,
+        lastError: null,
+      })
+      .where(eq(syncQueue.id, item.id))
+      .run();
+    db.update(cashSessions)
+      .set({ syncedAt: result.receivedAt })
+      .where(eq(cashSessions.id, job.session.id))
+      .run();
+    log.info({ sessionId: job.session.id }, "Sync sessione di cassa completata");
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Sync fallita";
+    db.update(syncQueue)
+      .set({ attempts: item.attempts + 1, lastAttemptAt: attemptAt, lastError: message })
+      .where(eq(syncQueue.id, item.id))
+      .run();
+    log.warn({ sessionId: job.session.id, err: message }, "Sync sessione di cassa fallita");
+    return false;
+  }
 }
 
 export interface InvoiceSyncJob {
@@ -430,6 +506,11 @@ export async function processSyncQueue(db: EdgeDatabase, log: FastifyBaseLogger)
 
     if (item.operation === "STAFF_SYNC") {
       await processStaffSyncItem(db, log, apiToken, item);
+      continue;
+    }
+
+    if (item.operation === "CASH_SESSION_SYNC") {
+      await processCashSessionSyncItem(db, log, apiToken, item);
     }
   }
 }

@@ -65,6 +65,24 @@ export async function cloudDailyClosure(apiToken: string, payload: unknown) {
   return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
 
+export async function cloudCashSessionSync(apiToken: string, payload: unknown) {
+  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/cash-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Sync sessione di cassa fallita (${res.status})`);
+  }
+
+  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
+}
+
 export async function cloudInvoiceSync(
   apiToken: string,
   payload: {

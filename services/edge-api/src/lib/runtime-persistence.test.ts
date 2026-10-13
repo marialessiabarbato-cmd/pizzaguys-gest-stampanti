@@ -29,7 +29,6 @@ import {
   type TableOrder,
 } from "./runtime.js";
 import { restoreRuntimeState, saveRuntimeState } from "./runtime-persistence.js";
-import { getShiftTheoretical, importShiftLedgerState, recordShiftPayment } from "./shift-ledger.js";
 
 let dir: string;
 let db: EdgeDatabase;
@@ -38,7 +37,6 @@ let db: EdgeDatabase;
 function simulateRestart() {
   importRuntimeState({});
   importCounterOrderState({ counterOrders: [], dailySeq: { date: "", takeaway: 0, delivery: 0 } });
-  importShiftLedgerState({});
   importClosureState({});
 }
 
@@ -90,10 +88,8 @@ describe("salvataggio e ripristino dello stato operativo", () => {
     // Tavolo 2: bozza non ancora spedita + split alla romana
     upsertOrder(order("t2", "o2", false));
     startRomanSplit("t2", 2, 14);
-    // Asporto, incassi del turno, Z del giorno
+    // Asporto e Z del giorno (gli incassi sono su SQLite, non nello stato in memoria)
     const asporto = createCounterOrder({ channel: "TAKEAWAY", customerName: "Rossi", asap: true });
-    recordShiftPayment("shift-1", "CASH", 20);
-    recordShiftPayment("shift-1", "POS", 12.5);
     setZReportToday(7);
 
     saveRuntimeState(db);
@@ -109,7 +105,6 @@ describe("salvataggio e ripristino dello stato operativo", () => {
     expect(getOrderByTable("t2")?.id).toBe("o2");
     expect(getRomanSplit("t2")?.shares).toBe(2);
     expect(getCounterOrder(asporto.id)?.customerName).toBe("Rossi");
-    expect(getShiftTheoretical("shift-1")).toMatchObject({ cash: 20, pos: 12.5, total: 32.5 });
     expect(getZReportToday()?.zNumber).toBe(7);
     expect(info).toMatchObject({ openTables: 2, openOrders: 2, openCounterOrders: 1, errors: [] });
   });

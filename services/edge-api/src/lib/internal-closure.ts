@@ -4,6 +4,8 @@ import { internalClosureArchive } from "@pizzaguys/edge-db";
 import { desc, eq } from "drizzle-orm";
 import { listCounterOrders } from "./counter-order.js";
 import { getDayTheoretical, getDayTransactions } from "./day-report-ledger.js";
+import { listCashMovements, summarizeBusinessDay } from "./cash-session.js";
+import { localDateKey } from "./business-date.js";
 
 export interface BrokerClosureLine {
   broker: string;
@@ -42,7 +44,7 @@ export interface InternalClosureRecord extends InternalClosurePayload {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function round2(n: number) {
@@ -89,14 +91,22 @@ export function buildInternalClosureDraft(
     cardAmount: round2(v.card),
   }));
 
+  // Fondo, prelievi e spese arrivano dalle sessioni di cassa della giornata (modificabili).
+  const day = summarizeBusinessDay(edgeDb, closureDate);
+  const expenses: InternalClosureExpense[] = day.sessions.flatMap((session) =>
+    listCashMovements(edgeDb, session.id)
+      .filter((m) => m.type === "EXPENSE")
+      .map((m) => ({ description: m.reason ?? "Spesa", amount: m.amount })),
+  );
+
   return {
     closureDate,
     closureTotal,
-    cashWithdrawal: 0,
+    cashWithdrawal: day.withdrawals,
     posTotal,
     brokers,
-    expenses: [],
-    cashFund: 0,
+    expenses,
+    cashFund: day.openingFund,
     extraLines: [],
   };
 }

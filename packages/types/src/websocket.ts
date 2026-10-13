@@ -30,7 +30,7 @@ export type WsMessageType =
   | "PAYMENT_REJECTED"
   | "TABLE_ACCOUNT_MOVED"
   | "PRINT_FAILED"
-  | "SHIFT_STATUS";
+  | "CASH_SESSION_STATUS";
 
 export interface WsEnvelope<T extends WsMessageType = WsMessageType, P = unknown> {
   type: T;
@@ -130,13 +130,8 @@ export type PrintJobKind =
   | "DOLCI"
   | "ANNULLO"
   | "PRECONTO"
-  | "COPIA_SCONTRINO";
-
-/** Broadcast all'apertura/chiusura di un turno cassa (attivo = almeno un turno aperto). */
-export interface ShiftStatusPayload {
-  active: boolean;
-  openShifts: number;
-}
+  | "COPIA_SCONTRINO"
+  | "CHIUSURA_CASSA";
 
 /** Broadcast quando una stampa ESC/POS fallisce (stampante spenta, irraggiungibile, ...). */
 export interface PrintFailedPayload {

@@ -9,6 +9,8 @@ export function ConfirmModal({
   variant = "default",
   onConfirm,
   onCancel,
+  secondaryLabel,
+  onSecondary,
 }: {
   title: string;
   message: string;
@@ -17,6 +19,9 @@ export function ConfirmModal({
   variant?: "default" | "danger";
   onConfirm: () => void;
   onCancel: () => void;
+  /** Azione alternativa facoltativa (es. "Fine turno" accanto a "Esci"). */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 }) {
   return (
     <BottomSheet maxHeightClass="max-h-[70dvh]" zClass="z-[60]">
@@ -28,6 +33,11 @@ export function ConfirmModal({
         <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
           {cancelLabel}
         </Button>
+        {secondaryLabel && onSecondary && (
+          <Button variant="outline" className="min-h-12 flex-1" onClick={onSecondary}>
+            {secondaryLabel}
+          </Button>
+        )}
         <Button
           className="min-h-12 flex-1"
           variant={variant === "danger" ? "danger" : "default"}

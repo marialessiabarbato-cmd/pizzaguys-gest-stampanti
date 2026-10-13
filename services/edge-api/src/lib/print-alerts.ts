@@ -11,6 +11,7 @@ const KIND_LABELS: Record<PrintJobKind, string> = {
   ANNULLO: "Annullo",
   PRECONTO: "Preconto",
   COPIA_SCONTRINO: "Copia scontrino",
+  CHIUSURA_CASSA: "Report chiusura cassa",
 };
 
 /** Traduce gli errori di rete più comuni in un motivo comprensibile per il personale. */
@@ -40,7 +41,8 @@ export function reportPrintFailures(
   const messages = failed.map((r) => {
     const printer = printerList.find((p) => p.id === r.printerId);
     const where = printer ? `${printer.name} (${printer.host}:${printer.port})` : r.printerId;
-    return `${KIND_LABELS[kind]} tavolo ${tableLabel} non stampata su ${where}: ${friendlyReason(r.error)}`;
+    const subject = kind === "CHIUSURA_CASSA" ? tableLabel : `tavolo ${tableLabel}`;
+    return `${KIND_LABELS[kind]} ${subject} non stampata su ${where}: ${friendlyReason(r.error)}`;
   });
 
   broadcast({

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { stripEscPos } from "./commands.js";
-import { buildCallCourseTicket, buildGeneralTicket, buildKitchenTicket, courseLabel, kitchenTicketPreview } from "./templates.js";
+import {
+  buildCallCourseTicket,
+  buildCashSessionReportTicket,
+  buildGeneralTicket,
+  buildKitchenTicket,
+  courseLabel,
+  kitchenTicketPreview,
+  twoColumnLine,
+} from "./templates.js";
 
 describe("kitchen ticket", () => {
   it("genera buffer non vuoto", () => {
@@ -169,5 +177,33 @@ describe("comanda generale", () => {
   it("conta gli articoli di tutti i reparti", () => {
     expect(text).toContain("Articoli: 3\n");
     expect(text).toContain("Fine Comanda");
+  });
+});
+
+describe("report chiusura cassa", () => {
+  it("allinea importo a destra su 48 colonne", () => {
+    const line = twoColumnLine("Contanti attesi", 150);
+    expect(line).toHaveLength(48);
+    expect(line.endsWith("€ 150.00")).toBe(true);
+    expect(twoColumnLine("Scostamento contanti", -2)).toMatch(/-€ 2\.00$/);
+  });
+
+  it("tronca etichette troppo lunghe senza superare la larghezza", () => {
+    expect(twoColumnLine("x".repeat(80), 1234.5)).toHaveLength(48);
+  });
+
+  it("stampa titolo, sezioni, nota e taglio", () => {
+    const text = stripEscPos(
+      buildCashSessionReportTicket({
+        title: "CHIUSURA CASSA CENA",
+        subtitle: "15/01/2026",
+        sections: [[{ label: "INCASSI" }, { label: "Contanti", amount: 50 }]],
+        notes: "resto sbagliato",
+        footer: ["Chiusa: 23:40 - Anna Cassa"],
+      }),
+    );
+    expect(text).toContain("CHIUSURA CASSA CENA");
+    expect(text).toContain("NOTA: resto sbagliato");
+    expect(text).toContain("*** DOCUMENTO NON FISCALE ***");
   });
 });

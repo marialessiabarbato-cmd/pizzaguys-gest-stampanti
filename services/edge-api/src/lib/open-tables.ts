@@ -10,7 +10,11 @@ import {
   getUnionGuestTotal,
   type TableRuntime,
 } from "./runtime.js";
-import { getShiftTheoretical } from "./shift-ledger.js";
+import {
+  computeCashSessionTheoretical,
+  currentBusinessDate,
+  getOpenCashSession,
+} from "./cash-session.js";
 
 export interface OpenTableFilters {
   roomId?: string;
@@ -76,7 +80,7 @@ export function formatElapsed(iso: string | null): string {
 
 export function buildOpenTablesSnapshot(
   db: EdgeDatabase,
-  options?: { shiftId?: string; filters?: OpenTableFilters },
+  options?: { filters?: OpenTableFilters },
 ) {
   const dbTables = db.select().from(tables).all();
   const dbRooms = db.select().from(rooms).all();
@@ -156,10 +160,13 @@ export function buildOpenTablesSnapshot(
 
   rows.sort((a, b) => a.tableLabel.localeCompare(b.tableLabel, "it", { numeric: true }));
 
-  const dayTheoretical = getDayTheoretical(db);
-  const shiftTheoretical = options?.shiftId ? getShiftTheoretical(options.shiftId) : null;
-  const collectedTotal = shiftTheoretical?.total ?? dayTheoretical.total;
-  const collectedGuests = sumCollectedGuestsToday(db);
+  // Incassato: della sessione di cassa aperta, altrimenti della giornata contabile.
+  const businessDate = currentBusinessDate(db);
+  const openSession = getOpenCashSession(db);
+  const collectedTotal = openSession
+    ? computeCashSessionTheoretical(db, openSession).totalSales
+    : getDayTheoretical(db, businessDate).total;
+  const collectedGuests = sumCollectedGuestsToday(db, businessDate);
 
   const uncollectedRounded = Math.round(uncollectedTotal * 100) / 100;
   const grandTotal = Math.round((collectedTotal + uncollectedRounded) * 100) / 100;

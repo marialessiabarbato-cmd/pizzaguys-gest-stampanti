@@ -35,7 +35,7 @@
 - Stampanti termiche: ESC/POS su TCP :9100, code page **WPC1252** (16), carta 80 mm / 48 colonne
 - **Comanda unica** per palmare e cassa (`packages/comanda`): cambia solo l'impaginazione, mai il flusso
 - **HOLD dalla portata**: Ora parte subito, Segue >1 / >2 / Dolce aspettano la Marcia (deciso 6/10)
-- Senza turno cassa aperto niente invio comande, incassi e banco
+- Senza sessione di cassa aperta (pranzo/cena) niente invio comande, incassi e banco; la aprono e chiudono solo Cassiere/Admin con PIN (`PIANO-TURNI-CASSA.md`)
 
 ## Novità 5–6 ottobre (branch `fix-comanda-cassa`)
 
@@ -43,11 +43,11 @@
 |------|----------|
 | Architettura | Nuovo pacchetto **`packages/comanda`** (sorgenti letti direttamente dalle app, nessuna build): `useComanda` (logica), `ComandaWorkspace` (schermata, layout `handheld` / `cassa`), pannelli condivisi (`BottomSheet` dal basso o laterale con `SheetLayoutProvider`), menu, portate, unioni tavoli. Il vecchio `ComandaPanel` della cassa è stato rimosso |
 | Cassa | Comanda identica al palmare: già inviati con storno/prezzo, barra azioni sulla riga, bozza per portata, Spedisci, Marcia, X DOLCE, sconto con PIN, sposta conto, coperti, filtro allergeni. Preconto solo nel pannello Conto |
-| Edge | Turno: `409 SHIFT_NOT_ACTIVE` su invio, incasso (REST e WS), banco; `/api/status` → `shift`; evento WS `SHIFT_STATUS` (`lib/shift-guard.ts`) |
+| Edge | Cassa: `409 CASH_SESSION_CLOSED` su invio, incasso (REST e WS), banco; `/api/status` → `cashSession`; evento WS `CASH_SESSION_STATUS`; API `/api/cash-sessions/*` (`lib/cash-session.ts`); incassi collegati alla sessione in `fiscal_documents.cash_session_id`; turni operatore = presenze (`lib/operator-shifts.ts`) |
 | Edge | HOLD calcolato dalla portata (`isHeldCourse` in `packages/types`), il valore del client è ignorato |
 | Palmare | Piatto aggiunto evidente, nota in un passaggio con note rapide (`QUICK_NOTES` in `packages/types`), pannelli sopra la tastiera, tavolo rilasciato anche dopo Spedisci |
 | UI | Testi più grandi su palmare e cassa (`packages/ui/type-scale.ts`); animazioni comuni in `packages/ui/src/styles.css` |
-| Test | `lib/shift-guard.test.ts`; `smoke-feature-richieste.py` apre/chiude un turno; checklist sezione **T** |
+| Test | `lib/cash-session.test.ts` (23 casi); `smoke-feature-richieste.py` apre/chiude la cassa; checklist sezioni **K** e **T** |
 
 ## Novità precedenti (branch `test-stampa`)
 
@@ -76,7 +76,7 @@
 | `doc/FASE-6.md` | **Pilota Caserta (in corso)** |
 | `doc/STAMPANTI-CASERTA.md` | **Censimento hardware stampanti reali (in corso)** |
 | `doc/TEST-LOCALE.md` | **Link, accessi, stampante ST30, avvio e test locali** |
-| `doc/CHECKLIST-TEST-MANUALI.md` | Checklist test manuali (sezione **S — Stampa**, **T — Turno, comanda palmare/cassa, HOLD**) |
+| `doc/CHECKLIST-TEST-MANUALI.md` | Checklist test manuali (sezione **S — Stampa**, **K — Cassa pranzo/cena**, **T — Cassa chiusa, turni operatore, comanda**) |
 | `doc/PROSSIMI-STEP.md` | **Checklist di validazione + todo prossimi step** |
 | `doc/HANDOFF.md` | Questo file |
 | `deploy/cloud/README.md` | Deploy cloud T6.1 |

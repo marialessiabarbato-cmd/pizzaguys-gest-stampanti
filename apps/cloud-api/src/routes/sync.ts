@@ -1,5 +1,6 @@
 import {
   brandSettings,
+  cashSessions,
   categories,
   dailyClosures,
   electronicInvoices,
@@ -150,6 +151,7 @@ async function buildCatalogSnapshot(
       coverChargeAmount: Number(location?.coverChargeAmount ?? 0),
       maxGuestCapacity: Number(location?.maxGuestCapacity ?? 0),
       shiftReminderSchedule: location?.shiftReminderSchedule ?? [],
+      cashDiscrepancyThreshold: Number(location?.cashDiscrepancyThreshold ?? 5),
     },
   };
 }
@@ -398,6 +400,108 @@ export async function syncRoutes(app: FastifyInstance) {
     }
 
     return reply.status(200).send({ ok: true, receivedAt: receivedAtIso });
+  });
+
+  const money = z.number().nullable();
+  const cashSessionSyncSchema = z.object({
+    locationId: z.string().uuid(),
+    session: z.object({
+      id: z.string().uuid(),
+      businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      service: z.enum(["LUNCH", "DINNER"]),
+      status: z.literal("CLOSED"),
+      openedAt: z.string().datetime(),
+      openedByName: z.string(),
+      closedAt: z.string().datetime().nullable(),
+      closedByName: z.string().nullable(),
+      openingFund: z.number(),
+      countedCash: money,
+      posDeclared: money,
+      closingFundLeft: money,
+      discrepancyCash: money,
+      discrepancyPos: money,
+      notes: z.string().nullable(),
+      theoretical: z
+        .object({
+          expectedCash: z.number(),
+          totalSales: z.number(),
+          withdrawals: z.number(),
+          expenses: z.number(),
+        })
+        .passthrough()
+        .nullable(),
+    }),
+    movements: z.array(z.unknown()).default([]),
+  });
+
+  /** Sessione di cassa chiusa (pranzo/cena): idempotente sull'id della sessione. */
+  app.post("/api/v2/sync/cash-session", async (req, reply) => {
+    const auth = req.headers.authorization;
+    const apiToken = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!apiToken) {
+      return reply.status(401).send({ error: "Token mancante" });
+    }
+
+    const parsed = cashSessionSyncSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Payload non valido", details: parsed.error.flatten() });
+    }
+
+    const location = await app.db.query.locations.findFirst({
+      where: eq(locations.id, parsed.data.locationId),
+    });
+    if (!location || location.apiTokenHash !== hashApiToken(apiToken)) {
+      return reply.status(401).send({ error: "Token non valido o sede non corrispondente" });
+    }
+
+    const s = parsed.data.session;
+    const num = (v: number | null | undefined) => (v == null ? null : String(v));
+    const receivedAt = new Date();
+    const values = {
+      locationId: location.id,
+      businessDate: s.businessDate,
+      service: s.service,
+      openedAt: new Date(s.openedAt),
+      openedByName: s.openedByName,
+      closedAt: s.closedAt ? new Date(s.closedAt) : null,
+      closedByName: s.closedByName,
+      openingFund: String(s.openingFund),
+      countedCash: num(s.countedCash),
+      posDeclared: num(s.posDeclared),
+      closingFundLeft: num(s.closingFundLeft),
+      expectedCash: num(s.theoretical?.expectedCash),
+      totalSales: num(s.theoretical?.totalSales),
+      withdrawals: num(s.theoretical?.withdrawals),
+      expenses: num(s.theoretical?.expenses),
+      discrepancyCash: num(s.discrepancyCash),
+      discrepancyPos: num(s.discrepancyPos),
+      notes: s.notes,
+      theoretical: (s.theoretical ?? {}) as Record<string, unknown>,
+      movements: parsed.data.movements,
+      receivedAt,
+      updatedAt: receivedAt,
+    };
+
+    await app.db
+      .insert(cashSessions)
+      .values({ id: s.id, ...values })
+      .onConflictDoUpdate({ target: cashSessions.id, set: values });
+
+    const hasDiscrepancy = (s.discrepancyCash ?? 0) !== 0 || (s.discrepancyPos ?? 0) !== 0;
+    await writeAudit(app, {
+      locationId: location.id,
+      operation: "CASH_SESSION_SYNC",
+      severity: hasDiscrepancy ? "WARNING" : "INFO",
+      nextState: {
+        sessionId: s.id,
+        businessDate: s.businessDate,
+        service: s.service,
+        discrepancyCash: s.discrepancyCash,
+        discrepancyPos: s.discrepancyPos,
+      },
+    });
+
+    return reply.status(200).send({ ok: true, receivedAt: receivedAt.toISOString() });
   });
 
   const invoiceSyncSchema = z.object({

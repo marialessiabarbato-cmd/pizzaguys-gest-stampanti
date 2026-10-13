@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 import uuid
 from datetime import date
 
-CLOUD = "http://localhost:4000"
-EDGE = "http://localhost:4100"
+# Porte da .env diverse dai default (es. 4001/4101): CLOUD_API_URL / EDGE_API_URL.
+CLOUD = os.environ.get("CLOUD_API_URL", "http://localhost:4000")
+EDGE = os.environ.get("EDGE_API_URL", "http://localhost:4100")
 TODAY = date.today().isoformat()
 
 PASS: list[str] = []
@@ -165,7 +167,6 @@ def pay_table(
     table_id: str,
     cashier: dict,
     *,
-    shift_id: str | None = None,
     payment_method: str = "CASH",
     amount_received: float | None = None,
     splits: list[dict] | None = None,
@@ -183,8 +184,6 @@ def pay_table(
         "operatorName": op,
         "splitMode": split_mode,
     }
-    if shift_id:
-        body["shiftId"] = shift_id
     if splits:
         body["paymentSplits"] = splits
     else:
@@ -453,7 +452,8 @@ def test_edge_base() -> dict | None:
         ("/api/printers", "edge printers"),
         ("/api/rooms", "edge rooms"),
         ("/api/tables", "edge tables"),
-        ("/api/shifts", "edge shifts list"),
+        ("/api/shifts", "edge turni operatore"),
+        ("/api/cash-sessions/current", "edge stato cassa"),
         ("/api/pos/payment-requests", "edge payment-requests"),
         ("/api/pos/counter-orders", "edge counter-orders"),
         ("/api/closure/last", "edge closure last"),
@@ -492,9 +492,19 @@ def test_edge_base() -> dict | None:
         bad("edge tables", "nessun tavolo sala")
         return None
 
-    code, shift = req(EDGE, "POST", "/api/shifts/start", {"staffId": cashier["id"]})
-    expect_status("edge avvia turno", code, {200, 201}, shift)
-    ctx["shift_id"] = shift.get("id")
+    # Comande, banco e incassi richiedono la cassa aperta (409 CASH_SESSION_CLOSED).
+    code, current = req(EDGE, "GET", "/api/cash-sessions/current")
+    if code == 200 and current.get("open"):
+        ok("edge cassa già aperta")
+        ctx["cash_session_id"] = current["session"]["id"]
+    else:
+        code, session = req(EDGE, "POST", "/api/cash-sessions/open", {
+            "pin": "5678",
+            "service": current.get("suggestedService", "DINNER") if isinstance(current, dict) else "DINNER",
+            "openingFund": 100,
+        })
+        expect_status("edge apre la cassa (cassiere)", code, {201}, session)
+        ctx["cash_session_id"] = session.get("id") if isinstance(session, dict) else None
 
     code, kds = req(EDGE, "GET", "/api/kds/tickets")
     expect_status("edge kds tickets", code, 200, kds)
@@ -510,7 +520,6 @@ def test_edge_flows(ctx: dict) -> None:
     waiter = ctx["waiter"]
     cashier = ctx["cashier"]
     menu = ctx["menu"]
-    shift_id = ctx.get("shift_id")
     op_w = f"{waiter['firstName']} {waiter['lastName']}"
     op_c = f"{cashier['firstName']} {cashier['lastName']}"
 
@@ -595,7 +604,7 @@ def test_edge_flows(ctx: dict) -> None:
     expect_status("edge authorize-discount", code, 200, auth)
 
     # Pagamento contanti tavolo pre
-    pay = pay_table(t_pre, cashier, shift_id=shift_id)
+    pay = pay_table(t_pre, cashier)
     if pay["code"] == 200 and pay["body"].get("status") == "FREE":
         ok("edge pagamento contanti")
     else:
@@ -604,7 +613,7 @@ def test_edge_flows(ctx: dict) -> None:
     # Fattura
     create_order(t_inv, waiter, menu, line_count=1, submit=True)
     pay = pay_table(
-        t_inv, cashier, shift_id=shift_id, payment_method="POS",
+        t_inv, cashier, payment_method="POS",
         document_type="INVOICE",
         invoice_customer={
             "businessName": "Acme Ristorazione S.r.l.",
@@ -627,7 +636,6 @@ def test_edge_flows(ctx: dict) -> None:
         pay = pay_table(
             tid,
             cashier,
-            shift_id=shift_id,
             payment_method="POS",
             document_type="INVOICE",
             invoice_customer={
@@ -646,7 +654,7 @@ def test_edge_flows(ctx: dict) -> None:
         if t_meal2:
             tid2 = t_meal2[0]["id"]
             create_order(tid2, waiter, menu, submit=True)
-            pay2 = pay_table(tid2, cashier, shift_id=shift_id, payment_method="POS", full_meal=True)
+            pay2 = pay_table(tid2, cashier, payment_method="POS", full_meal=True)
             if pay2["code"] == 400:
                 ok("edge pasto completo bloccato su RECEIPT")
             else:
@@ -655,7 +663,7 @@ def test_edge_flows(ctx: dict) -> None:
             if pay2["code"] == 200:
                 pass
             else:
-                pay_table(tid2, cashier, shift_id=shift_id, payment_method="POS")
+                pay_table(tid2, cashier, payment_method="POS")
 
     # Pagamento misto buono + contanti
     t_mix = free_tables(1)
@@ -674,7 +682,7 @@ def test_edge_flows(ctx: dict) -> None:
                     "amount": remainder,
                     "amountReceived": remainder + 5,
                 })
-            pay = pay_table(tid, cashier, shift_id=shift_id, splits=splits)
+            pay = pay_table(tid, cashier, splits=splits)
             if pay["code"] == 200 and pay["body"].get("status") == "FREE":
                 ok("edge pagamento misto buono+contanti")
             else:
@@ -688,7 +696,6 @@ def test_edge_flows(ctx: dict) -> None:
         pay = pay_table(
             t_roman,
             cashier,
-            shift_id=shift_id,
             payment_method="POS",
             split_mode="ROMAN",
             document_type="INVOICE",
@@ -704,7 +711,7 @@ def test_edge_flows(ctx: dict) -> None:
             ok("edge split romano + fattura")
             for i in range(2):
                 pay = pay_table(
-                    t_roman, cashier, shift_id=shift_id, payment_method="POS", split_mode="ROMAN",
+                    t_roman, cashier, payment_method="POS", split_mode="ROMAN",
                 )
                 if pay["code"] != 200:
                     bad(f"edge split romano quota {i+2}", str(pay))
@@ -732,8 +739,7 @@ def test_edge_flows(ctx: dict) -> None:
                     if code == 200:
                         for chk in checks:
                             pay = pay_table(
-                                tid, cashier, shift_id=shift_id,
-                                payment_method="POS", split_mode="ANALYTIC", check_id=chk["id"],
+                                tid, cashier, payment_method="POS", split_mode="ANALYTIC", check_id=chk["id"],
                             )
                             if pay["code"] != 200:
                                 bad("edge split analitico pay", str(pay))
@@ -761,8 +767,8 @@ def test_edge_flows(ctx: dict) -> None:
             })
             if code == 200 and tr.get("ok"):
                 ok("edge transfer parziale")
-                pay = pay_table(src, cashier, shift_id=shift_id)
-                pay2 = pay_table(dst, cashier, shift_id=shift_id)
+                pay = pay_table(src, cashier)
+                pay2 = pay_table(dst, cashier)
                 if pay["code"] == 200 and pay2["code"] == 200:
                     ok("edge incasso dopo transfer parziale")
             else:
@@ -783,7 +789,7 @@ def test_edge_flows(ctx: dict) -> None:
         })
         if code == 200 and mg.get("ok"):
             ok("edge merge tavoli")
-            pay = pay_table(m1, cashier, shift_id=shift_id)
+            pay = pay_table(m1, cashier)
             if pay["code"] == 200:
                 ok("edge incasso dopo merge")
         else:
@@ -813,7 +819,7 @@ def test_edge_flows(ctx: dict) -> None:
         })
         if code2 in (200, 201):
             submit_order(ord2["id"])
-            pay = pay_table(asp_id, cashier, shift_id=shift_id, payment_method="POS")
+            pay = pay_table(asp_id, cashier, payment_method="POS")
             if pay["code"] == 200:
                 ok("edge asporto incassato")
             else:
@@ -973,7 +979,7 @@ def test_closure(ctx: dict) -> None:
             continue
         _, bill = req(EDGE, "GET", f"/api/pos/tables/{cid}/bill")
         if bill.get("total", 0) > 0:
-            pay = pay_table(cid, cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+            pay = pay_table(cid, cashier, payment_method="POS")
             if pay["code"] != 200:
                 req(EDGE, "DELETE", f"/api/pos/counter-orders/{cid}")
         else:
@@ -987,7 +993,7 @@ def test_closure(ctx: dict) -> None:
         tid = t["id"]
         _, bill = req(EDGE, "GET", f"/api/pos/tables/{tid}/bill")
         if bill.get("total", 0) > 0:
-            pay_table(tid, cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+            pay_table(tid, cashier, payment_method="POS")
         elif t.get("isVirtual") or bill.get("isVirtual"):
             req(EDGE, "DELETE", f"/api/pos/counter-orders/{tid}")
 
@@ -999,31 +1005,27 @@ def test_closure(ctx: dict) -> None:
             continue
         _, bill = req(EDGE, "GET", f"/api/pos/tables/{tid}/bill")
         if bill.get("total", 0) > 0:
-            pay_table(tid, cashier, shift_id=ctx.get("shift_id"), payment_method="POS")
+            pay_table(tid, cashier, payment_method="POS")
         else:
             req(EDGE, "DELETE", f"/api/pos/counter-orders/{tid}")
 
-    # Chiudi turni aperti (close-blind se possibile, altrimenti end forzato)
-    _, shifts = req(EDGE, "GET", "/api/shifts")
-    for s in shifts if isinstance(shifts, list) else []:
-        if not s.get("endedAt"):
-            sid = s["id"]
-            code, summary = req(EDGE, "GET", f"/api/shifts/{sid}/summary")
-            closed = False
-            if code == 200 and summary.get("canClose"):
-                code2, close = req(EDGE, "POST", f"/api/shifts/{sid}/close-blind", {
-                    "cashDeclared": summary.get("theoretical", {}).get("cash", 0),
-                    "posDeclared": summary.get("theoretical", {}).get("pos", 0),
-                })
-                if code2 == 200:
-                    ok(f"edge chiusura turno {sid[:8]}")
-                    closed = True
-            if not closed:
-                code3, ended = req(EDGE, "POST", f"/api/shifts/{sid}/end")
-                if code3 == 200:
-                    ok(f"edge fine turno {sid[:8]}")
-                else:
-                    warn("closure shift end", f"{sid[:8]} HTTP {code3} {ended}")
+    # Chiusura cassa: conteggio pari all'atteso (nessuno scostamento), fondo lasciato 100.
+    code, current = req(EDGE, "GET", "/api/cash-sessions/current")
+    if code == 200 and current.get("open"):
+        sid = current["session"]["id"]
+        _, summary = req(EDGE, "GET", f"/api/cash-sessions/{sid}/summary")
+        theo = summary.get("theoretical", {}) if isinstance(summary, dict) else {}
+        expected = theo.get("expectedCash", 0)
+        code2, closed = req(EDGE, "POST", f"/api/cash-sessions/{sid}/close", {
+            "pin": "5678",
+            "countedCash": expected,
+            "posDeclared": theo.get("posSales", 0),
+            "closingFundLeft": min(100, expected),
+        })
+        if code2 == 200 and closed.get("session", {}).get("discrepancyCash") == 0:
+            ok(f"edge chiusura cassa {sid[:8]} in quadratura")
+        else:
+            bad("edge chiusura cassa", f"HTTP {code2} {closed}")
 
     code, pre = req(EDGE, "GET", "/api/closure/pre-check")
     if expect_status("edge closure pre-check", code, 200, pre):
@@ -1054,15 +1056,10 @@ def test_closure(ctx: dict) -> None:
         if code == 200 and z.get("zNumber"):
             ok(f"edge Z-report #{z['zNumber']}")
             theo = z.get("theoretical", pre.get("theoretical", {}))
-            code2, rec = req(EDGE, "POST", "/api/closure/reconcile", {
-                "cashDeclared": theo.get("cash", 0),
-                "posDeclared": theo.get("pos", 0),
-            })
+            code2, rec = req(EDGE, "POST", "/api/closure/reconcile")
             if code2 == 200:
                 ok("edge riconciliazione")
                 code3, done = req(EDGE, "POST", "/api/closure/complete", {
-                    "cashDeclared": theo.get("cash", 0),
-                    "posDeclared": theo.get("pos", 0),
                     "operatorName": f"{cashier['firstName']} {cashier['lastName']}",
                     "operatorId": cashier["id"],
                 })

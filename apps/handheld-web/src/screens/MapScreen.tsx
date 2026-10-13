@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ConfirmModal } from "@pizzaguys/comanda";
 import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModal";
 import { RoomTabs } from "../components/RoomTabs";
-import { ShiftInactiveBanner } from "@pizzaguys/comanda";
+import { CashClosedBanner } from "@pizzaguys/comanda";
 import { TableMapViewport } from "../components/TableMapViewport";
 import {
   TABLE_STATUS_COLORS,
@@ -24,9 +24,10 @@ export function MapScreen({
   rooms,
   message,
   isOffline,
-  shiftInactive,
+  cashClosed,
   lockPending,
   logoutConfirm,
+  onEndShift,
   pendingGuestsTable,
   guestsModalLoading,
   guestsModalError,
@@ -43,9 +44,10 @@ export function MapScreen({
   rooms: Array<{ id: string; name: string }>;
   message: string;
   isOffline: boolean;
-  shiftInactive: boolean;
+  cashClosed: boolean;
   lockPending: string | null;
   logoutConfirm: boolean;
+  onEndShift: () => void;
   pendingGuestsTable: LiveTable | null;
   guestsModalLoading: boolean;
   guestsModalError: string;
@@ -143,7 +145,7 @@ export function MapScreen({
       </header>
 
       <main className="flex min-h-0 flex-col overflow-hidden">
-        {shiftInactive && <ShiftInactiveBanner />}
+        {cashClosed && <CashClosedBanner />}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
           {message && (
             <p className="mb-3 shrink-0 rounded bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
@@ -152,10 +154,12 @@ export function MapScreen({
           {logoutConfirm && (
             <ConfirmModal
               title="Uscire dalla sessione?"
-              message="Dovrai reinserire il PIN per accedere."
+              message="Dovrai reinserire il PIN per accedere. Se hai finito di lavorare usa Fine turno."
               confirmLabel="Esci"
               onConfirm={onConfirmLogout}
               onCancel={onCancelLogout}
+              secondaryLabel="Fine turno"
+              onSecondary={onEndShift}
             />
           )}
 

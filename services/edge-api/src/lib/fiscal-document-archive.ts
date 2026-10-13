@@ -4,6 +4,7 @@ import type { MockReceipt } from "@pizzaguys/fiscal";
 import type { FiscalDocumentType, PaymentMethod } from "@pizzaguys/types";
 import type { InvoiceCustomer } from "@pizzaguys/types";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { localDateKey } from "./business-date.js";
 
 export interface FiscalDocumentOrderLine {
   name: string;
@@ -39,6 +40,7 @@ export interface FiscalDocumentRow {
   operatorStaffId: string | null;
   operatorName: string | null;
   shiftId: string | null;
+  cashSessionId: string | null;
   status: "ISSUED" | "VOIDED";
   voidedAt: string | null;
   voidedByStaffId: string | null;
@@ -83,6 +85,7 @@ function mapRow(row: typeof fiscalDocuments.$inferSelect): FiscalDocumentRow {
     operatorStaffId: row.operatorStaffId,
     operatorName: row.operatorName,
     shiftId: row.shiftId,
+    cashSessionId: row.cashSessionId ?? null,
     status: row.status as "ISSUED" | "VOIDED",
     voidedAt: row.voidedAt,
     voidedByStaffId: row.voidedByStaffId,
@@ -113,7 +116,9 @@ export function persistFiscalDocument(
     meta?: FiscalDocumentMeta;
     operatorStaffId?: string;
     operatorName?: string;
-    shiftId?: string;
+    cashSessionId?: string;
+    /** Data contabile (della sessione di cassa); default: data di emissione. */
+    closureDate?: string;
     serviceType?: string;
     fileJsonPath?: string;
     fileTxtPath?: string;
@@ -124,7 +129,7 @@ export function persistFiscalDocument(
   },
 ): FiscalDocumentRow {
   const now = new Date().toISOString();
-  const closureDate = params.receipt.issuedAt.slice(0, 10);
+  const closureDate = params.closureDate ?? params.receipt.issuedAt.slice(0, 10);
   const documentNumber = nextDocumentNumber(db);
 
   const row = {
@@ -142,7 +147,8 @@ export function persistFiscalDocument(
     changeAmount: params.receipt.change ?? null,
     operatorStaffId: params.operatorStaffId ?? null,
     operatorName: params.operatorName ?? params.meta?.operatorName ?? null,
-    shiftId: params.shiftId ?? null,
+    shiftId: null,
+    cashSessionId: params.cashSessionId ?? null,
     status: "ISSUED" as const,
     voidedAt: null,
     voidedByStaffId: null,
@@ -348,7 +354,7 @@ export function serviceTypeLabel(type?: string | null): string | undefined {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 /** Somma coperti da documenti fiscali incassati oggi (status ISSUED). */

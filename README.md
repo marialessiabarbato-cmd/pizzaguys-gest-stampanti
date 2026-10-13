@@ -69,6 +69,15 @@ Senza queste variabili valgono i default (`pizzaguys-postgres` / `pizzaguys-redi
 Le porte API si possono cambiare da `.env` (`CLOUD_API_PORT`, `EDGE_API_PORT`): quelle della copia
 di sviluppo attuale sono in [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md).
 
+## Cassa: sessioni pranzo/cena e turni operatore
+
+Il locale è operativo solo con una **sessione di cassa aperta** (Pranzo o Cena): senza, l'Edge blocca
+comande, incassi e banco (`409 CASH_SESSION_CLOSED`). Solo l'operatore cassa (Cassiere o Admin di
+sede) apre la cassa con il fondo iniziale e la chiude con prelievi, conteggio contanti, strisciata POS
+e scostamenti (report sulla stampante Bar, sync al Cloud). I turni degli operatori sono presenze che
+partono all'accesso con PIN. Logica in `services/edge-api/src/lib/cash-session.ts`, regole e decisioni
+in [`doc/PIANO-TURNI-CASSA.md`](doc/PIANO-TURNI-CASSA.md).
+
 ## Comanda (palmare e cassa)
 
 La comanda è **una sola** per palmare e cassa: logica e schermata stanno in `packages/comanda`

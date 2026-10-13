@@ -5,6 +5,8 @@ export interface Operator {
   firstName: string;
   lastName: string;
   role?: string;
+  /** Turno operatore avviato all'accesso con PIN (presenza, non sblocca la cassa). */
+  shiftId?: string;
 }
 
 export interface LiveTable {

@@ -32,6 +32,7 @@ interface LocationDetail {
   partnerEmails: string | null;
   coverChargeAmount: number;
   maxGuestCapacity: number;
+  cashDiscrepancyThreshold: number;
   shiftReminderSchedule: ShiftReminderWindow[];
   healthStatus: string;
   schemaVersion: number;
@@ -119,6 +120,7 @@ export default function LocationDetailPage() {
   const [tokenReveal, setTokenReveal] = useState<string | null>(null);
   const [coverCharge, setCoverCharge] = useState("0");
   const [maxGuestCapacity, setMaxGuestCapacity] = useState("0");
+  const [cashThreshold, setCashThreshold] = useState("5");
   const [sendClosureEmail, setSendClosureEmail] = useState(false);
   const [partnerEmails, setPartnerEmails] = useState("");
   const [scheduleDraft, setScheduleDraft] = useState<Record<number, DayShiftDraft>>(
@@ -134,6 +136,7 @@ export default function LocationDetailPage() {
       setLocation(row);
       setCoverCharge(String(row.coverChargeAmount));
       setMaxGuestCapacity(String(row.maxGuestCapacity ?? 0));
+      setCashThreshold(String(row.cashDiscrepancyThreshold ?? 5));
       setSendClosureEmail(row.sendClosureEmail);
       setPartnerEmails(row.partnerEmails ?? "");
       setScheduleDraft(scheduleToDraft(row.shiftReminderSchedule ?? []));
@@ -176,6 +179,17 @@ export default function LocationDetailPage() {
     await api(`/api/v2/locations/${location.id}`, {
       method: "PATCH",
       body: JSON.stringify({ maxGuestCapacity: capacity }),
+    });
+    await load();
+  };
+
+  const saveCashThreshold = async () => {
+    if (!location) return;
+    const value = Number(cashThreshold);
+    if (!Number.isFinite(value) || value < 0) return;
+    await api(`/api/v2/locations/${location.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ cashDiscrepancyThreshold: value }),
     });
     await load();
   };
@@ -360,12 +374,44 @@ export default function LocationDetailPage() {
 
           <div className="border-t border-[hsl(var(--pg-border))] pt-4">
             <label className="mb-2 block text-sm font-medium">
-              Promemoria apertura turno cassa
+              Soglia scostamento chiusura cassa (€)
+            </label>
+            <p className="mb-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
+              Se ammanco o eccedenza superano questa cifra, l&apos;operatore cassa deve scrivere una
+              nota prima di chiudere.
+            </p>
+            <div className={formRowEndGap3Class}>
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                step={0.5}
+                className={`w-28 ${inputClass}`}
+                value={cashThreshold}
+                onChange={(e) => setCashThreshold(e.target.value)}
+              />
+              <Button
+                type="button"
+                size={btnSize.inline}
+                variant="outline"
+                onClick={() => void saveCashThreshold()}
+              >
+                Salva soglia
+              </Button>
+              <span className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                Attuale: {euro(location.cashDiscrepancyThreshold)}
+              </span>
+            </div>
+          </div>
+
+          <div className="border-t border-[hsl(var(--pg-border))] pt-4">
+            <label className="mb-2 block text-sm font-medium">
+              Orari di apertura cassa (promemoria)
             </label>
             <p className="mb-3 text-xs text-[hsl(var(--pg-muted-foreground))]">
-              Per ogni giorno, fino a due fasce (es. pranzo e cena). Se in quella fascia nessun
-              operatore ha ancora avviato il turno, la Cassa mostra un promemoria. Lascia le
-              caselle vuote per i giorni/fasce senza promemoria.
+              Per ogni giorno, fino a due fasce (es. pranzo e cena). Se in quella fascia la cassa
+              è ancora chiusa, la Cassa lo ricorda nell&apos;avviso &quot;Cassa chiusa&quot;. Lascia
+              le caselle vuote per i giorni/fasce senza promemoria.
             </p>
             <div className="space-y-2">
               {WEEKDAYS.map(({ day, label }) => {

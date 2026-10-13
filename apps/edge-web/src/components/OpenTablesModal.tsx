@@ -36,13 +36,11 @@ function euro(value: number) {
 }
 
 export function OpenTablesModal({
-  shiftId,
   rooms,
   embedded = false,
   onClose,
   onSelectTable,
 }: {
-  shiftId?: string;
   rooms: Array<{ id: string; name: string }>;
   embedded?: boolean;
   onClose: () => void;
@@ -63,7 +61,6 @@ export function OpenTablesModal({
       const params = new URLSearchParams();
       if (roomId) params.set("roomId", roomId);
       if (operatorId) params.set("operatorId", operatorId);
-      if (shiftId) params.set("shiftId", shiftId);
       const data = await edgeApi<{ rows: OpenTableRow[]; summary: OpenTablesSummary }>(
         `/api/pos/open-tables?${params}`,
       );
@@ -76,7 +73,7 @@ export function OpenTablesModal({
     } finally {
       setLoading(false);
     }
-  }, [roomId, operatorId, shiftId]);
+  }, [roomId, operatorId]);
 
   useEffect(() => {
     void edgeApi<StaffRow[]>("/api/staff")

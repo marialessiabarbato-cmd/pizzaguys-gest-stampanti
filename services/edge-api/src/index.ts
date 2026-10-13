@@ -6,6 +6,7 @@ import { registerRuntimePersistence, restoreRuntimeState } from "./lib/runtime-p
 import dbPlugin from "./plugins/db.js";
 import { invoiceCustomerRoutes } from "./routes/invoice-customers.js";
 import { orderRoutes } from "./routes/orders.js";
+import { cashSessionRoutes } from "./routes/cash-sessions.js";
 import { closureRoutes } from "./routes/closure.js";
 import { internalClosureRoutes } from "./routes/internal-closure.js";
 import { fiscalDocumentRoutes } from "./routes/fiscal-documents.js";
@@ -33,7 +34,7 @@ await app.register(cors, {
 await app.register(websocket);
 await app.register(dbPlugin);
 
-// T19: ripristina tavoli aperti, ordini, KDS e incassi turno salvati prima del riavvio.
+// T19: ripristina tavoli aperti, ordini e KDS salvati prima del riavvio (gli incassi sono su SQLite).
 const restored = restoreRuntimeState(app.edgeDb);
 if (restored) app.log.info({ restored }, "Stato operativo ripristinato dopo il riavvio");
 registerRuntimePersistence(app);
@@ -44,6 +45,7 @@ await orderRoutes(app);
 await tableTransferRoutes(app);
 await posRoutes(app);
 await invoiceCustomerRoutes(app);
+await cashSessionRoutes(app);
 await closureRoutes(app);
 await internalClosureRoutes(app);
 await fiscalDocumentRoutes(app);

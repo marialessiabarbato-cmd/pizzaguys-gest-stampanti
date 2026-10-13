@@ -50,7 +50,7 @@ import {
   upsertOrder,
 } from "../lib/runtime.js";
 import { broadcastKdsUpdate } from "../lib/kds-broadcast.js";
-import { SHIFT_NOT_ACTIVE, isShiftActive } from "../lib/shift-guard.js";
+import { CASH_SESSION_CLOSED, isCashSessionOpen } from "../lib/cash-session.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 import { groupLinesByCenter, processCallCourse } from "../lib/call-course.js";
 import { createWorkCenterResolver } from "../lib/work-center.js";
@@ -414,7 +414,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const order = getOrder(req.params.id);
     if (!order) return reply.status(404).send({ error: "Ordine non trovato" });
     if (order.submittedAt) return reply.status(409).send({ error: "Ordine già inviato" });
-    if (!isShiftActive(app.edgeDb)) return reply.status(409).send(SHIFT_NOT_ACTIVE);
+    if (!isCashSessionOpen(app.edgeDb)) return reply.status(409).send(CASH_SESSION_CLOSED);
 
     const menu = getMenuSnapshot(app.edgeDb);
     const snapshot = menu?.snapshot as MenuSnapshot | undefined;

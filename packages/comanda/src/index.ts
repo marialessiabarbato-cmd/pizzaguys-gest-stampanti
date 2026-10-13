@@ -18,5 +18,5 @@ export * from "./ui/StornoQtyModal";
 export * from "./ui/CourseOptionsModal";
 export * from "./ui/CourseStepBar";
 export * from "./ui/MenuPanel";
-export * from "./ui/ShiftInactiveBanner";
+export * from "./ui/CashClosedBanner";
 export * from "./ui/PrintAlertModal";

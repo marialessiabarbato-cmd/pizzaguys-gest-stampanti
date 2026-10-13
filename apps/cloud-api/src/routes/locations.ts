@@ -1,4 +1,4 @@
-import { dailyClosures, locations, brandSettings } from "@pizzaguys/db/schema";
+import { cashSessions, dailyClosures, locations, brandSettings } from "@pizzaguys/db/schema";
 import { createLocationSchema, updateLocationSchema } from "@pizzaguys/validators";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -19,6 +19,7 @@ function formatLocationRow(l: typeof locations.$inferSelect) {
     partnerEmails: l.partnerEmails,
     coverChargeAmount: Number(l.coverChargeAmount ?? 0),
     maxGuestCapacity: Number(l.maxGuestCapacity ?? 0),
+    cashDiscrepancyThreshold: Number(l.cashDiscrepancyThreshold ?? 5),
     shiftReminderSchedule: l.shiftReminderSchedule ?? [],
     schemaVersion: l.schemaVersion,
     healthStatus: l.healthStatus,
@@ -102,6 +103,9 @@ export async function locationRoutes(app: FastifyInstance) {
           : {}),
         ...(parsed.data.maxGuestCapacity != null
           ? { maxGuestCapacity: parsed.data.maxGuestCapacity }
+          : {}),
+        ...(parsed.data.cashDiscrepancyThreshold != null
+          ? { cashDiscrepancyThreshold: parsed.data.cashDiscrepancyThreshold }
           : {}),
         ...(parsed.data.sendClosureEmail != null
           ? { sendClosureEmail: parsed.data.sendClosureEmail }
@@ -199,6 +203,52 @@ export async function locationRoutes(app: FastifyInstance) {
       .limit(limit);
 
     return rows.map((row) => formatClosureResponse(row, location.name));
+  });
+
+  /** Sessioni di cassa (pranzo/cena) sincronizzate dalla sede, con ammanchi ed eccedenze. */
+  app.get<{
+    Params: { id: string };
+    Querystring: { from?: string; to?: string; limit?: string };
+  }>("/api/v2/locations/:id/cash-sessions", guard, async (req, reply) => {
+    const location = await app.db.query.locations.findFirst({
+      where: eq(locations.id, req.params.id),
+    });
+    if (!location) return reply.status(404).send({ error: "Sede non trovata" });
+
+    const conditions = [eq(cashSessions.locationId, req.params.id)];
+    if (req.query.from) conditions.push(gte(cashSessions.businessDate, req.query.from));
+    if (req.query.to) conditions.push(lte(cashSessions.businessDate, req.query.to));
+
+    const limit = Math.min(Number(req.query.limit ?? 180) || 180, 730);
+    const rows = await app.db
+      .select()
+      .from(cashSessions)
+      .where(and(...conditions))
+      .orderBy(desc(cashSessions.businessDate), desc(cashSessions.openedAt))
+      .limit(limit);
+
+    const num = (v: string | null) => (v == null ? null : Number(v));
+    return rows.map((row) => ({
+      id: row.id,
+      businessDate: row.businessDate,
+      service: row.service,
+      openedAt: row.openedAt,
+      openedByName: row.openedByName,
+      closedAt: row.closedAt,
+      closedByName: row.closedByName,
+      openingFund: Number(row.openingFund),
+      countedCash: num(row.countedCash),
+      expectedCash: num(row.expectedCash),
+      posDeclared: num(row.posDeclared),
+      closingFundLeft: num(row.closingFundLeft),
+      totalSales: num(row.totalSales),
+      withdrawals: num(row.withdrawals),
+      expenses: num(row.expenses),
+      discrepancyCash: num(row.discrepancyCash),
+      discrepancyPos: num(row.discrepancyPos),
+      notes: row.notes,
+      receivedAt: row.receivedAt,
+    }));
   });
 
   app.delete<{ Params: { id: string } }>(

@@ -34,9 +34,8 @@ import {
   recordRomanSharePaid,
   setTableFree,
 } from "./runtime.js";
-import { recordDayPayment, recordShiftPayment } from "./shift-ledger.js";
 import { reportPrintFailures } from "./print-alerts.js";
-import { SHIFT_NOT_ACTIVE, isShiftActive } from "./shift-guard.js";
+import { CASH_SESSION_CLOSED, getOpenCashSession } from "./cash-session.js";
 import { broadcast } from "./ws-hub.js";
 import { issueElectronicInvoice } from "./invoice.js";
 
@@ -92,7 +91,6 @@ export interface ExecutePaymentParams {
   splitMode?: "FULL" | "ROMAN" | "ANALYTIC";
   checkId?: string;
   paymentRequestId?: string;
-  shiftId?: string;
   documentType?: FiscalDocumentType;
   invoiceCustomer?: InvoiceCustomer;
   fullMealReceipt?: boolean;
@@ -176,8 +174,10 @@ export async function executeTablePayment(
   params: ExecutePaymentParams,
 ): Promise<ExecutePaymentResult | { ok: false; error: string; status?: number; code?: string }> {
   // Unico punto per REST e WebSocket (conferma pagamento palmare, scontrino da cassa).
-  if (!isShiftActive(params.edgeDb)) {
-    return { ok: false, ...SHIFT_NOT_ACTIVE, status: 409 };
+  // L'incasso appartiene alla sessione di cassa aperta, decisa qui e non dal client.
+  const cashSession = getOpenCashSession(params.edgeDb);
+  if (!cashSession) {
+    return { ok: false, ...CASH_SESSION_CLOSED, status: 409 };
   }
 
   const bill = consolidateBillForTable(params.edgeDb, params.tableId);
@@ -312,14 +312,6 @@ export async function executeTablePayment(
       .catch((err) => console.warn("Copia non fiscale non stampata:", err));
   }
 
-  for (const split of paymentSplits) {
-    if (params.shiftId) {
-      recordShiftPayment(params.shiftId, split.paymentMethod, split.amount, receiptResult.receipt.id);
-    } else {
-      recordDayPayment(split.paymentMethod, split.amount, receiptResult.receipt.id);
-    }
-  }
-
   let paidBillLines: BillLine[] = bill.lines;
   if (isAnalytic && params.checkId) {
     paidBillLines = billLinesForCheck(bill, params.checkId);
@@ -338,7 +330,7 @@ export async function executeTablePayment(
   const submitted = getSubmittedOrdersByTable(params.tableId);
   const draft = getOrderByTable(params.tableId);
   const channel = submitted[0]?.channel ?? draft?.channel ?? "TABLE";
-  const closureDate = new Date().toISOString().slice(0, 10);
+  const closureDate = cashSession.businessDate;
 
   const serviceType = resolveServiceType({
     channel,
@@ -472,7 +464,8 @@ export async function executeTablePayment(
     },
     operatorStaffId: params.operatorId,
     operatorName: params.operatorName,
-    shiftId: params.shiftId,
+    cashSessionId: cashSession.id,
+    closureDate,
     serviceType,
     fileJsonPath: receiptPath,
     fileTxtPath: receiptTxtPath,

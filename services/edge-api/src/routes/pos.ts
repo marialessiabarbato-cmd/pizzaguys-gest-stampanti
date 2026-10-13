@@ -53,7 +53,7 @@ import {
   clearTableDiscounts,
 } from "../lib/runtime.js";
 import { verifyManagerPin } from "../lib/staff-auth.js";
-import { SHIFT_NOT_ACTIVE, isShiftActive } from "../lib/shift-guard.js";
+import { CASH_SESSION_CLOSED, isCashSessionOpen } from "../lib/cash-session.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
@@ -79,10 +79,9 @@ function findVirtualTable(
 
 export async function posRoutes(app: FastifyInstance) {
   app.get<{
-    Querystring: { roomId?: string; operatorId?: string; shiftId?: string };
+    Querystring: { roomId?: string; operatorId?: string };
   }>("/api/pos/open-tables", async (req) =>
     buildOpenTablesSnapshot(app.edgeDb, {
-      shiftId: req.query.shiftId,
       filters: {
         roomId: req.query.roomId,
         operatorId: req.query.operatorId,
@@ -114,7 +113,7 @@ export async function posRoutes(app: FastifyInstance) {
   );
 
   app.post("/api/pos/counter-orders", async (req, reply) => {
-    if (!isShiftActive(app.edgeDb)) return reply.status(409).send(SHIFT_NOT_ACTIVE);
+    if (!isCashSessionOpen(app.edgeDb)) return reply.status(409).send(CASH_SESSION_CLOSED);
     const parsed = createCounterOrderSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -532,7 +531,6 @@ export async function posRoutes(app: FastifyInstance) {
       splitMode,
       checkId: parsed.data.checkId,
       paymentRequestId: parsed.data.paymentRequestId,
-      shiftId: parsed.data.shiftId,
       operatorId: parsed.data.operatorId,
       operatorName: parsed.data.operatorName,
       tableLabel: ctx.label,
@@ -582,7 +580,7 @@ export async function posRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/pos/counter-sale", async (req, reply) => {
-    if (!isShiftActive(app.edgeDb)) return reply.status(409).send(SHIFT_NOT_ACTIVE);
+    if (!isCashSessionOpen(app.edgeDb)) return reply.status(409).send(CASH_SESSION_CLOSED);
     const parsed = counterSaleSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });

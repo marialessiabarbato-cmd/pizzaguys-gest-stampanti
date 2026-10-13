@@ -3,7 +3,6 @@ import type { FastifyInstance } from "fastify";
 import { exportClosureState, importClosureState } from "./closure-state.js";
 import { exportCounterOrderState, importCounterOrderState } from "./counter-order.js";
 import { exportRuntimeState, importRuntimeState, summarizeRuntimeState } from "./runtime.js";
-import { exportShiftLedgerState, importShiftLedgerState } from "./shift-ledger.js";
 
 /** Versione del formato salvato: se cambia la struttura, aggiornare e gestire la migrazione. */
 export const RUNTIME_STATE_VERSION = 1;
@@ -20,7 +19,6 @@ interface StateModule {
 const MODULES: StateModule[] = [
   { namespace: "runtime", exportState: exportRuntimeState, importState: importRuntimeState },
   { namespace: "counter-orders", exportState: exportCounterOrderState, importState: importCounterOrderState },
-  { namespace: "shift-ledger", exportState: exportShiftLedgerState, importState: importShiftLedgerState },
   { namespace: "closure", exportState: exportClosureState, importState: importClosureState },
 ];
 

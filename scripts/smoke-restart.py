@@ -14,6 +14,7 @@ Riavvio pulito: `tsx watch` (touch di index.ts). Con --crash l'Edge va riavviato
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -21,7 +22,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-EDGE = "http://localhost:4100"
+EDGE = os.environ.get("EDGE_API_URL", "http://localhost:4100")
 ROOT = Path(__file__).resolve().parent.parent
 EDGE_ENTRY = ROOT / "services" / "edge-api" / "src" / "index.ts"
 
@@ -47,7 +48,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def edge_pid() -> str:
-    out = subprocess.run(["lsof", "-tiTCP:4100", "-sTCP:LISTEN"], capture_output=True, text=True).stdout.split()
+    out = subprocess.run(["lsof", f"-tiTCP:{EDGE.rsplit(':', 1)[1].rstrip('/')}", "-sTCP:LISTEN"], capture_output=True, text=True).stdout.split()
     return out[0] if out else ""
 
 
@@ -85,10 +86,14 @@ def main() -> int:
 
     _, waiter = req("POST", "/api/staff/verify-pin", {"pin": "1234"})
     _, cashier = req("POST", "/api/staff/verify-pin", {"pin": "5678"})
-    _, shifts = req("GET", "/api/shifts")
-    shift = next((s for s in shifts if s["staffId"] == cashier["id"]), None)
-    if not shift:
-        _, shift = req("POST", "/api/shifts/start", {"staffId": cashier["id"]})
+    # Incassi e comande richiedono la cassa aperta: la apre il cassiere se serve.
+    _, cash = req("GET", "/api/cash-sessions/current")
+    if not cash.get("open"):
+        _, opened = req("POST", "/api/cash-sessions/open", {"pin": "5678", "service": cash.get("suggestedService", "DINNER"),
+                                                            "openingFund": 0})
+        cash_session_id = opened["id"]
+    else:
+        cash_session_id = cash["session"]["id"]
     _, menu = req("GET", "/api/menu")
     products = menu["snapshot"]["products"]
     marg = next(p for p in products if name_of(p) == "Margherita")
@@ -119,8 +124,7 @@ def main() -> int:
     send_order(t_paid)
     _, bill = req("GET", f"/api/pos/tables/{t_paid['id']}/bill")
     req("POST", f"/api/pos/tables/{t_paid['id']}/pay", {"operatorId": cashier["id"], "operatorName": op_c,
-                                                        "paymentMethod": "CASH", "amountReceived": bill["total"],
-                                                        "shiftId": shift["id"]})
+                                                        "paymentMethod": "CASH", "amountReceived": bill["total"]})
     _, co = req("POST", "/api/pos/counter-orders", {"channel": "TAKEAWAY", "operatorId": waiter["id"],
                                                     "operatorName": op_w, "customerName": "Smoke Riavvio",
                                                     "asap": True})
@@ -130,7 +134,7 @@ def main() -> int:
         _, live = req("GET", "/api/tables/live")
         by_id = {t["id"]: t for t in live}
         _, kds = req("GET", "/api/kds/tickets")
-        _, summary = req("GET", f"/api/shifts/{shift['id']}/summary")
+        _, summary = req("GET", f"/api/cash-sessions/{cash_session_id}/summary")
         _, counters = req("GET", "/api/pos/counter-orders")
         bills = {t["id"]: req("GET", f"/api/pos/tables/{t['id']}/bill")[1] for t in (t_lock, t_split, t_bill)}
         return {
@@ -140,7 +144,7 @@ def main() -> int:
             "kds": sorted((t["tableId"], t["course"], t["hold"]) for t in kds["tickets"]
                           if t["tableId"] in (t_lock["id"], t_split["id"], t_bill["id"])),
             "kds_note": [ln.get("notes") for t in kds["tickets"] if t["tableId"] == t_lock["id"] for ln in t["lines"]],
-            "shift_cash": summary["theoretical"]["cash"],
+            "shift_cash": summary["theoretical"]["cashSales"],
             "counter": any(c["id"] == counter["id"] for c in counters),
         }
 
@@ -176,8 +180,7 @@ def main() -> int:
         _, bill = req("GET", f"/api/pos/tables/{t['id']}/bill")
         code, _ = req("POST", f"/api/pos/tables/{t['id']}/pay", {"operatorId": cashier["id"], "operatorName": op_c,
                                                                  "paymentMethod": "CASH",
-                                                                 "amountReceived": bill["total"],
-                                                                 "shiftId": shift["id"]})
+                                                                 "amountReceived": bill["total"]})
         print(f"  tavolo {t['label']} incassato: {code}")
     code, _ = req("DELETE", f"/api/pos/counter-orders/{counter['id']}")
     print(f"  asporto rimosso: {code}")

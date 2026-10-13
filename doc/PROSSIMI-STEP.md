@@ -40,7 +40,7 @@
 
 | Area | Modifica |
 |------|----------|
-| Turno | Senza turno cassa aperto: banner su palmare e cassa, bloccati invio comande, incassi e banco (anche lato Edge, `409 SHIFT_NOT_ACTIVE`, evento `SHIFT_STATUS`) |
+| Cassa | Sessioni di cassa pranzo/cena (`PIANO-TURNI-CASSA.md`): senza cassa aperta banner su palmare e cassa, bloccati invio comande, incassi e banco (Edge `409 CASH_SESSION_CLOSED`, evento `CASH_SESSION_STATUS`). Solo Cassiere/Admin aprono e chiudono con PIN; fondo, prelievi, conteggio, scostamenti, report e sync Cloud. Turni operatore = presenze |
 | Palmare | Piatto aggiunto evidente (avviso con Annulla, contatore n× sul menu, riga evidenziata); nota in un solo passaggio con note rapide; pannelli sopra la tastiera |
 | Testi | Font più grandi su palmare e cassa (scala comune `packages/ui/type-scale.ts`, `text-sm` 14→16 px) |
 | Comanda | **Stessa comanda su palmare e cassa** (`packages/comanda`): in cassa ora ci sono piatti già inviati con storno, prezzo, barra azioni, bozza per portata, Spedisci, Marcia, X DOLCE, sconto, sposta conto, filtro allergeni. Il Preconto in cassa resta solo nel Conto |

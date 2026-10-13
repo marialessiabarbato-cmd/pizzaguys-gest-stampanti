@@ -110,7 +110,7 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 
 | #   | Test                | Passi                                    | Atteso                                                   | ☐   |
 | --- | ------------------- | ---------------------------------------- | -------------------------------------------------------- | --- |
-| E1  | Avvio turno         | Login cassiere → **Avvia turno**         | Turno attivo                                             | ok  |
+| E1  | Apertura cassa      | Login cassiere/admin → **Apri cassa** (vedi sezione **K**) | "Cassa aperta" in testata                    | ☐   |
 | E2  | Incasso pieno       | Tavolo con conto → PAGA → POS/Contanti   | Scontrino; tavolo libero                                 | ok  |
 | E3  | Split romano        | Conto → **Split romano** (2 quote)       | Quote uguali (arrotondate); paga 1/2 e 2/2               | ok  |
 | E3b | Romano + fattura    | Split 2 quote → PAGA → POS → **Fattura** | Fattura sulla quota; poi seconda quota                   | ok  |
@@ -132,9 +132,11 @@ Per ogni riga: esegui il passo, spunta se OK, annota eventuali bug.
 | --- | -------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | --- |
 | F1  | Chiusura interna     | Cassa → **Chiusura interna** (pulsante in alto)           | Taccuino: tot/POS auto; prelievo; **+ Aggiungi voce** (broker/spesa/altro); fondo; salva/stampa | ok  |
 | F2  | Storico interne      | Storico chiusure → tab Interne                            | Voce salvata consultabile                                                                       | ok  |
-| F3  | Pre-check Z          | Chiudi tutti i tavoli/delivery e turni → chiusura fiscale | `canClose` senza blocchi                                                                        | ok  |
-| F4  | Chiusura fiscale Z   | Completa Z + riconciliazione                              | Z-report + chiusura giornata                                                                    | ok  |
-| F5  | Residui che bloccano | Lascia delivery/turno aperti                              | Pre-check elenca blocchi; dopo cleanup passa                                                    | ok  |
+| F3  | Pre-check Z          | Chiudi tutti i tavoli/delivery e la cassa → chiusura fiscale | `canClose` senza blocchi                                                                     | ☐   |
+| F4  | Chiusura fiscale Z   | Completa Z → **Mostra quadratura**                        | Tabella pranzo/cena con scostamenti delle sessioni, nessun nuovo conteggio; chiusura giornata   | ☐   |
+| F5  | Residui che bloccano | Lascia delivery o la cassa aperta                         | Pre-check elenca blocchi ("cassa … ancora aperta" + **Chiudi cassa ora**); dopo cleanup passa  | ☐   |
+| F6  | Chiusura interna precompilata | Dopo pranzo e cena chiusi → **Chiusura interna**  | Fondo = fondo iniziale del pranzo; prelievo e spese = quelli registrati nelle sessioni          | ☐   |
+| F7  | Fine giornata e turni | Chiusura giornata con operatori ancora in turno          | Account → **Operatori in turno** vuoto dopo la chiusura                                         | ☐   |
 
 
 ---
@@ -190,21 +192,52 @@ Automatico: `python3 scripts/smoke-restart.py` (riavvio pulito) e `--crash` (kil
 | R1 | Riavvio a metà servizio      | Tavoli aperti (comanda, split, preconto), asporto, incassi → riavvia Edge | Tutto come prima; tavoli "in uso" sbloccati                       | ok  |
 | R2 | Spegnimento forzato          | Come R1 ma `kill -9` / spina staccata                                  | Come R1 (si perde al massimo l'ultima operazione in corso)            | ok  |
 | R3 | Avviso in cassa              | Dopo R1/R2 apri la cassa                                               | Banner blu "L'Edge si è riavviato…" con n. tavoli/asporti; **Chiudi** | ok  |
-| R4 | Chiusura turno dopo riavvio  | Incassa, riavvia, Chiudi turno                                        | Totali teorici del turno invariati                                    | ☐   |
+| R4 | Chiusura cassa dopo riavvio  | Incassa, riavvia l'Edge, **Chiudi cassa**                             | Contanti attesi e incassi della sessione invariati (sono su SQLite)   | ☐   |
 | R5 | Mini PC riavviato (produzione) | Riavvio del mini PC durante il servizio                             | systemd riavvia l'Edge; stato ripristinato                            | ☐ (serve mini PC) |
 
 ---
 
-## T — Turno non attivo e palmare (UX)
+## K — Cassa: apertura, prelievi, chiusura (pranzo / cena)
 
-Il locale è "in turno" se almeno un turno cassa è aperto. Senza turno l'Edge rifiuta con 409 `SHIFT_NOT_ACTIVE`: invio comande, incassi, ordini e vendite al banco.
+Il locale è operativo solo con una **sessione di cassa aperta** (Pranzo o Cena). Solo l'**operatore
+cassa** (Cassiere o Admin di sede, PIN `1234`) la apre e la chiude; i camerieri mai. I turni degli
+operatori sono solo presenze e non sbloccano nulla. Senza cassa aperta l'Edge risponde 409
+`CASH_SESSION_CLOSED`. Dettagli e regole: [`PIANO-TURNI-CASSA.md`](PIANO-TURNI-CASSA.md).
+
+| #   | Test                         | Passi                                                                 | Atteso                                                                | ☐   |
+| --- | ---------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | --- |
+| K1  | Cassa chiusa                 | Nessuna sessione aperta → cassa e palmare                             | Testata "Cassa chiusa", banner ambra ovunque; Spedisci/PAGA/banco disattivati | ☐ |
+| K2  | Cameriere in cassa           | Cassa con PIN `1111`                                                  | Nessun pulsante **Apri cassa**; banner "Solo l'operatore cassa può aprirla" | ☐ |
+| K3  | Apertura                     | PIN `1234` → **Apri cassa** → Pranzo, fondo €100 → PIN                 | "Cassa aperta · Pranzo · dalle hh:mm · Test Admin"; palmare si sblocca senza ricaricare | ☐ |
+| K4  | Conteggio per tagli          | In apertura → **Per tagli** → 2×€50, 5×20 cent                        | Totale contato €101,00 in tempo reale                                 | ☐   |
+| K5  | Prelievo durante il servizio | **Prelievi** → Prelievo €20 "banca" → PIN                              | In elenco; "Contanti attesi" scende di €20                            | ☐   |
+| K6  | Spesa ed eliminazione        | Spesa €2 "ghiaccio" → PIN; poi **Elimina** → PIN                       | Spesa registrata, poi tolta; tutto nel log                            | ☐   |
+| K7  | Chiusura in quadratura       | Incassa contanti e POS → **Chiudi cassa** → conta l'atteso esatto      | Scostamenti verdi "In quadratura"; report stampato sulla Bar          | ☐   |
+| K8  | Ammanco con nota             | Chiusura con €10 in meno, senza nota                                  | Rosso "Ammanco"; **Conferma** disattivato finché non scrivi la nota   | ☐   |
+| K9  | Eccedenza                    | Chiusura con €1 in più                                                | Arancione "Eccedenza"; nota facoltativa (sotto soglia €5)             | ☐   |
+| K10 | Conto in attesa              | Richiedi il conto dal palmare → **Chiudi cassa**                       | Primo passo rosso, **Avanti** disattivato finché non incassi/rifiuti  | ☐   |
+| K11 | Tavoli aperti tra servizi    | Chiudi il pranzo con un tavolo aperto, apri la cena, incassalo         | Chiusura consentita (avviso ambra); incasso conteggiato nella cena    | ☐   |
+| K12 | Fondo pranzo → cena          | Pranzo: fondo lasciato €120 → apri la cena                            | Fondo proposto €120; se lo cambi avviso giallo                        | ☐   |
+| K13 | Servizio già chiuso          | Dopo aver chiuso il pranzo prova a riaprire Pranzo                     | "Il servizio pranzo di oggi è già stato chiuso"                       | ☐   |
+| K14 | Report Cloud                 | Cloud → Chiusure & Report → Sessioni di cassa                         | Riga Pranzo/Cena con fondo, prelievi, attesi, contati, scostamenti colorati | ☐ |
+| K15 | Soglia da Cloud              | Cloud → Sedi → Soglia scostamento €20 → chiudi con €10 in meno        | Nota non obbligatoria (l'Edge riceve la soglia entro un minuto)       | ☐   |
+| K16 | Stampante spenta             | Spegni la ST30 → chiudi la cassa                                      | Chiusura riesce; messaggio rosso "Report chiusura cassa non stampata…" | ☐ |
+
+---
+
+## T — Cassa chiusa, turni operatore e palmare (UX)
+
+Il blocco dipende solo dalla cassa (sezione **K**). Il turno operatore parte da solo all'accesso con
+PIN e serve come presenza.
 
 | #  | Test                         | Passi                                                                 | Atteso                                                                | ☐   |
 | -- | ---------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | --- |
-| T1 | Avviso senza turno           | Nessun turno aperto → apri palmare (mappa, tavolo, Asporto) e cassa    | Banner ambra "Turno non attivo" ovunque                               | ok  |
-| T2 | Blocchi senza turno          | Palmare: aggiungi piatti, prova Spedisci / + Asporto. Cassa: PAGA, SPEDITO, + Nuovo ordine | La bozza si prepara; i pulsanti di invio/incasso/banco sono disattivati | ok  |
-| T3 | Sblocco in tempo reale       | Cassa: **Avvia turno** dal banner, palmare aperto su un tavolo         | Il palmare toglie il banner e riattiva Spedisci senza ricaricare      | ok  |
-| T4 | Chiusura turno               | Chiudi turno (o chiusura giornata) con palmare aperto                 | Banner e blocchi ricompaiono subito su palmare e cassa                | ok  |
+| T1 | Avviso a cassa chiusa        | Nessuna sessione aperta → palmare (mappa, tavolo, Asporto) e cassa     | Banner ambra "Cassa chiusa" ovunque                                   | ☐   |
+| T2 | Blocchi a cassa chiusa       | Palmare: aggiungi piatti, prova Spedisci / + Asporto. Cassa: PAGA, SPEDITO, + Nuovo ordine | La bozza si prepara; i pulsanti di invio/incasso/banco sono disattivati | ☐ |
+| T3 | Sblocco in tempo reale       | Cassa: **Apri cassa**, palmare aperto su un tavolo                     | Il palmare toglie il banner e riattiva Spedisci senza ricaricare      | ☐   |
+| T4 | Chiusura cassa               | **Chiudi cassa** con palmare aperto                                   | Banner e blocchi ricompaiono subito su palmare e cassa                | ☐   |
+| T4b | Turno operatore             | Accedi con `1111` sul palmare → cassa: Account → **Operatori in turno** | Test Cameriere in elenco; un turno aperto non sblocca il locale      | ☐   |
+| T4c | Fine turno                  | Palmare: **Esci** → **Fine turno**; oppure in cassa **Fine turno** sulla riga | Il cameriere sparisce dall'elenco                              | ☐   |
 | T5 | Aggiunta piatto              | Palmare: tocca un piatto (anche due volte lo stesso)                   | Avviso "✓ piatto · portata" con **Annulla**, contatore "n×" sul menu, riga evidenziata | ok  |
 | T6 | Nota riga                    | Seleziona riga → **Nota** → note rapide / testo → **Salva**           | Un solo passaggio; tap fuori chiude senza salvare; nota visibile sulla riga | ok  |
 | T7 | Nota con tastiera reale      | Su tablet/iPad reale apri la nota                                     | Il foglio resta sopra la tastiera, Salva visibile                     | ☐ (serve tablet) |

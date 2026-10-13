@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { internalClosureCompleteSchema } from "@pizzaguys/validators";
 import type { FastifyInstance } from "fastify";
+import { currentBusinessDate } from "../lib/cash-session.js";
 import {
   buildInternalClosureDraft,
   formatInternalClosureText,
@@ -14,7 +15,7 @@ const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 
 export async function internalClosureRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { date?: string } }>("/api/internal-closure/draft", async (req) => {
-    const date = req.query.date ?? new Date().toISOString().slice(0, 10);
+    const date = req.query.date ?? currentBusinessDate(app.edgeDb);
     return buildInternalClosureDraft(app.edgeDb, date);
   });
 

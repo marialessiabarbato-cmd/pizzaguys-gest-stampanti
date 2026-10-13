@@ -30,6 +30,34 @@ interface ClosureRow {
   receivedAt: string;
 }
 
+interface CashSessionRow {
+  id: string;
+  businessDate: string;
+  service: "LUNCH" | "DINNER";
+  openedByName: string;
+  closedByName: string | null;
+  openingFund: number;
+  expectedCash: number | null;
+  countedCash: number | null;
+  posDeclared: number | null;
+  totalSales: number | null;
+  withdrawals: number | null;
+  discrepancyCash: number | null;
+  discrepancyPos: number | null;
+  notes: string | null;
+}
+
+const SERVICE_LABELS: Record<CashSessionRow["service"], string> = {
+  LUNCH: "Pranzo",
+  DINNER: "Cena",
+};
+
+/** Ammanco in rosso, eccedenza in arancione. */
+function discrepancyTextClass(value: number | null) {
+  if (!value) return "";
+  return value < 0 ? "font-medium text-red-600" : "font-medium text-orange-600";
+}
+
 interface NightlyRow {
   locationId: string;
   locationName: string;
@@ -91,6 +119,7 @@ export default function ClosuresPage() {
   const [closuresTo, setClosuresTo] = useState(todayKey());
   const [closures, setClosures] = useState<ClosureRow[]>([]);
   const [closuresLoading, setClosuresLoading] = useState(false);
+  const [cashSessions, setCashSessions] = useState<CashSessionRow[]>([]);
 
   const [reportDate, setReportDate] = useState(yesterdayKey());
   const [summary, setSummary] = useState<NightlySummary | null>(null);
@@ -120,9 +149,14 @@ export default function ClosuresPage() {
         `/api/v2/locations/${selectedLocationId}/closures?${params}`,
       );
       setClosures(rows);
+      const sessions = await api<CashSessionRow[]>(
+        `/api/v2/locations/${selectedLocationId}/cash-sessions?${params}`,
+      );
+      setCashSessions(sessions);
     } catch (err) {
       console.error(err);
       setClosures([]);
+      setCashSessions([]);
     } finally {
       setClosuresLoading(false);
     }
@@ -407,6 +441,68 @@ export default function ClosuresPage() {
                         >
                           Dettaglio
                         </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sessioni di cassa (pranzo / cena)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+            Apertura e chiusura dell&apos;operatore cassa con fondo, prelievi e conteggio. Stessa
+            sede e periodo dello storico qui sopra.
+          </p>
+          {closuresLoading ? (
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">Caricamento...</p>
+          ) : cashSessions.length === 0 ? (
+            <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+              Nessuna sessione di cassa nel periodo selezionato.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-[hsl(var(--pg-border))]">
+              <table className="w-full min-w-[880px] text-sm">
+                <thead className="bg-[hsl(var(--pg-muted))]/40 text-left">
+                  <tr>
+                    <th className="px-3 py-2">Data</th>
+                    <th className="px-3 py-2">Servizio</th>
+                    <th className="px-3 py-2">Operatore</th>
+                    <th className="px-3 py-2 text-right">Incassato</th>
+                    <th className="px-3 py-2 text-right">Fondo</th>
+                    <th className="px-3 py-2 text-right">Prelievi</th>
+                    <th className="px-3 py-2 text-right">Attesi</th>
+                    <th className="px-3 py-2 text-right">Contati</th>
+                    <th className="px-3 py-2 text-right">Scost. contanti</th>
+                    <th className="px-3 py-2 text-right">Scost. POS</th>
+                    <th className="px-3 py-2">Nota</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashSessions.map((row) => (
+                    <tr key={row.id} className="border-t border-[hsl(var(--pg-border))]">
+                      <td className="px-3 py-2 font-medium">{row.businessDate}</td>
+                      <td className="px-3 py-2">{SERVICE_LABELS[row.service]}</td>
+                      <td className="px-3 py-2">{row.closedByName ?? row.openedByName}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{euro(row.totalSales ?? 0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{euro(row.openingFund)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{euro(row.withdrawals ?? 0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{euro(row.expectedCash ?? 0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{euro(row.countedCash ?? 0)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${discrepancyTextClass(row.discrepancyCash)}`}>
+                        {euro(row.discrepancyCash ?? 0)}
+                      </td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${discrepancyTextClass(row.discrepancyPos)}`}>
+                        {euro(row.discrepancyPos ?? 0)}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                        {row.notes ?? ""}
                       </td>
                     </tr>
                   ))}

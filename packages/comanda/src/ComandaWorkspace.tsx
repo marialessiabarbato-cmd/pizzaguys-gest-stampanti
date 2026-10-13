@@ -27,7 +27,7 @@ import { MenuPanel } from "./ui/MenuPanel";
 import { NoteModal } from "./ui/NoteModal";
 import { PinModal } from "./ui/PinModal";
 import { PriceOverrideModal } from "./ui/PriceOverrideModal";
-import { ShiftInactiveBanner } from "./ui/ShiftInactiveBanner";
+import { CashClosedBanner } from "./ui/CashClosedBanner";
 import { StornoQtyModal } from "./ui/StornoQtyModal";
 import { VariantSheet } from "./ui/VariantSheet";
 import type { Comanda } from "./useComanda";
@@ -71,7 +71,7 @@ export function ComandaWorkspace({
   tables,
   operator,
   isOffline,
-  shiftInactive,
+  cashClosed,
   hasLock = true,
   message,
   backLabel,
@@ -83,7 +83,7 @@ export function ComandaWorkspace({
     title: "Richiedere preconto?",
     message: "La cassa riceverà una notifica per stampare il preconto.",
   },
-  showShiftBanner = true,
+  showCashBanner = true,
 }: {
   comanda: Comanda;
   layout: ComandaLayout;
@@ -91,7 +91,7 @@ export function ComandaWorkspace({
   tables: LiveTable[];
   operator: Operator;
   isOffline: boolean;
-  shiftInactive: boolean;
+  cashClosed: boolean;
   /** Il palmare deve "prendere" il tavolo prima di modificarlo; la cassa lo prende entrando. */
   hasLock?: boolean;
   message: string;
@@ -102,8 +102,8 @@ export function ComandaWorkspace({
   onEditGuests?: () => void;
   onOpenTransfer?: () => void;
   precontoCopy?: { title: string; message: string };
-  /** La cassa mostra già il proprio banner turno nell'intestazione. */
-  showShiftBanner?: boolean;
+  /** La cassa mostra già il proprio banner "Cassa chiusa" nell'intestazione. */
+  showCashBanner?: boolean;
 }) {
   const isCassa = layout === "cassa";
   const [courseModalLineId, setCourseModalLineId] = useState<string | null>(null);
@@ -521,8 +521,8 @@ export function ComandaWorkspace({
     <div className={`grid gap-2 ${c.hasPreconto ? "grid-cols-4" : "grid-cols-3"}`}>
       <Button
         className="min-h-12 text-sm leading-tight"
-        disabled={speditoLines.length === 0 || isOffline || needsLock || shiftInactive}
-        title={shiftInactive ? "Turno non attivo" : undefined}
+        disabled={speditoLines.length === 0 || isOffline || needsLock || cashClosed}
+        title={cashClosed ? "Cassa chiusa" : undefined}
         onClick={c.requestSubmit}
       >
         {orderTargetLabel && isUnionHost(liveTable) ? (
@@ -625,7 +625,7 @@ export function ComandaWorkspace({
           Offline — Spedisci disabilitato
         </div>
       )}
-      {shiftInactive && showShiftBanner && <ShiftInactiveBanner />}
+      {cashClosed && showCashBanner && <CashClosedBanner />}
     </>
   );
 
