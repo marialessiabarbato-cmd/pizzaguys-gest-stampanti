@@ -2,7 +2,7 @@ import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { isHeldCourse, type WsMessageType } from "@pizzaguys/types";
 import { useCallback, useEffect, useState } from "react";
 import { normalizeCourse, stepLabel } from "./course";
-import { buildCartLine, lineKey, variantsForProduct } from "./menu";
+import { buildCartLine, mergeIntoCart, normalizeLineNote, variantsForProduct } from "./menu";
 import { formatTableLabel, resolveLiveTable } from "./table-display";
 import type {
   CartLine,
@@ -140,7 +140,10 @@ export function useComanda(options: UseComandaOptions) {
 
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
   const [editCartLine, setEditCartLine] = useState<CartLine | null>(null);
-  const [pendingVariantSave, setPendingVariantSave] = useState<VariantSelection[] | null>(null);
+  const [pendingVariantSave, setPendingVariantSave] = useState<{
+    variants: VariantSelection[];
+    notes?: string;
+  } | null>(null);
   const [noteLineId, setNoteLineId] = useState<string | null>(null);
 
   const [submitConfirm, setSubmitConfirm] = useState(false);
@@ -302,22 +305,9 @@ export function useComanda(options: UseComandaOptions) {
   };
 
   const mergeCartLine = (line: CartLine) => {
-    const key = lineKey(line.productId, line.variants, line.course, line.forTableId);
     // L'id da selezionare va calcolato prima di setCart: l'updater può girare dopo.
-    const focusId =
-      cart.find((l) => lineKey(l.productId, l.variants, l.course, l.forTableId) === key)?.lineId ??
-      line.lineId;
-    setCart((prev) => {
-      const existing = prev.find((l) => lineKey(l.productId, l.variants, l.course, l.forTableId) === key);
-      if (existing) {
-        return prev.map((l) =>
-          lineKey(l.productId, l.variants, l.course, l.forTableId) === key
-            ? { ...l, quantity: l.quantity + 1 }
-            : l,
-        );
-      }
-      return [...prev, line];
-    });
+    const focusId = mergeIntoCart(cart, line).lineId;
+    setCart((prev) => mergeIntoCart(prev, line).cart);
     setSelectedLineId(focusId);
     setSelectedSubmittedId(null);
     setLastAdded((prev) => ({
@@ -354,7 +344,7 @@ export function useComanda(options: UseComandaOptions) {
     });
   };
 
-  const confirmVariants = (variants: VariantSelection[]) => {
+  const confirmVariants = (variants: VariantSelection[], note?: string) => {
     if (!variantProduct || !menu) return;
     const line = buildCartLine(
       variantProduct,
@@ -365,8 +355,9 @@ export function useComanda(options: UseComandaOptions) {
       activeCourse,
       resolveOrderForTable(),
     );
+    const notes = normalizeLineNote(note);
     if ("error" in line) setMessage(line.error);
-    else mergeCartLine(line);
+    else mergeCartLine(notes ? { ...line, notes } : line);
     setVariantProduct(null);
   };
 
@@ -657,7 +648,7 @@ export function useComanda(options: UseComandaOptions) {
     setEditCartLine(line);
   };
 
-  const stageVariantSave = (variants: VariantSelection[]) => {
+  const stageVariantSave = (variants: VariantSelection[], note?: string) => {
     if (!editCartLine) return;
     const unitPrice = calculateLinePrice(
       editCartLine.basePrice,
@@ -667,24 +658,27 @@ export function useComanda(options: UseComandaOptions) {
       setMessage("Prezzo riga non valido (vincolo fiscale)");
       return;
     }
-    setPendingVariantSave(variants);
+    const notes = normalizeLineNote(note);
+    setPendingVariantSave({ variants, notes: notes || undefined });
   };
 
   const applyVariantSave = () => {
     if (!editCartLine || !pendingVariantSave) return;
+    const { variants, notes } = pendingVariantSave;
     const unitPrice = calculateLinePrice(
       editCartLine.basePrice,
-      pendingVariantSave.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
+      variants.map((v) => ({ type: v.type, priceDelta: v.priceDelta })),
     );
     setCart((prev) =>
-      prev.map((l) => (l.lineId === editCartLine.lineId ? { ...l, variants: pendingVariantSave, unitPrice } : l)),
+      prev.map((l) => (l.lineId === editCartLine.lineId ? { ...l, variants, notes, unitPrice } : l)),
     );
     setPendingVariantSave(null);
     setEditCartLine(null);
   };
 
   const saveNote = (lineId: string, note: string) => {
-    setCart((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, notes: note || undefined } : l)));
+    const notes = normalizeLineNote(note);
+    setCart((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, notes: notes || undefined } : l)));
     setNoteLineId(null);
   };
 

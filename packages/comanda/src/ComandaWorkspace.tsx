@@ -766,9 +766,14 @@ export function ComandaWorkspace({
       {editProduct && c.editCartLine && (
         <VariantSheet
           product={editProduct}
-          variants={variantsForProduct(editProduct, menu.variantGroups ?? [])}
+          variants={variantsForProduct(
+            editProduct,
+            menu.variantGroups ?? [],
+            c.editCartLine.variants.map((v) => v.variantId),
+          )}
           basePrice={c.editCartLine.basePrice}
           initialVariants={c.editCartLine.variants}
+          initialNote={c.editCartLine.notes}
           confirmLabel="Salva"
           onConfirm={c.stageVariantSave}
           onCancel={() => c.setEditCartLine(null)}
@@ -778,7 +783,7 @@ export function ComandaWorkspace({
       {c.pendingVariantSave && c.editCartLine && (
         <ConfirmModal
           title="Salvare le modifiche?"
-          message={`Confermi le varianti su «${c.editCartLine.name}»?`}
+          message={`Confermi varianti e nota su «${c.editCartLine.name}»?`}
           confirmLabel="Salva"
           onConfirm={c.applyVariantSave}
           onCancel={() => c.setPendingVariantSave(null)}

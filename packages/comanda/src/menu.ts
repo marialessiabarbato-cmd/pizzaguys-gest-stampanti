@@ -39,14 +39,32 @@ export function variantGroupsForProduct(
   );
 }
 
-export function variantsForProduct(product: Product, groups: VariantGroup[]): VariantOption[] {
-  const seen = new Set<string>();
+/**
+ * Voci variante del prodotto, senza doppioni: se più gruppi assegnati alla stessa
+ * categoria hanno la stessa voce (stesso nome e tipo, es. due "Personalizza" con
+ * "NO Basilico"), se ne mostra una sola. Tiene la prima trovata, salvo che un'altra
+ * copia sia già tra `selectedIds` (riga salvata prima): così resta selezionabile.
+ */
+export function variantsForProduct(
+  product: Product,
+  groups: VariantGroup[],
+  selectedIds: string[] = [],
+): VariantOption[] {
+  const seenIds = new Set<string>();
+  const byName = new Map<string, number>();
   const items: VariantOption[] = [];
   for (const group of variantGroupsForProduct(product, groups)) {
     for (const variant of group.variants) {
-      if (seen.has(variant.id)) continue;
-      seen.add(variant.id);
-      items.push(variant);
+      if (seenIds.has(variant.id)) continue;
+      seenIds.add(variant.id);
+      const key = `${variant.type}:${localized(variant.name).trim().toLocaleLowerCase("it-IT")}`;
+      const at = byName.get(key);
+      if (at == null) {
+        byName.set(key, items.length);
+        items.push(variant);
+      } else if (selectedIds.includes(variant.id) && !selectedIds.includes(items[at]!.id)) {
+        items[at] = variant;
+      }
     }
   }
   return items.sort((a, b) => {
@@ -55,17 +73,44 @@ export function variantsForProduct(product: Product, groups: VariantGroup[]): Va
   });
 }
 
+/** Nota riga come va salvata: spazi compattati, vuota se c'è solo spazio. */
+export function normalizeLineNote(note: string | undefined): string {
+  return (note ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Chiave per unire righe uguali in bozza (stesso piatto, varianti, portata, tavolo e nota):
+ * una riga con nota non si fonde con una senza nota o con nota diversa.
+ */
 export function lineKey(
   productId: string,
   variants: VariantSelection[],
   course = 1,
   forTableId?: string,
+  notes?: string,
 ): string {
   const sig = variants
     .map((v) => v.variantId)
     .sort()
     .join(",");
-  return `${productId}:${normalizeCourse(course)}:${forTableId ?? ""}:${sig}`;
+  const note = normalizeLineNote(notes).toLocaleLowerCase("it-IT");
+  return `${productId}:${normalizeCourse(course)}:${forTableId ?? ""}:${sig}:${note}`;
+}
+
+/** Chiave di unione di una riga già in bozza. */
+export function cartLineKey(line: Pick<CartLine, "productId" | "variants" | "course" | "forTableId" | "notes">) {
+  return lineKey(line.productId, line.variants, line.course, line.forTableId, line.notes);
+}
+
+/** Aggiunge la riga alla bozza, o incrementa la quantità di una riga uguale. */
+export function mergeIntoCart(cart: CartLine[], line: CartLine): { cart: CartLine[]; lineId: string } {
+  const key = cartLineKey(line);
+  const existing = cart.find((l) => cartLineKey(l) === key);
+  if (!existing) return { cart: [...cart, line], lineId: line.lineId };
+  return {
+    cart: cart.map((l) => (l.lineId === existing.lineId ? { ...l, quantity: l.quantity + 1 } : l)),
+    lineId: existing.lineId,
+  };
 }
 
 export function buildCartLine(
