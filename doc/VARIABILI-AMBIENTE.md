@@ -25,10 +25,10 @@ sotto mano c'è il file locale `VARIABILI-SISTEMA.local.md`, ignorato da git (ve
 | Variabile | | Default nel codice | Note |
 |-----------|---|--------------------|------|
 | `DATABASE_URL` | 🔒 | nessuno: senza, l'API non parte | Contiene la password di Postgres. `drizzle.config.ts` (migrazioni) ha un default locale `…@localhost:5432/pizzaguys_cloud` |
-| `JWT_SECRET` | 🔒 | ⚠️ `dev-secret-change-me` | Firma i token di login del Cloud Admin. **In produzione deve essere impostata** (stringa casuale lunga): col default chiunque abbia letto il codice può firmare token validi |
+| `JWT_SECRET` | 🔒 | `dev-secret-change-me` **solo in sviluppo** | Firma i token di login del Cloud Admin. Con `NODE_ENV=production` (impostata dal Dockerfile) l'API **non parte** se manca, è vuota, è un default noto (`dev-secret-change-me`, `change-me-in-production`) o è più corta di 32 caratteri. In sviluppo parte comunque, con un avviso nel log. Generarla con `openssl rand -base64 48` |
 | `CLOUD_API_PORT` | ⚙️ | `4000` | |
 | `SEED_ADMIN_EMAIL` | ⚙️ | `admin@pizzaguys.it` | Usata dal seed e come destinatario di riserva del report notturno |
-| `SEED_ADMIN_PASSWORD` | 🔒 | ⚠️ `PizzaGuys2026!` | Password del SuperAdmin creato dal seed. Il default è pubblico (README, seed): **in produzione lanciare il seed con una password propria** e cambiarla al primo accesso |
+| `SEED_ADMIN_PASSWORD` | 🔒 | ⚠️ `PizzaGuys2026!` | Password del SuperAdmin creato dal seed. Il default è pubblico (README, seed): **in produzione lanciare il seed con una password propria** e cambiarla al primo accesso. Con `NODE_ENV=production` il seed avvisa se usa il default |
 | `RESEND_API_KEY` | 🔒 | — | Invio email reale. Senza (o senza `EMAIL_FROM`) le email vanno in `EMAIL_MOCK_DIR` |
 | `EMAIL_FROM` | ⚙️ | — | Mittente, es. `Pizza Guys <noreply@dominio>` |
 | `EMAIL_MOCK_DIR` | ⚙️ | `./tmp/emails` | |
