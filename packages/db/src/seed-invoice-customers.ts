@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { createDb } from "./client.js";
+import { createDb, closeAllDb } from "./client.js";
 import { brands, invoiceCustomerProfiles } from "./schema/index.js";
 import { bumpBrandSchemaVersion } from "./seed-menu-variants.js";
 
@@ -50,7 +50,9 @@ async function main() {
   console.log("✓ 2 clienti fiscali di esempio creati. Ri-provisiona l'edge o attendi sync heartbeat.");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => closeAllDb())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

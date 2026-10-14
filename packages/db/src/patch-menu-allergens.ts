@@ -3,7 +3,7 @@
  * per propagare il menu all'edge al prossimo heartbeat.
  */
 import { eq } from "drizzle-orm";
-import { createDb } from "./client.js";
+import { createDb, closeAllDb } from "./client.js";
 import { brandSettings, brands, products } from "./schema/index.js";
 import { MENU_CATALOG, allergensForProduct } from "./seed-menu-data.js";
 
@@ -75,7 +75,9 @@ async function main() {
   console.log("  L'edge riceverà il delta entro ~60s (heartbeat) oppure riavvia provision.");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => closeAllDb())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

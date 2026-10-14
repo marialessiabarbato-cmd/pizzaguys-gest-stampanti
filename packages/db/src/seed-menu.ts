@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { createDb } from "./client.js";
+import { createDb, closeAllDb } from "./client.js";
 import {
   brands,
   categories,
@@ -158,7 +158,9 @@ async function main() {
   console.log("  Provisioning edge: incolla il token in Main Station → Provision");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => closeAllDb())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

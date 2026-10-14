@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
-import { createDb } from "./client.js";
+import { createDb, closeAllDb } from "./client.js";
 import { brandSettings, brands, users } from "./schema/index.js";
 
 const DATABASE_URL =
@@ -54,7 +54,9 @@ async function main() {
   console.log(`  (hash token esempio: ${createHash("sha256").update("demo").digest("hex").slice(0, 16)}...)`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => closeAllDb())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

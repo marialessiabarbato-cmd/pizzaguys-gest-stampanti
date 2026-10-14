@@ -3,7 +3,7 @@
  * e incrementa schemaVersion per propagare il delta all'edge.
  */
 import { eq } from "drizzle-orm";
-import { createDb } from "./client.js";
+import { createDb, closeAllDb } from "./client.js";
 import { brands } from "./schema/index.js";
 import { bumpBrandSchemaVersion, seedVariantCatalog } from "./seed-menu-variants.js";
 
@@ -27,7 +27,9 @@ async function main() {
   console.log("  L'edge riceverà il delta entro ~60s (heartbeat) oppure riavvia provision.");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => closeAllDb())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

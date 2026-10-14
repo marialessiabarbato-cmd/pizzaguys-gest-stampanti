@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { createDb } from "./client.js";
+import { createDb, closeAllDb } from "./client.js";
 import { locationMealVoucherPresets, locations } from "./schema/index.js";
 import { PILOT_LOCATION } from "./seed-menu-data.js";
 
@@ -40,7 +40,9 @@ async function main() {
   console.log(`Creati ${DEFAULT_PRESETS.length} preset buoni pasto per ${location.name}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => closeAllDb())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
