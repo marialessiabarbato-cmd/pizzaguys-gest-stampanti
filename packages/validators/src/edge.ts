@@ -15,7 +15,7 @@ export const createRoomSchema = z.object({
 
 export const createTableSchema = z.object({
   roomId: z.string().min(1).optional(),
-  label: z.string().min(1).max(20),
+  label: z.string().trim().min(1).max(20),
   x: z.number().min(0),
   y: z.number().min(0),
   width: z.number().positive().optional(),

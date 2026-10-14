@@ -4,9 +4,22 @@ import { createRoomSchema, createTableSchema, updateTableSchema } from "@pizzagu
 import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireUserAdmin } from "../lib/operator-sessions.js";
+import { getTableRuntime } from "../lib/runtime.js";
+
+const TABLE_IN_USE = "Tavolo in uso (aperto, bloccato o unito): incassalo o liberalo prima di eliminarlo";
 
 export async function salaRoutes(app: FastifyInstance) {
   const admin = requireUserAdmin(app.edgeDb);
+
+  /** I camerieri riconoscono i tavoli dall'etichetta: unica tra i tavoli di sala. */
+  const labelTaken = (label: string, excludeId?: string) => {
+    const wanted = label.trim().toLowerCase();
+    return app.edgeDb
+      .select({ id: tables.id, label: tables.label, isVirtual: tables.isVirtual })
+      .from(tables)
+      .all()
+      .some((t) => !t.isVirtual && t.id !== excludeId && t.label.trim().toLowerCase() === wanted);
+  };
 
   app.get("/api/rooms", async (_req, reply) => {
     const rows = app.edgeDb.select().from(rooms).orderBy(asc(rooms.sortOrder)).all();
@@ -30,6 +43,18 @@ export async function salaRoutes(app: FastifyInstance) {
   });
 
   app.delete<{ Params: { id: string } }>("/api/rooms/:id", { preHandler: admin }, async (req, reply) => {
+    // I tavoli della sala si eliminano a cascata: nessuno deve avere un conto aperto.
+    const inUse = app.edgeDb
+      .select({ id: tables.id, label: tables.label })
+      .from(tables)
+      .where(eq(tables.roomId, req.params.id))
+      .all()
+      .filter((t) => getTableRuntime(t.id).status !== "FREE");
+    if (inUse.length > 0) {
+      return reply.status(409).send({
+        error: `Tavoli in uso in questa sala: ${inUse.map((t) => t.label).join(", ")}. Liberali prima di eliminarla`,
+      });
+    }
     const deleted = app.edgeDb.delete(rooms).where(eq(rooms.id, req.params.id)).returning().get();
     if (!deleted) return reply.status(404).send({ error: "Sala non trovata" });
     return { ok: true };
@@ -47,6 +72,9 @@ export async function salaRoutes(app: FastifyInstance) {
     const parsed = createTableSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+    if (!parsed.data.isVirtual && labelTaken(parsed.data.label)) {
+      return reply.status(409).send({ error: `Esiste già un tavolo "${parsed.data.label.trim()}"` });
     }
     const row = {
       id: randomUUID(),
@@ -71,6 +99,9 @@ export async function salaRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }
+    if (parsed.data.label !== undefined && labelTaken(parsed.data.label, req.params.id)) {
+      return reply.status(409).send({ error: `Esiste già un tavolo "${parsed.data.label.trim()}"` });
+    }
     const updated = app.edgeDb
       .update(tables)
       .set(parsed.data)
@@ -82,6 +113,9 @@ export async function salaRoutes(app: FastifyInstance) {
   });
 
   app.delete<{ Params: { id: string } }>("/api/tables/:id", { preHandler: admin }, async (req, reply) => {
+    if (getTableRuntime(req.params.id).status !== "FREE") {
+      return reply.status(409).send({ error: TABLE_IN_USE });
+    }
     const deleted = app.edgeDb.delete(tables).where(eq(tables.id, req.params.id)).returning().get();
     if (!deleted) return reply.status(404).send({ error: "Tavolo non trovato" });
     return { ok: true };
