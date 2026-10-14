@@ -523,10 +523,12 @@ export function CassaPage({
       loadTables();
     });
     const offCashStatus = on("CASH_SESSION_STATUS", (payload) => {
+      // Il servizio proposto può cambiare dopo una chiusura: lo ricalcola l'Edge.
       setCashStatus((prev) => ({
         suggestedService: prev?.suggestedService ?? "LUNCH",
         ...(payload as CashSessionStatusPayload),
       }));
+      loadCashStatus();
     });
     const offPrintFailed = on("PRINT_FAILED", (payload) => {
       const p = payload as PrintFailedPayload;
@@ -2636,6 +2638,7 @@ export function CassaPage({
         <CashOpenModal
           suggestedService={cashStatus.suggestedService}
           suggestedOpeningFund={cashStatus.suggestedOpeningFund}
+          usedServicesToday={cashStatus.usedServicesToday ?? []}
           onClose={() => setShowCashOpen(false)}
           onOpened={() => {
             setShowCashOpen(false);

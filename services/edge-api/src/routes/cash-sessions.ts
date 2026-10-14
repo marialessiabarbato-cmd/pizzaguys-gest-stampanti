@@ -35,10 +35,10 @@ function sendError(reply: FastifyReply, err: unknown) {
 }
 
 export async function cashSessionRoutes(app: FastifyInstance) {
-  app.get("/api/cash-sessions/current", async () => ({
-    ...getCashSessionStatus(app.edgeDb),
-    suggestedService: suggestCashService(),
-  }));
+  app.get("/api/cash-sessions/current", async () => {
+    const status = getCashSessionStatus(app.edgeDb);
+    return { ...status, suggestedService: suggestCashService(new Date(), status.usedServicesToday) };
+  });
 
   app.get<{ Querystring: { from?: string; to?: string; businessDate?: string } }>(
     "/api/cash-sessions",

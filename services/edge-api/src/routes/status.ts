@@ -49,7 +49,7 @@ export async function statusRoutes(app: FastifyInstance) {
       venueCapacityWarning: venueCheck.ok ? null : venueCheck.warning,
       shiftReminderSchedule: parseShiftReminderSchedule(state?.shiftReminderSchedule),
       runtimeRestore: getRestoreInfo(),
-      cashSession: { ...getCashSessionStatus(app.edgeDb), suggestedService: suggestCashService() },
+      cashSession: withSuggestedService(getCashSessionStatus(app.edgeDb)),
     };
   });
 
@@ -80,4 +80,8 @@ export async function statusRoutes(app: FastifyInstance) {
       return reply.status(502).send({ error: message });
     }
   });
+}
+
+function withSuggestedService(status: ReturnType<typeof getCashSessionStatus>) {
+  return { ...status, suggestedService: suggestCashService(new Date(), status.usedServicesToday) };
 }

@@ -18,6 +18,7 @@ import {
   getCashSessionStatus,
   isCashSessionOpen,
   openCashSession,
+  suggestCashService,
   summarizeBusinessDay,
 } from "./cash-session.js";
 import { localDateKey } from "./business-date.js";
@@ -181,6 +182,14 @@ describe("apertura", () => {
     expect(openCashSession(db, { operator: CASHIER, service: "DINNER", openingFund: 100 }).service).toBe(
       "DINNER",
     );
+  });
+
+  it("dopo la chiusura del pranzo propone la cena anche prima delle 16", () => {
+    const lunch = openCashSession(db, { operator: CASHIER, service: "LUNCH", openingFund: 100 });
+    closeWith(lunch.id, { countedCash: 100, closingFundLeft: 100 });
+    const status = getCashSessionStatus(db);
+    expect(status.usedServicesToday).toEqual(["LUNCH"]);
+    expect(suggestCashService(new Date(2026, 9, 14, 15, 30), status.usedServicesToday)).toBe("DINNER");
   });
 
   it("propone come fondo quello lasciato dalla sessione precedente", () => {
@@ -364,5 +373,24 @@ describe("turni operatore (D6)", () => {
     startOperatorShift(db, WAITER.id);
     startOperatorShift(db, CASHIER.id);
     expect(endAllOperatorShifts(db)).toBe(2);
+  });
+});
+
+describe("servizio proposto", () => {
+  const morning = new Date(2026, 9, 14, 11, 0);
+  const evening = new Date(2026, 9, 14, 19, 0);
+
+  it("in base all'ora se nessun servizio è stato usato", () => {
+    expect(suggestCashService(morning)).toBe("LUNCH");
+    expect(suggestCashService(evening)).toBe("DINNER");
+  });
+
+  it("salta il servizio già usato oggi", () => {
+    expect(suggestCashService(morning, ["LUNCH"])).toBe("DINNER");
+    expect(suggestCashService(evening, ["DINNER"])).toBe("LUNCH");
+  });
+
+  it("con entrambi i servizi usati resta sull'ora (l'apertura verrà rifiutata)", () => {
+    expect(suggestCashService(morning, ["LUNCH", "DINNER"])).toBe("LUNCH");
   });
 });

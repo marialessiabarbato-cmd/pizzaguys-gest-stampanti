@@ -136,7 +136,18 @@ export function getCashSessionStatus(db: EdgeDatabase): CashSessionStatusPayload
         }
       : null,
     suggestedOpeningFund: getLastClosedSession(db)?.closingFundLeft ?? null,
+    usedServicesToday: getUsedCashServices(db),
   };
+}
+
+/** Servizi già aperti (anche se chiusi) nella data contabile locale di `now`. */
+export function getUsedCashServices(db: EdgeDatabase, now = new Date()): CashService[] {
+  return db
+    .select({ service: cashSessions.service })
+    .from(cashSessions)
+    .where(eq(cashSessions.businessDate, localDateKey(now)))
+    .all()
+    .map((r) => r.service as CashService);
 }
 
 /** Da chiamare dopo ogni apertura/chiusura: palmari e cassa aggiornano l'avviso. */
@@ -168,9 +179,15 @@ export function currentBusinessDate(db: EdgeDatabase, now = new Date()): string 
   return localDateKey(now);
 }
 
-/** Servizio proposto all'apertura: pranzo fino alle 16, poi cena. */
-export function suggestCashService(now = new Date()): CashService {
-  return now.getHours() < 16 ? "LUNCH" : "DINNER";
+/**
+ * Servizio proposto all'apertura: pranzo fino alle 16, poi cena.
+ * Se quel servizio è già stato usato oggi (es. pranzo chiuso alle 15:30) propone l'altro.
+ */
+export function suggestCashService(now = new Date(), usedToday: readonly CashService[] = []): CashService {
+  const byHour: CashService = now.getHours() < 16 ? "LUNCH" : "DINNER";
+  if (!usedToday.includes(byHour)) return byHour;
+  const other: CashService = byHour === "LUNCH" ? "DINNER" : "LUNCH";
+  return usedToday.includes(other) ? byHour : other;
 }
 
 /** Soglia oltre cui la nota di chiusura è obbligatoria (D5): configurata dal Cloud per sede. */

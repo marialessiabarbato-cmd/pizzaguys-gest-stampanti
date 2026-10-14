@@ -17,11 +17,14 @@ import { PinPad } from "./PinPad";
 export function CashOpenModal({
   suggestedService,
   suggestedOpeningFund,
+  usedServicesToday = [],
   onClose,
   onOpened,
 }: {
   suggestedService: CashService;
   suggestedOpeningFund: number | null;
+  /** Servizi già usati oggi: il pulsante resta visibile ma disattivato. */
+  usedServicesToday?: CashService[];
   onClose: () => void;
   onOpened: (session: CashSession) => void;
 }) {
@@ -75,9 +78,12 @@ export function CashOpenModal({
                     key={s}
                     variant={service === s ? "default" : "outline"}
                     className="h-12"
+                    disabled={usedServicesToday.includes(s)}
+                    title={usedServicesToday.includes(s) ? "Servizio già chiuso oggi" : undefined}
                     onClick={() => setService(s)}
                   >
                     {CASH_SERVICE_LABELS[s]}
+                    {usedServicesToday.includes(s) ? " · chiuso" : ""}
                   </Button>
                 ))}
               </div>

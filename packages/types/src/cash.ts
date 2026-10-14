@@ -111,4 +111,6 @@ export interface CashSessionStatusPayload {
   session: Pick<CashSession, "id" | "service" | "businessDate" | "openedAt" | "openedByName"> | null;
   /** Fondo lasciato dalla sessione chiusa più recente, da proporre all'apertura. */
   suggestedOpeningFund: number | null;
+  /** Servizi (pranzo/cena) già aperti nella data di oggi: non si possono riaprire. */
+  usedServicesToday: CashService[];
 }
