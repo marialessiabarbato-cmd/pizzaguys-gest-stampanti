@@ -2,10 +2,12 @@ import { Button } from "@pizzaguys/ui";
 import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { useMemo, useState } from "react";
 import type { Product, VariantOption, VariantSelection } from "../types";
-import { localized } from "../menu";
+import { localized, normalizeLineNote } from "../menu";
 import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
+import { NoteEditor } from "./NoteEditor";
 
 type TypeFilter = "ALL" | "ADD" | "REMOVE";
+type Tab = "VARIANTS" | "NOTE";
 
 function formatEuroInput(n: number): string {
   return n.toFixed(2).replace(".", ",");
@@ -23,8 +25,11 @@ interface Props {
   variants: VariantOption[];
   basePrice: number;
   initialVariants?: VariantSelection[];
+  /** Nota già presente sulla riga (in modifica). */
+  initialNote?: string;
   confirmLabel?: string;
-  onConfirm: (variants: VariantSelection[]) => void;
+  /** La nota arriva già normalizzata ("" se assente). */
+  onConfirm: (variants: VariantSelection[], note: string) => void;
   onCancel: () => void;
 }
 
@@ -33,6 +38,7 @@ export function VariantSheet({
   variants,
   basePrice,
   initialVariants = [],
+  initialNote,
   confirmLabel = "Aggiungi",
   onConfirm,
   onCancel,
@@ -54,6 +60,9 @@ export function VariantSheet({
   });
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
+  const [tab, setTab] = useState<Tab>("VARIANTS");
+  const [note, setNote] = useState(initialNote ?? "");
+  const noteText = normalizeLineNote(note);
 
   const hasAdd = variants.some((v) => v.type === "ADD");
   const hasRemove = variants.some((v) => v.type === "REMOVE");
@@ -131,121 +140,153 @@ export function VariantSheet({
         </Button>
       </div>
 
-      {variants.length > 0 && (
-        <div className="shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] px-4 py-3">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cerca ingrediente…"
-            autoFocus={false}
-            className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] bg-transparent px-3 text-base"
-          />
-          {showTypeFilter && (
-            <div className="flex gap-2">
-              {(
-                [
-                  { id: "ALL", label: "Tutti" },
-                  { id: "REMOVE", label: "Rimuovi" },
-                  { id: "ADD", label: "Aggiungi" },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setTypeFilter(opt.id)}
-                  className={`min-h-11 flex-1 rounded-xl px-2 text-sm font-semibold ${
-                    typeFilter === opt.id
-                      ? "bg-[hsl(var(--pg-primary))] text-white"
-                      : "bg-[hsl(var(--pg-muted))]"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {variants.length === 0 ? (
-          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-            Nessuna variante disponibile
-          </p>
-        ) : filtered.length === 0 ? (
-          <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-            Nessun risultato
-          </p>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {filtered.map((v) => {
-              const active = selected.some((s) => s.variantId === v.id);
-              const catalogPrice = Number(v.priceDelta) || 0;
-              const selectedEntry = selected.find((s) => s.variantId === v.id);
-              return (
-                <div
-                  key={v.id}
-                  className={`rounded-xl border px-3 py-2 ${
-                    active
-                      ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
-                      : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggle(v)}
-                    className="flex min-h-11 w-full items-center justify-between gap-2 text-left text-sm"
-                  >
-                    <span className="font-medium">
-                      {v.type === "REMOVE" ? "NO " : "+"}
-                      {localized(v.name)}
-                    </span>
-                    {v.type === "ADD" && !active && catalogPrice > 0 && (
-                      <span className="text-[hsl(var(--pg-muted-foreground))]">
-                        +€ {catalogPrice.toFixed(2)}
-                      </span>
-                    )}
-                    {v.type === "ADD" && active && (
-                      <span className="text-xs font-medium text-[hsl(var(--pg-primary))]">
-                        Selezionata
-                      </span>
-                    )}
-                  </button>
-                  {v.type === "ADD" && active && (
-                    <label className="mt-2 flex items-center justify-between gap-2 border-t border-[hsl(var(--pg-border))]/60 pt-2 text-sm">
-                      <span className="text-[hsl(var(--pg-muted-foreground))]">
-                        Prezzo aggiunta
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <span className="text-[hsl(var(--pg-muted-foreground))]">€</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          className="min-h-10 w-24 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-2 text-right font-semibold tabular-nums"
-                          value={
-                            priceDrafts[v.id] ??
-                            formatEuroInput(selectedEntry?.priceDelta ?? catalogPrice)
-                          }
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => setAddPrice(v.id, e.target.value)}
-                        />
-                      </div>
-                    </label>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div className="flex shrink-0 gap-2 border-b border-[hsl(var(--pg-border))] px-4 py-2">
+        {(
+          [
+            { id: "VARIANTS", label: selected.length > 0 ? `Varianti (${selected.length})` : "Varianti" },
+            { id: "NOTE", label: noteText ? "Nota ✓" : "Nota" },
+          ] as const
+        ).map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            aria-pressed={tab === opt.id}
+            onClick={() => setTab(opt.id)}
+            className={`min-h-11 flex-1 rounded-xl px-2 text-sm font-semibold ${
+              tab === opt.id ? "bg-[hsl(var(--pg-foreground))] text-[hsl(var(--pg-background))]" : "bg-[hsl(var(--pg-muted))]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
+      {tab === "NOTE" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <NoteEditor title="Nota riga" value={note} onChange={setNote} onSubmit={() => setTab("VARIANTS")} />
+        </div>
+      ) : (
+        <>
+          {variants.length > 0 && (
+            <div className="shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] px-4 py-3">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cerca ingrediente…"
+                autoFocus={false}
+                className="min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] bg-transparent px-3 text-base"
+              />
+              {showTypeFilter && (
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { id: "ALL", label: "Tutti" },
+                      { id: "REMOVE", label: "Rimuovi" },
+                      { id: "ADD", label: "Aggiungi" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setTypeFilter(opt.id)}
+                      className={`min-h-11 flex-1 rounded-xl px-2 text-sm font-semibold ${
+                        typeFilter === opt.id
+                          ? "bg-[hsl(var(--pg-primary))] text-white"
+                          : "bg-[hsl(var(--pg-muted))]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {variants.length === 0 ? (
+              <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                Nessuna variante disponibile
+              </p>
+            ) : filtered.length === 0 ? (
+              <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
+                Nessun risultato
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {filtered.map((v) => {
+                  const active = selected.some((s) => s.variantId === v.id);
+                  const catalogPrice = Number(v.priceDelta) || 0;
+                  const selectedEntry = selected.find((s) => s.variantId === v.id);
+                  return (
+                    <div
+                      key={v.id}
+                      className={`rounded-xl border px-3 py-2 ${
+                        active
+                          ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
+                          : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggle(v)}
+                        className="flex min-h-11 w-full items-center justify-between gap-2 text-left text-sm"
+                      >
+                        <span className="font-medium">
+                          {v.type === "REMOVE" ? "NO " : "+"}
+                          {localized(v.name)}
+                        </span>
+                        {v.type === "ADD" && !active && catalogPrice > 0 && (
+                          <span className="text-[hsl(var(--pg-muted-foreground))]">
+                            +€ {catalogPrice.toFixed(2)}
+                          </span>
+                        )}
+                        {v.type === "ADD" && active && (
+                          <span className="text-xs font-medium text-[hsl(var(--pg-primary))]">
+                            Selezionata
+                          </span>
+                        )}
+                      </button>
+                      {v.type === "ADD" && active && (
+                        <label className="mt-2 flex items-center justify-between gap-2 border-t border-[hsl(var(--pg-border))]/60 pt-2 text-sm">
+                          <span className="text-[hsl(var(--pg-muted-foreground))]">
+                            Prezzo aggiunta
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[hsl(var(--pg-muted-foreground))]">€</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              className="min-h-10 w-24 rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-2 text-right font-semibold tabular-nums"
+                              value={
+                                priceDrafts[v.id] ??
+                                formatEuroInput(selectedEntry?.priceDelta ?? catalogPrice)
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setAddPrice(v.id, e.target.value)}
+                            />
+                          </div>
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       <div className={`${bottomSheetFooterClass} items-center justify-between`}>
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">Totale riga</p>
           <span className="text-lg font-bold tabular-nums">€ {unitPrice.toFixed(2)}</span>
+          {noteText && tab === "VARIANTS" && (
+            <p className="truncate text-xs font-medium italic text-amber-700">Nota: {noteText}</p>
+          )}
         </div>
-        <Button className="min-h-12" disabled={!canConfirm} onClick={() => onConfirm(selected)}>
+        <Button className="min-h-12 shrink-0" disabled={!canConfirm} onClick={() => onConfirm(selected, noteText)}>
           {confirmLabel}
         </Button>
       </div>

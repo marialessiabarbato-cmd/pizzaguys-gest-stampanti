@@ -11,6 +11,7 @@ export * from "./ui/BottomSheet";
 export * from "./ui/ConfirmModal";
 export * from "./ui/PinPad";
 export * from "./ui/PinModal";
+export * from "./ui/NoteEditor";
 export * from "./ui/NoteModal";
 export * from "./ui/VariantSheet";
 export * from "./ui/PriceOverrideModal";
