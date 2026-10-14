@@ -1,6 +1,7 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
-import { useCallback, useEffect, useState } from "react";
-import { Layer, Rect, Stage, Text } from "react-konva";
+import { SALA_AREA, clampToArea, findFreeSlot, isOutsideArea, relocateOutsideTables } from "@pizzaguys/comanda";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Group, Layer, Rect, Stage, Text } from "react-konva";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { edgeApi } from "@/lib/api";
 import { formatTableLabel } from "@/lib/table-display";
@@ -37,6 +38,20 @@ export function SalaPage() {
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(false);
   const [confirmDeleteTable, setConfirmDeleteTable] = useState<{ id: string; label: string } | null>(null);
   const [message, setMessage] = useState("");
+  const [relocating, setRelocating] = useState(false);
+  const stageBoxRef = useRef<HTMLDivElement>(null);
+  const [stageBoxWidth, setStageBoxWidth] = useState<number>(SALA_AREA.width);
+
+  useEffect(() => {
+    const node = stageBoxRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setStageBoxWidth(width);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const load = useCallback(async () => {
     const [r, t] = await Promise.all([
@@ -76,18 +91,17 @@ export function SalaPage() {
   const createTable = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeRoomId) return;
-    const roomPhysical = tables.filter((t) => t.roomId === activeRoomId && !t.isVirtual);
+    // Primo posto libero dentro l'area della sala: il nuovo tavolo è sempre visibile.
     const tableSize = 80;
-    const gap = 16;
-    const startX = 20;
-    const startY = 120;
+    const occupied = tables.filter((t) => t.roomId === activeRoomId || t.isVirtual);
+    const slot = findFreeSlot(occupied, { width: tableSize, height: tableSize });
     await edgeApi("/api/tables", {
       method: "POST",
       body: JSON.stringify({
         roomId: activeRoomId,
         label: newTable.label,
-        x: startX + roomPhysical.length * (tableSize + gap),
-        y: startY,
+        x: slot.x,
+        y: slot.y,
         width: tableSize,
         height: tableSize,
         defaultGuests: newTable.guests,
@@ -100,10 +114,39 @@ export function SalaPage() {
 
   const moveTable = async (id: string, x: number, y: number) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, x, y } : t)));
-    await edgeApi(`/api/tables/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ x, y }),
-    });
+    try {
+      await edgeApi(`/api/tables/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ x, y }),
+      });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore spostamento tavolo");
+      void load();
+    }
+  };
+
+  /** Riporta dentro l'area della sala i tavoli salvati fuori (es. aggiunti in fila oltre il bordo). */
+  const relocateOutside = async (candidates: Table[]) => {
+    const moves = relocateOutsideTables(candidates);
+    if (moves.length === 0) return;
+    setRelocating(true);
+    setMessage("");
+    try {
+      for (const move of moves) {
+        await edgeApi(`/api/tables/${move.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ x: move.x, y: move.y }),
+        });
+      }
+      setMessage(
+        moves.length === 1 ? "1 tavolo riportato nella sala" : `${moves.length} tavoli riportati nella sala`,
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore spostamento tavoli");
+    } finally {
+      setRelocating(false);
+      void load();
+    }
   };
 
   const deleteTable = async (id: string) => {
@@ -135,6 +178,19 @@ export function SalaPage() {
   const roomTables = tables.filter((t) => t.roomId === activeRoomId);
   const virtualTables = tables.filter((t) => t.isVirtual);
   const physicalTables = roomTables.filter((t) => !t.isVirtual);
+  const mapTables = useMemo(() => [...roomTables, ...virtualTables], [roomTables, virtualTables]);
+  const outsideTables = mapTables.filter((t) => isOutsideArea(t));
+
+  // L'area cresce fino a includere ogni tavolo (anche quelli salvati fuori) e lo Stage
+  // si rimpicciolisce per farla entrare tutta: nessun tavolo resta fuori dalla finestra.
+  const area = useMemo(() => {
+    const pad = 20;
+    return {
+      width: Math.max(SALA_AREA.width, ...mapTables.map((t) => t.x + t.width + pad)),
+      height: Math.max(SALA_AREA.height, ...mapTables.map((t) => t.y + t.height + pad)),
+    };
+  }, [mapTables]);
+  const stageScale = Math.min(1, stageBoxWidth / area.width, 680 / area.height);
   const deleteRoomMessage = activeRoom
     ? roomTables.length > 0
       ? `Eliminare la sala "${activeRoom.name}" e i suoi ${roomTables.length} tavoli?`
@@ -211,28 +267,63 @@ export function SalaPage() {
             </p>
           </CardHeader>
           <CardContent>
-            <div className="overflow-auto rounded border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30 p-2">
-              <Stage width={900} height={520}>
-                <Layer>
-                  {roomTables.map((t) => (
-                    <TableShape
-                      key={t.id}
-                      table={t}
-                      onMove={moveTable}
-                      onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
+            {outsideTables.length > 0 && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                <span>
+                  {outsideTables.length === 1
+                    ? "1 tavolo è fuori dall'area della sala."
+                    : `${outsideTables.length} tavoli sono fuori dall'area della sala.`}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 px-3 text-xs"
+                  disabled={relocating}
+                  onClick={() => void relocateOutside(mapTables)}
+                >
+                  Riporta i tavoli nella sala
+                </Button>
+              </div>
+            )}
+            <div className="rounded border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30 p-2">
+              <div ref={stageBoxRef} className="w-full overflow-hidden">
+                <Stage
+                  width={area.width * stageScale}
+                  height={area.height * stageScale}
+                  scaleX={stageScale}
+                  scaleY={stageScale}
+                >
+                  <Layer>
+                    {/* Area di base della sala: i tavoli trascinati restano qui dentro. */}
+                    <Rect
+                      x={0}
+                      y={0}
+                      width={SALA_AREA.width}
+                      height={SALA_AREA.height}
+                      stroke="rgba(120,120,120,0.35)"
+                      dash={[6, 6]}
+                      listening={false}
                     />
-                  ))}
-                  {virtualTables.map((t) => (
-                    <TableShape
-                      key={t.id}
-                      table={t}
-                      onMove={moveTable}
-                      onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
-                      virtual
-                    />
-                  ))}
-                </Layer>
-              </Stage>
+                    {roomTables.map((t) => (
+                      <TableShape
+                        key={t.id}
+                        table={t}
+                        onMove={moveTable}
+                        onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
+                      />
+                    ))}
+                    {virtualTables.map((t) => (
+                      <TableShape
+                        key={t.id}
+                        table={t}
+                        onMove={moveTable}
+                        onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
+                        virtual
+                      />
+                    ))}
+                  </Layer>
+                </Stage>
+              </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
               <span className="flex items-center gap-1.5">
@@ -392,14 +483,28 @@ function TableShape({
   virtual?: boolean;
 }) {
   const label = formatTableLabel(table.label);
-  const titleY = virtual ? table.y + table.height / 2 - 8 : table.y + table.height / 2 - 12;
-  const metaY = table.y + table.height / 2 + 6;
+  const titleY = virtual ? table.height / 2 - 8 : table.height / 2 - 12;
+  const metaY = table.height / 2 + 6;
 
   return (
-    <>
+    <Group
+      x={table.x}
+      y={table.y}
+      draggable
+      dragBoundFunc={function (pos) {
+        // Limita il trascinamento all'area della sala (coordinate assolute dello Stage scalato).
+        const scale = this.getStage()?.scaleX() ?? 1;
+        const { x, y } = clampToArea({ x: pos.x / scale, y: pos.y / scale, width: table.width, height: table.height });
+        return { x: x * scale, y: y * scale };
+      }}
+      onDragEnd={(e) => {
+        const { x, y } = clampToArea({ x: e.target.x(), y: e.target.y(), width: table.width, height: table.height });
+        e.target.position({ x, y });
+        onMove(table.id, x, y);
+      }}
+      onDblClick={() => onDelete(table.id, table.label)}
+    >
       <Rect
-        x={table.x}
-        y={table.y}
         width={table.width}
         height={table.height}
         fill={virtual ? "#f59e0b" : "#22c55e"}
@@ -408,12 +513,9 @@ function TableShape({
         shadowBlur={6}
         shadowOpacity={0.18}
         shadowOffset={{ x: 0, y: 2 }}
-        draggable
-        onDragEnd={(e) => onMove(table.id, e.target.x(), e.target.y())}
-        onDblClick={() => onDelete(table.id, table.label)}
       />
       <Text
-        x={table.x + 6}
+        x={6}
         y={titleY}
         width={table.width - 12}
         align="center"
@@ -422,18 +524,20 @@ function TableShape({
         fontStyle="bold"
         fill="#fff"
         ellipsis
+        listening={false}
       />
       {!virtual && (
         <Text
-          x={table.x + 6}
+          x={6}
           y={metaY}
           width={table.width - 12}
           align="center"
           text={`${table.defaultGuests} cop.`}
           fontSize={10}
           fill="rgba(255,255,255,0.92)"
+          listening={false}
         />
       )}
-    </>
+    </Group>
   );
 }
