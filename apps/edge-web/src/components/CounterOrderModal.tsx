@@ -1,7 +1,7 @@
 import { Button } from "@pizzaguys/ui";
 import { useEffect, useMemo, useState } from "react";
 import { CounterCustomerPicker } from "./CounterCustomerPicker";
-import { edgeApi } from "../lib/api";
+import { useDeliveryBrokers } from "../lib/delivery-brokers";
 import type { CounterCustomerSelection } from "../lib/counter-customers";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -81,7 +81,7 @@ export function CounterOrderModal({
   onClose: () => void;
 }) {
   const [form, setForm] = useState<CounterOrderForm>(() => defaultForm(initialChannel));
-  const [brokers, setBrokers] = useState<string[]>([]);
+  const brokers = useDeliveryBrokers();
   const [error, setError] = useState("");
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
 
@@ -89,12 +89,6 @@ export function CounterOrderModal({
     setForm(defaultForm(initialChannel));
     setShowCustomerPicker(false);
   }, [initialChannel]);
-
-  useEffect(() => {
-    void edgeApi<{ snapshot?: { settings?: { deliveryBrokers?: string[] } } }>("/api/menu").then(
-      (m) => setBrokers(m.snapshot?.settings?.deliveryBrokers ?? []),
-    );
-  }, []);
 
   const timeLabel = useMemo(
     () => (form.asap ? "Il prima possibile" : formatTimeLabel(form.hour, form.minute)),

@@ -1,6 +1,7 @@
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { edgeApi } from "../lib/api";
+import { useDeliveryBrokers } from "../lib/delivery-brokers";
 
 interface BrokerLine {
   broker: string;
@@ -38,8 +39,6 @@ interface InternalClosureRecord extends InternalClosureDraft {
 }
 
 type AddKind = "broker" | "expense" | "extra";
-
-const BROKER_PRESETS = ["Glovo", "Alfonsino", "Deliveroo", "Uber Eats"] as const;
 
 function euro(value: number) {
   return `€ ${value.toFixed(2).replace(".", ",")}`;
@@ -118,6 +117,7 @@ export function InternalClosureWizard({
   const [saved, setSaved] = useState<InternalClosureRecord | null>(null);
   const [printMsg, setPrintMsg] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const brokerPresets = useDeliveryBrokers();
 
   const loadDraft = useCallback(async () => {
     setLoading(true);
@@ -479,28 +479,32 @@ export function InternalClosureWizard({
                         Altra voce
                       </Button>
                     </div>
-                    <p className="mb-1.5 mt-3 text-xs font-semibold uppercase text-[hsl(var(--pg-muted-foreground))]">
-                      Broker rapidi
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {BROKER_PRESETS.map((name) => {
-                        const already = brokers.some(
-                          (b) => b.broker.trim().toLowerCase() === name.toLowerCase(),
-                        );
-                        return (
-                          <Button
-                            key={name}
-                            type="button"
-                            variant="outline"
-                            className="h-8 px-2.5 text-xs"
-                            disabled={already}
-                            onClick={() => addVoice("broker", name)}
-                          >
-                            + {name}
-                          </Button>
-                        );
-                      })}
-                    </div>
+                    {brokerPresets.length > 0 && (
+                      <>
+                        <p className="mb-1.5 mt-3 text-xs font-semibold uppercase text-[hsl(var(--pg-muted-foreground))]">
+                          Broker rapidi
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {brokerPresets.map((name) => {
+                            const already = brokers.some(
+                              (b) => b.broker.trim().toLowerCase() === name.toLowerCase(),
+                            );
+                            return (
+                              <Button
+                                key={name}
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-2.5 text-xs"
+                                disabled={already}
+                                onClick={() => addVoice("broker", name)}
+                              >
+                                + {name}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
