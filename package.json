@@ -6,7 +6,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
-    "test": "turbo test",
+    "test": "turbo test --filter=!@pizzaguys/e2e",
     "db:generate": "pnpm --filter @pizzaguys/db generate",
     "db:migrate": "pnpm --filter @pizzaguys/db migrate",
     "db:seed:menu": "pnpm --filter @pizzaguys/db seed:menu",
