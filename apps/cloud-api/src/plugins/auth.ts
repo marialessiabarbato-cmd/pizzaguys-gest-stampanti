@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
+import { resolveJwtSecret } from "../lib/jwt-secret.js";
 
 export interface JwtUser {
   sub: string;
@@ -21,8 +22,10 @@ declare module "fastify" {
 }
 
 export default fp(async (app) => {
-  const secret = process.env.JWT_SECRET ?? "dev-secret-change-me";
-  await app.register(import("@fastify/jwt"), { secret });
+  const check = resolveJwtSecret();
+  if (!check.ok) throw new Error(check.error);
+  if (check.warning) app.log.warn(check.warning);
+  await app.register(import("@fastify/jwt"), { secret: check.secret });
 
   app.decorate("authenticate", async (request: FastifyRequest, reply: FastifyReply) => {
     try {

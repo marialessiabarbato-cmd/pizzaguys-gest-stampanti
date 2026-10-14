@@ -50,7 +50,7 @@
 | T4 | ⏸ **ON HOLD** (serve il mini PC) — **Fix `install-caserta.sh`** | Su un mini PC nuovo la copia di `edge.env` fallisce (`/etc/pizzaguys` viene creata dopo); inoltre copia l'example sopra `/etc/pizzaguys/edge.env`, quindi `CLOUD_API_URL` passato allo script viene ignorato e ogni reinstallazione sovrascrive la configurazione | 0,25 g |
 | T5 | ⏸ **ON HOLD** (decisione cucina) — Configurare smistamento reparti Caserta (dopo decisione) | Comande al reparto giusto | 0,25 g |
 | T6 | ⏸ **ON HOLD** (conferma cucina/titolare) — Validare allergeni e aggiornare `seed-menu-data.ts` / Cloud Admin | Obbligo normativo | dipende dal cliente |
-| T26 | **`JWT_SECRET` obbligatoria in produzione**: oggi senza variabile il Cloud usa `dev-secret-change-me`; far fallire l'avvio se manca. Seed di produzione con `SEED_ADMIN_PASSWORD` propria (il default è nel repo pubblico) | Con il default chiunque abbia letto il codice può firmare token di accesso al Cloud ([`VARIABILI-AMBIENTE.md`](VARIABILI-AMBIENTE.md)) | 0,25 g |
+| T26 | ✅ ~~**`JWT_SECRET` obbligatoria in produzione**~~ — fatto 14/10: con `NODE_ENV=production` il Cloud non parte se `JWT_SECRET` manca, è un default noto o è sotto i 32 caratteri (in sviluppo solo avviso); il seed avvisa se usa la `SEED_ADMIN_PASSWORD` di default. Test: `apps/cloud-api/src/lib/jwt-secret.test.ts` | Con il default chiunque abbia letto il codice può firmare token di accesso al Cloud ([`VARIABILI-AMBIENTE.md`](VARIABILI-AMBIENTE.md)) | 0,25 g |
 | T19 | ✅ ~~**Stato operativo dell'Edge salvato su disco**~~ — fatto 3/10: salvataggio automatico su SQLite (`runtime_state`) e ripristino all'avvio; blocchi rilasciati, token sconto scartati, avviso in cassa. Test: 7 unitari + `scripts/smoke-restart.py` (riavvio pulito e forzato) | Solo in memoria: ordini aperti, ticket KDS, stato/lock tavoli, split, richieste di pagamento (`runtime.ts`) e **incassi del turno** (`shift-ledger.ts`). Dopo un riavvio dell'Edge i tavoli aperti spariscono e il turno risulta ancora aperto ma con incassi azzerati (chiusura turno errata). Il turno in sé e lo storico vendite sono già su SQLite. Non dipende dall'apertura turno. Emerso nei test del 3/10 | 2–3 g |
 
 ### P1 — consigliato per il pilota
@@ -108,5 +108,5 @@
 1. Giro di validazione della sezione 1 (30–45 min insieme, con la ST30 collegata)
 2. P0: ✅ T1, T2, T3, T19 · T4/T5/T6 on hold fino alle informazioni della sezione 2b
 3. Giro di prova con il cliente su `main` (checklist sezione **T**, stampa sulla ST30, palmare anche da smartphone)
-4. Decisioni aperte: PIN sullo storno, X DOLCE, Edge su Windows o mini PC · T26 prima del deploy cloud
+4. Decisioni aperte: PIN sullo storno, X DOLCE, Edge su Windows o mini PC
 5. P1 in base alla data del pilota (T20–T23 sono piccoli e utili prima della formazione)

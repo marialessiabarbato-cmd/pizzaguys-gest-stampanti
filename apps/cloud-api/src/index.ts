@@ -11,6 +11,7 @@ import { menuRoutes } from "./routes/menu.js";
 import { priceRoutes } from "./routes/prices.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { supportRoutes } from "./routes/support.js";
+import { resolveJwtSecret } from "./lib/jwt-secret.js";
 import { startNightlyReportWorker } from "./lib/nightly-worker.js";
 import { reportRoutes } from "./routes/reports.js";
 import { invoiceRoutes } from "./routes/invoices.js";
@@ -22,6 +23,13 @@ import { userRoutes } from "./routes/users.js";
 import { variantRoutes } from "./routes/variants.js";
 
 const PORT = Number(process.env.CLOUD_API_PORT ?? 4000);
+
+// Controllo prima di tutto il resto: in produzione niente avvio con un segreto debole.
+const jwtCheck = resolveJwtSecret();
+if (!jwtCheck.ok) {
+  console.error(`[cloud-api] ERRORE: ${jwtCheck.error}`);
+  process.exit(1);
+}
 
 const app = Fastify({ logger: true });
 await app.register(cors, {

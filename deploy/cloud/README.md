@@ -25,7 +25,7 @@ I valori reali vanno solo nei secret del fornitore (`fly secrets set`), mai in f
 | Variabile | Obbligatoria | Esempio |
 |-----------|--------------|---------|
 | `DATABASE_URL` | sì | `postgresql://...` |
-| `JWT_SECRET` | **sì** — senza, il codice usa un default pubblico (todo T26) | `openssl rand -base64 48` |
+| `JWT_SECRET` | **sì** — almeno 32 caratteri; se manca o è debole l'API non parte | `openssl rand -base64 48` |
 | `SEED_ADMIN_EMAIL` | seed | `admin@pizzaguys.it` |
 | `SEED_ADMIN_PASSWORD` | seed — il default è pubblico nel repo | password propria, da cambiare al primo accesso |
 | `NIGHTLY_REPORT_ENABLED` | no | `true` |

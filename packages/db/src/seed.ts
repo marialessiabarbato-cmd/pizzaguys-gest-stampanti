@@ -9,7 +9,15 @@ const DATABASE_URL =
   "postgresql://pizzaguys:pizzaguys@localhost:5432/pizzaguys_cloud";
 
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@pizzaguys.it";
-const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "PizzaGuys2026!";
+const DEFAULT_ADMIN_PASSWORD = "PizzaGuys2026!";
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD?.trim() ? process.env.SEED_ADMIN_PASSWORD : DEFAULT_ADMIN_PASSWORD;
+
+if (process.env.NODE_ENV === "production" && ADMIN_PASSWORD === DEFAULT_ADMIN_PASSWORD) {
+  console.warn(
+    "⚠ SEED_ADMIN_PASSWORD non è impostata (o è quella di default): il SuperAdmin viene creato con una password " +
+      "pubblica (repo aperto). Rilanciare il seed con una password propria o cambiarla subito al primo accesso.",
+  );
+}
 
 async function main() {
   const db = createDb(DATABASE_URL);
