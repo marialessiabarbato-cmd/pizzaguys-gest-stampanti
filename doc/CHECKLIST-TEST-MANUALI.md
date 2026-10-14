@@ -1,31 +1,15 @@
 # Checklist test manuali — Pizza Guys Gest
 
 Documento operativo per verificare le feature richieste (sala, cassa, handheld, cloud, chiusure).  
-Aggiornato: **3 ottobre 2026** (aggiunta sezione **S — Stampa**).
+Aggiornato: **14 ottobre 2026** (ambiente e PIN allineati a `dev-up.sh`).
 
 ---
 
 ## Ambiente
 
-
-| Servizio             | URL                                            |
-| -------------------- | ---------------------------------------------- |
-| Cassa (Main Station) | [http://localhost:5173](http://localhost:5173) |
-| Handheld (Sala)      | [http://localhost:5174](http://localhost:5174) |
-| Cloud Hub            | [http://localhost:3000](http://localhost:3000) |
-| Edge API             | [http://localhost:4100](http://localhost:4100) |
-| Cloud API            | [http://localhost:4000](http://localhost:4000) |
-
-
-
-| Ruolo            | Credenziali                         |
-| ---------------- | ----------------------------------- |
-| Cameriere        | PIN `1234`                          |
-| Cassiere         | PIN `5678` (ambiente locale attuale — vedi `doc/TEST-LOCALE.md`) |
-| SuperAdmin cloud | `admin@pizzaguys.it` / password hub |
-
-I PIN dipendono dall'ambiente (si creano su Main Station → Staff). Gli smoke Python si aspettano `1234` e `5678`.
-
+Avvio, link e dati di test: [`TEST-LOCALE.md`](TEST-LOCALE.md) (`./scripts/dev-up.sh`).
+PIN di test: palmare `1234` / `1111` (camerieri), cassa `5678` (Admin di sede: apre la cassa, PIN manager,
+Impostazioni). Cloud Admin: `admin@pizzaguys.it`. Per ripartire puliti: `./scripts/dev-up.sh --reset-edge`.
 
 ### Smoke automatici (opzionale, prima del giro UI)
 
@@ -34,7 +18,7 @@ python3 scripts/smoke-feature-richieste.py
 python3 scripts/smoke-giro-test.py
 ```
 
-Atteso: **0 FAIL**. I WARN su chiusura Z devono essere **0** dopo cleanup turni/tavoli.
+Atteso: **0 FAIL**. Se pranzo e cena di oggi sono già stati usati, prima `./scripts/dev-up.sh --reset-edge`.
 
 > ⚠️ Con `HARDWARE_BRIDGE_MODE=network` e stampante reale collegata, `smoke-giro-test.py` stampa decine
 > di ticket: puntare prima le stampanti al simulatore (`doc/TEST-LOCALE.md`).

@@ -29,7 +29,7 @@ I turni degli operatori non sbloccano più niente.
 | Autorizzazioni Edge | Nessuna autenticazione sulle API: l'operatore arriva nel body; `verifyManagerPin` esiste già | I controlli di ruolo oggi sono solo nella UI |
 | Data contabile | `todayKey()` usa `toISOString()` (UTC) | Una chiusura dopo l'una di notte d'inverno finisce sul giorno dopo |
 
-Requisiti già scritti in `UserStories .md` (US 5.3–5.4) e coerenti con questo piano: conteggio
+Requisiti già scritti in `progetto/USER-STORIES.md` (US 5.3–5.4) e coerenti con questo piano: conteggio
 contanti per tagli "al netto del fondo cassa iniziale", totale POS da strisciata, scostamento in
 rosso se negativo e in arancione se positivo, record di chiusura immutabile.
 

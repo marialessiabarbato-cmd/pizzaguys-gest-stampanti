@@ -10,10 +10,11 @@ build/
 .turbo/
 *.tsbuildinfo
 
-# Env
+# Env e segreti locali (mai in git: vedi doc/VARIABILI-AMBIENTE.md)
 .env
 .env.*
 !.env.example
+*.local.md
 
 # Logs & temp
 *.log

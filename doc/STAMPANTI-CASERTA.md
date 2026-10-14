@@ -1,8 +1,8 @@
 # Stampanti fisiche — Pilota Caserta
 
 > Censimento hardware reale per il test delle stampanti in rete
-> (`HARDWARE_BRIDGE_MODE=network`, vedi [FASE-6.md](FASE-6.md) T6.2 e
-> [PIANO-OPERATIVO.md](PIANO-OPERATIVO.md#63-periferiche-per-sede)).
+> (`HARDWARE_BRIDGE_MODE=network`, vedi [FASE-6.md](fasi/FASE-6.md) T6.2 e
+> [PIANO-OPERATIVO.md](progetto/PIANO-OPERATIVO.md#63-periferiche-per-sede)).
 
 ## Inventario
 

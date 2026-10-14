@@ -1,7 +1,8 @@
 # Piano Operativo — Pizza Guys Gest
 
 > Documento di riferimento consolidato. Aggiornato prima dell'avvio della **Fase 0**.  
-> Fonti: `Documentazione Pizza Guys v2.0.md`, `UserStories .md`, sessioni di discovery.
+> **Piano originale**: lo stato attuale e la todo sono in [`doc/HANDOFF.md`](../HANDOFF.md) e [`doc/PROSSIMI-STEP.md`](../PROSSIMI-STEP.md).  
+> Fonti: `doc/progetto/SPECIFICHE-v2.0.md`, `doc/progetto/USER-STORIES.md`, sessioni di discovery.
 
 ---
 
@@ -313,10 +314,10 @@ pizzaguys-gest/
 ### 5.1 Avvio ambiente
 
 ```bash
-docker compose up -d          # Postgres + Redis
-pnpm install
-pnpm dev                    # Avvia tutti i servizi in parallelo (Turborepo)
+./scripts/dev-up.sh         # Docker, DB, dipendenze, tutte le app, provisioning Edge di test
 ```
+
+Dettagli, accessi e test: [`doc/TEST-LOCALE.md`](../TEST-LOCALE.md).
 
 ### 5.2 URL e porte
 
@@ -343,8 +344,8 @@ pnpm dev                    # Avvia tutti i servizi in parallelo (Turborepo)
 ### 5.4 Test LAN con tablet Fire (pre-deploy)
 
 1. Mac e tablet sulla stessa rete Wi-Fi.
-2. Avviare edge-api con `HOST=0.0.0.0`.
-3. Su Fire Tablet: Chrome → `http://<IP-Mac>:5174`.
+2. L'Edge ascolta già su tutte le interfacce (`EDGE_API_HOST=0.0.0.0`, default).
+3. Su Fire Tablet o smartphone: browser → `http://<IP-Mac>:5174` (`dev-up.sh` stampa l'indirizzo).
 4. Installare come PWA ("Aggiungi a schermata Home").
 5. Verificare: WebSocket < 150ms, table locking con 2 dispositivi.
 
@@ -578,7 +579,7 @@ Brand (Pizza Guys)
 
 ### Fase 5 — Chiusura e sync cloud (2 settimane)
 
-> **Stato:** ✅ Completata — audit edge, CSV, retry sync, `daily_closures`, report notturno. Dettaglio: `doc/FASE-5.md`.
+> **Stato:** ✅ Completata — audit edge, CSV, retry sync, `daily_closures`, report notturno. Dettaglio: `doc/fasi/FASE-5.md`.
 
 | ID | Task | US |
 |----|------|-----|
@@ -596,7 +597,7 @@ Brand (Pizza Guys)
 
 ### Fase 6 — Pilota Caserta (2 settimane)
 
-> **Stato:** 🔄 In corso — scaffold deploy, seed menu, script edge, e2e smoke. Dettaglio: `doc/FASE-6.md`.
+> **Stato:** 🔄 In corso — scaffold deploy, seed menu, script edge, e2e smoke. Dettaglio: `doc/fasi/FASE-6.md`.
 
 | ID | Task | Stato |
 |----|------|-------|
@@ -767,12 +768,12 @@ avanzamento 5 righe (`ESC d 5`) prima del taglio `GS V 0`; carta 80 mm = 48 colo
 
 1. ✅ Documento piano operativo (questo file)
 2. ✅ **Fase 0** — Scaffold monorepo (T0.1 → T0.7)
-3. ✅ **Fase 1** — Cloud SuperAdmin (vedi `doc/FASE-1.md`)
-4. ✅ **Fase 2** — Edge provisioning e sala (vedi `doc/FASE-2.md`)
-5. ✅ **Fase 3** — Operatività sala (vedi `doc/FASE-3.md`)
-6. ✅ **Fase 4** — Cassa e pagamenti (`doc/FASE-4.md`)
-7. ✅ **Fase 5** — Chiusura e sync (`doc/FASE-5.md`)
-8. 🔄 **Fase 6** — Pilota Caserta (`doc/FASE-6.md`)
+3. ✅ **Fase 1** — Cloud SuperAdmin (vedi `doc/fasi/FASE-1.md`)
+4. ✅ **Fase 2** — Edge provisioning e sala (vedi `doc/fasi/FASE-2.md`)
+5. ✅ **Fase 3** — Operatività sala (vedi `doc/fasi/FASE-3.md`)
+6. ✅ **Fase 4** — Cassa e pagamenti (`doc/fasi/FASE-4.md`)
+7. ✅ **Fase 5** — Chiusura e sync (`doc/fasi/FASE-5.md`)
+8. 🔄 **Fase 6** — Pilota Caserta (`doc/fasi/FASE-6.md`)
 9. ✅ Seed menu pilota — menu reale "Travelling Kitchen" (allergeni da validare)
 10. 🔄 Deploy cloud EU — `deploy/cloud/README.md`
 11. ⬜ Acquisizione hardware Caserta (mini PC + tablet)
@@ -788,15 +789,16 @@ avanzamento 5 righe (`ESC d 5`) prima del taglio `GS V 0`; carta 80 mm = 48 colo
 | 2026-06-10 | 1.0 | Creazione iniziale — consolidamento discovery + piano operativo |
 | 2026-06-10 | 1.0 | Decisione P.IVA: opzione B (report per sede) |
 | 2026-06-10 | 1.1 | Fase 0 completata — scaffold monorepo |
-| 2026-06-10 | 1.2 | Fase 1 avviata — auth, DB, sedi; vedi `doc/FASE-1.md` e `doc/HANDOFF.md` |
+| 2026-06-10 | 1.2 | Fase 1 avviata — auth, DB, sedi; vedi `doc/fasi/FASE-1.md` e `doc/HANDOFF.md` |
 | 2026-06-10 | 1.3 | Fase 1 completata — menu builder, prezzi, varianti, utenti, audit, delta sync |
 | 2026-06-10 | 1.4 | Fase 2 completata — edge-db, provisioning cloud, sala Konva, stampanti, staff, WS |
 | 2026-06-10 | 1.5 | Fase 3 completata — handheld PWA, KDS sim, ordini, varianti, offline |
-| 2026-06-10 | 1.6 | Fase 4 avviata — doc `FASE-4.md`, cassa e pagamenti |
+| 2026-06-10 | 1.6 | Fase 4 avviata — doc `doc/fasi/FASE-4.md`, cassa e pagamenti |
 | 2026-06-10 | 1.7 | Fase 5 completata — chiusura, audit, sync, report notturno |
 | 2026-06-10 | 1.8 | Fase 6 avviata — pilota Caserta, seed menu, deploy, e2e |
 | 2026-10-03 | 1.9 | §14 flussi stampa: stato implementazione e scostamenti; ESC/POS reale testato su ST30 |
+| 2026-10-14 | 1.10 | Spostato in `doc/progetto/`; §5 avvio con `scripts/dev-up.sh`; stato attuale rimandato a HANDOFF / PROSSIMI-STEP |
 
 ---
 
-*Documento mantenuto in `doc/PIANO-OPERATIVO.md`. Aggiornare ad ogni milestone o decisione architetturale rilevante.*
+*Documento mantenuto in `doc/progetto/PIANO-OPERATIVO.md`. Aggiornare ad ogni milestone o decisione architetturale rilevante.*

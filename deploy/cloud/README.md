@@ -19,11 +19,15 @@ pnpm --filter @pizzaguys/db seed:menu
 
 ## Variabili ambiente (produzione)
 
+Elenco completo con default e variabili segrete: [`doc/VARIABILI-AMBIENTE.md`](../../doc/VARIABILI-AMBIENTE.md).
+I valori reali vanno solo nei secret del fornitore (`fly secrets set`), mai in file del repository (pubblico).
+
 | Variabile | Obbligatoria | Esempio |
 |-----------|--------------|---------|
 | `DATABASE_URL` | sì | `postgresql://...` |
-| `JWT_SECRET` | sì | stringa lunga random |
+| `JWT_SECRET` | **sì** — senza, il codice usa un default pubblico (todo T26) | `openssl rand -base64 48` |
 | `SEED_ADMIN_EMAIL` | seed | `admin@pizzaguys.it` |
+| `SEED_ADMIN_PASSWORD` | seed — il default è pubblico nel repo | password propria, da cambiare al primo accesso |
 | `NIGHTLY_REPORT_ENABLED` | no | `true` |
 | `EMAIL_MOCK_DIR` | no | `/data/emails` — usata se manca `RESEND_API_KEY` |
 | `RESEND_API_KEY` | no | invio email reale (report notturno, chiusure, segnalazioni) |
@@ -64,17 +68,10 @@ fly deploy -a pizzaguys-api
 ## Post-deploy checklist
 
 - [ ] Migrazione DB (`pnpm db:migrate` contro DATABASE_URL prod)
-- [ ] Seed admin + menu pilota
+- [ ] Seed admin (con `SEED_ADMIN_PASSWORD` propria) + menu pilota
 - [ ] Creare sede Caserta e salvare API token
 - [ ] Health: `GET /health` → `{ ok: true }`
 - [ ] Login SuperAdmin su cloud-web
 - [ ] Test sync: edge provision + heartbeat
 
-## Dev locale (riferimento)
-
-```bash
-docker compose up -d
-pnpm dev
-```
-
-Cloud API: http://localhost:4000 · Admin: http://localhost:3000
+Sviluppo locale: [`doc/TEST-LOCALE.md`](../../doc/TEST-LOCALE.md).
