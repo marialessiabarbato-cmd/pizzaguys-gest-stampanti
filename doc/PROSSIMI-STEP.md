@@ -68,7 +68,7 @@
 | T22 | **Libera tavolo**: pulsante per liberare un tavolo aperto per errore (senza comande né conto) | Oggi resta occupato finché non si incassa o si chiude la giornata | 0,25 g |
 | T23 | **Marcia ▶ suggerita** anche dopo Spedisci: oggi il suggerimento guarda solo la bozza, dopo l'invio chiede la portata | Un tocco in meno per il cameriere | 0,25 g |
 | T25 | ✅ ~~Servizio proposto all'apertura cassa salta pranzo/cena già usati; smoke test in sequenza; CI senza e2e~~ — fatto 14/10, in `main` | La CI falliva sempre; il secondo smoke test della giornata falliva | — |
-| T27 | **Unire `feat/sala-modifica-tavolo`**: scheda tavolo nel Sala Builder (etichetta, coperti, elimina al tocco), blocco eliminazione di tavoli/sale in uso, etichette uniche | Pronto e testato, non ancora in `main` | — |
+| T27 | **Unire PR #6** (`feat/sala-modifica-tavolo`): scheda tavolo nel Sala Builder (etichetta, coperti, elimina al tocco), blocco eliminazione di tavoli/sale in uso, etichette uniche | Pronto e testato, non ancora in `main` | — |
 | T28 | **Sala Builder: tavoli virtuali** (Asporto/Delivery) disegnati in alto a sinistra sopra i tavoli di ogni sala | Possono coprire un tavolo vero e intercettarne il tocco | 0,25 g |
 | T24 | ✅ ~~Script di reset dell'ambiente di test~~ — fatto 14/10: `./scripts/dev-up.sh --reset-edge` (Edge da zero, riprovisionata) | Oggi la pulizia si fa a mano | — |
 

@@ -17,7 +17,8 @@
 |---|---|
 | GitHub | `marialessiabarbato-cmd/pizzaguys-gest-stampanti` — **pubblico**, account di lavoro `wearedexin-git` |
 | Branch principale | `main` (CI verde dal 14/10: build, typecheck, test) |
-| Branch aperti | `feat/sala-modifica-tavolo` (scheda tavolo nel Sala Builder, da unire) · storici: `fix-comanda-cassa`, `unione-branch`, `test-stampa`, `Fix-peppe` |
+| PR aperte (14/10) | Ordine di merge: **#4** documentazione → **#5** T26 `JWT_SECRET` (impilata su #4) → **#6** scheda tavolo → **#1** piattaforme delivery chiusura interna → **#2** nota nella finestra varianti → **#3** tavoli sempre raggiungibili e lista palmare (contiene già il merge con #6). Tutte unibili senza conflitti; integrazione verificata nel branch locale `integrazione/2026-10-14` |
+| Branch storici | `fix-comanda-cassa`, `unione-branch`, `test-stampa`, `Fix-peppe` (non più usati) |
 | Copia di lavoro | `~/IA_PROJECT/HuBbì/pizzaguys-gest-stampanti` |
 
 ## Decisioni prese (non ridiscutere senza motivo)
