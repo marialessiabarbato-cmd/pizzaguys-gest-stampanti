@@ -1,7 +1,7 @@
 import { CASH_SERVICE_LABELS, type CashSession } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
-import { edgeApi, edgeApiDownload } from "../lib/api";
+import { EDGE_API, edgeApi, edgeApiDownload } from "../lib/api";
 
 type Step = "precheck" | "zreport" | "reconcile" | "done";
 
@@ -273,7 +273,7 @@ export function ClosureWizard({
                 className="flex-1 text-xs"
                 onClick={() =>
                   window.open(
-                    `${import.meta.env.VITE_EDGE_API_URL ?? "http://localhost:4100"}/api/closure/daily-report.html`,
+                    `${EDGE_API}/api/closure/daily-report.html`,
                     "_blank",
                   )
                 }

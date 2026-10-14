@@ -1,4 +1,6 @@
-const EDGE_API = import.meta.env.VITE_EDGE_API_URL ?? "http://localhost:4100";
+import { resolveEdgeUrl } from "@pizzaguys/ui";
+
+const EDGE_API = resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100");
 
 export async function edgeApi<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${EDGE_API}${path}`, {

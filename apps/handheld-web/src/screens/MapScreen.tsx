@@ -14,9 +14,13 @@ import {
   filterTablesByRoom,
   isUnionHost,
   mapTableMeta,
+  sortTablesForGrid,
   tableLabelFontClass,
 } from "@pizzaguys/comanda";
 import type { LiveTable, Operator } from "../lib/types";
+
+/** Larghezza indicativa di una tessera in griglia, per scegliere il corpo dell'etichetta. */
+const GRID_LABEL_WIDTH = 96;
 
 export function MapScreen({
   operator,
@@ -101,6 +105,57 @@ export function MapScreen({
     [rooms, selectedRoomId],
   );
 
+  // Griglia (telefono): tessere tutte uguali, in ordine di lettura della sala.
+  const gridTables = useMemo(() => sortTablesForGrid(displayTables), [displayTables]);
+
+  const emptyMessage = (
+    <p className="px-6 py-10 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
+      {activeRoomName ? `Nessun tavolo in ${activeRoomName}` : "Nessun tavolo in sala — configura la mappa da Admin"}
+    </p>
+  );
+
+  const renderTable = (table: LiveTable, layout: "map" | "grid", labelWidth: number) => {
+    const unionHost = isUnionHost(table);
+    const annexedCount = table.linkedTableIds?.length ?? 0;
+    const { title, meta } = mapTableMeta(table, tables);
+    const status = table.status;
+
+    return (
+      <button
+        key={table.id}
+        type="button"
+        disabled={lockPending === table.id}
+        onClick={() => onSelectTable(table)}
+        style={
+          layout === "map"
+            ? { position: "absolute", left: table.x, top: table.y, width: table.width, height: table.height }
+            : undefined
+        }
+        className={`${layout === "grid" ? "h-20 w-full" : ""} relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
+          unionHost ? "ring-2 ring-white/40 ring-offset-1 ring-offset-transparent" : ""
+        } ${lockPending === table.id ? "opacity-50" : ""}`}
+      >
+        {unionHost && annexedCount > 0 && (
+          <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-2xs font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
+            +{annexedCount}
+          </span>
+        )}
+
+        <span
+          className={`max-w-full truncate font-bold leading-tight ${tableLabelFontClass(title, labelWidth)}`}
+        >
+          {title}
+        </span>
+
+        {meta ? (
+          <span className="max-w-full truncate text-2xs font-medium leading-tight text-white/85">
+            {meta}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
   const statusSummary = useMemo(() => {
     const counts: Partial<Record<TableStatus, number>> = {};
     for (const table of visibleTables) {
@@ -172,60 +227,27 @@ export function MapScreen({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <TableMapViewport tables={displayTables} maxScale={1.15} align="start" className="!p-0">
+            <TableMapViewport
+              tables={displayTables}
+              maxScale={1.15}
+              align="start"
+              className="!p-0"
+              renderGrid={() =>
+                displayTables.length > 0 ? (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3 pb-2">
+                    {gridTables.map((table) => renderTable(table, "grid", GRID_LABEL_WIDTH))}
+                  </div>
+                ) : (
+                  emptyMessage
+                )
+              }
+            >
               {(scale) => (
                 <>
-                  {displayTables.map((table) => {
-                    const unionHost = isUnionHost(table);
-                    const annexedCount = table.linkedTableIds?.length ?? 0;
-                    const { title, meta } = mapTableMeta(table, tables);
-                    const labelWidth = table.width * scale;
-                    const status = table.status;
-
-                    return (
-                      <button
-                        key={table.id}
-                        type="button"
-                        disabled={lockPending === table.id}
-                        onClick={() => onSelectTable(table)}
-                        style={{
-                          position: "absolute",
-                          left: table.x,
-                          top: table.y,
-                          width: table.width,
-                          height: table.height,
-                        }}
-                        className={`relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
-                          unionHost ? "ring-2 ring-white/40 ring-offset-1 ring-offset-transparent" : ""
-                        } ${lockPending === table.id ? "opacity-50" : ""}`}
-                      >
-                        {unionHost && annexedCount > 0 && (
-                          <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--pg-primary))] px-1.5 py-0.5 text-2xs font-bold leading-none text-[hsl(var(--pg-primary-foreground))] shadow-sm">
-                            +{annexedCount}
-                          </span>
-                        )}
-
-                        <span
-                          className={`max-w-full truncate font-bold leading-tight ${tableLabelFontClass(title, labelWidth)}`}
-                        >
-                          {title}
-                        </span>
-
-                        {meta ? (
-                          <span className="max-w-full truncate text-2xs font-medium leading-tight text-white/85">
-                            {meta}
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
+                  {displayTables.map((table) => renderTable(table, "map", table.width * scale))}
 
                   {displayTables.length === 0 && (
-                    <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
-                      {activeRoomName
-                        ? `Nessun tavolo in ${activeRoomName}`
-                        : "Nessun tavolo in sala — configura la mappa da Admin"}
-                    </p>
+                    <div className="absolute inset-0 flex items-center justify-center">{emptyMessage}</div>
                   )}
                 </>
               )}

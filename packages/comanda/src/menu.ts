@@ -1,5 +1,5 @@
 import { calculateLinePrice, isLinePriceValid } from "@pizzaguys/fiscal";
-import { isHeldCourse } from "@pizzaguys/types";
+import { isHeldCourse, randomId } from "@pizzaguys/types";
 import { defaultCourseForCategory, normalizeCourse } from "./course";
 import type { CartLine, Category, MenuSnapshot, Product, VariantGroup, VariantOption, VariantSelection } from "./types";
 
@@ -87,7 +87,7 @@ export function buildCartLine(
   }
   const course = normalizeCourse(courseOverride ?? defaultCourseForCategory(category));
   return {
-    lineId: crypto.randomUUID(),
+    lineId: randomId(),
     productId: product.id,
     name: localized(product.name),
     basePrice,

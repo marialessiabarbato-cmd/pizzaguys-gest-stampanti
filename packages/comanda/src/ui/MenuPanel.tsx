@@ -55,9 +55,18 @@ export function MenuPanel({
     allergenFilter.length > 0 &&
     allergenFilter.some((a) => (p.allergenIds ?? []).includes(a));
 
+  // Griglia (cassa): filtri fissi in alto e prodotti con scroll proprio.
+  // Lista (palmare): scorre tutto insieme nel contenitore del menu, filtri compresi:
+  // su telefono filtri + barra azioni lascerebbero alla lista pochi pixel o nessuno.
+  const isGrid = variant === "grid";
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="sticky top-0 z-10 shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 p-3 backdrop-blur-sm">
+    <div className={isGrid ? "flex h-full flex-col" : "flex flex-col"}>
+      <div
+        className={`shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 p-3 ${
+          isGrid ? "sticky top-0 z-10 backdrop-blur-sm" : ""
+        }`}
+      >
         <input
           ref={searchRef}
           type="search"
@@ -109,7 +118,7 @@ export function MenuPanel({
           Nessun piatto trovato
         </p>
       )}
-      {variant === "grid" ? (
+      {isGrid ? (
         <div className="grid flex-1 auto-rows-min grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {products.map((p) => {
             const excluded = isExcluded(p);
@@ -150,7 +159,7 @@ export function MenuPanel({
           })}
         </div>
       ) : (
-        <ul className="flex-1 divide-y divide-[hsl(var(--pg-border))] overflow-y-auto">
+        <ul className="divide-y divide-[hsl(var(--pg-border))]">
           {products.map((p) => {
             const excluded = isExcluded(p);
             const price = resolvePrice(p, channel, menu.prices ?? []);

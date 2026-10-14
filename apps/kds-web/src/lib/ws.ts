@@ -1,7 +1,9 @@
 import type { WsEnvelope, WsMessageType } from "@pizzaguys/types";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { resolveEdgeUrl } from "@pizzaguys/ui";
+import { randomId } from "@pizzaguys/types";
 
-const WS_URL = import.meta.env.VITE_EDGE_WS_URL ?? "ws://localhost:4100/ws";
+const WS_URL = resolveEdgeUrl(import.meta.env.VITE_EDGE_WS_URL, "ws://localhost:4100/ws");
 
 export function useEdgeWs() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -20,7 +22,7 @@ export function useEdgeWs() {
           type,
           payload,
           timestamp: new Date().toISOString(),
-          messageId: crypto.randomUUID(),
+          messageId: randomId(),
         } satisfies WsEnvelope),
       );
     }
@@ -37,7 +39,7 @@ export function useEdgeWs() {
       ws.onopen = () => {
         if (!alive) return;
         setConnected(true);
-        send("HANDSHAKE", { deviceId: crypto.randomUUID(), clientVersion: "kds-0.1.0" });
+        send("HANDSHAKE", { deviceId: randomId(), clientVersion: "kds-0.1.0" });
       };
       ws.onclose = () => {
         setConnected(false);

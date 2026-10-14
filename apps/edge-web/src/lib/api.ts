@@ -1,4 +1,6 @@
-const EDGE_API = import.meta.env.VITE_EDGE_API_URL ?? "http://localhost:4100";
+import { resolveEdgeUrl } from "@pizzaguys/ui";
+
+const EDGE_API = resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100");
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 /** Token della sessione operatore (da verify-pin): richiesto dalle route di configurazione. */

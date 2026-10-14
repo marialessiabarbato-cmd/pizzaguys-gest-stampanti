@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { computeMapBounds, computeMapScale, type MapTableBounds } from "@pizzaguys/comanda";
+import { computeMapBounds, computeMapFit, computeMapScale, type MapTableBounds } from "@pizzaguys/comanda";
 
 export function TableMapViewport({
   tables,
@@ -7,12 +7,18 @@ export function TableMapViewport({
   maxScale,
   align = "center",
   children,
+  renderGrid,
 }: {
   tables: MapTableBounds[];
   className?: string;
   maxScale?: number;
   align?: "center" | "start";
   children: (scale: number) => ReactNode;
+  /**
+   * Vista alternativa quando la mappa non entra senza rimpicciolirla (telefono):
+   * i tavoli fuori schermo non sarebbero raggiungibili, quindi si passa a una griglia con scroll.
+   */
+  renderGrid?: () => ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -32,32 +38,43 @@ export function TableMapViewport({
     return () => observer.disconnect();
   }, []);
 
+  const measured = size.width > 0 && size.height > 0;
+  const useGrid = Boolean(renderGrid) && measured && computeMapFit(bounds, size, 24) < 1;
   const scale = computeMapScale(bounds, size, 24, maxScale ?? 3.6);
 
+  // Un solo contenitore misurato: passando da mappa a griglia (es. rotazione) resta osservato.
   return (
     <div
       ref={containerRef}
-      className={`flex min-h-0 flex-1 overflow-hidden p-4 ${align === "start" ? "items-start justify-start" : "items-center justify-center"} ${className ?? ""}`}
+      className={`min-h-0 flex-1 p-4 ${
+        useGrid
+          ? "overflow-y-auto"
+          : `flex overflow-hidden ${align === "start" ? "items-start justify-start" : "items-center justify-center"}`
+      } ${className ?? ""}`}
     >
-      <div
-        className="relative shrink-0"
-        style={{
-          width: bounds.width * scale,
-          height: bounds.height * scale,
-        }}
-      >
+      {useGrid && renderGrid ? (
+        renderGrid()
+      ) : (
         <div
-          className="relative"
+          className="relative shrink-0"
           style={{
-            width: bounds.width,
-            height: bounds.height,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
+            width: bounds.width * scale,
+            height: bounds.height * scale,
           }}
         >
-          {children(scale)}
+          <div
+            className="relative"
+            style={{
+              width: bounds.width,
+              height: bounds.height,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            }}
+          >
+            {children(scale)}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

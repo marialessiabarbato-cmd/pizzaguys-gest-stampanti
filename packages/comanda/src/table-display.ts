@@ -82,17 +82,42 @@ export function computeMapBounds(
   };
 }
 
+/** Scala con cui la mappa entrerebbe nel contenitore (< 1 = andrebbe rimpicciolita). */
+export function computeMapFit(
+  content: { width: number; height: number },
+  container: { width: number; height: number },
+  padding = 24,
+): number {
+  if (container.width <= padding || container.height <= padding) return 1;
+  const sx = (container.width - padding) / content.width;
+  const sy = (container.height - padding) / content.height;
+  return Math.min(sx, sy);
+}
+
 export function computeMapScale(
   content: { width: number; height: number },
   container: { width: number; height: number },
   padding = 24,
   maxScale = 5,
 ): number {
-  if (container.width <= padding || container.height <= padding) return 1;
-  const sx = (container.width - padding) / content.width;
-  const sy = (container.height - padding) / content.height;
-  const fit = Math.min(sx, sy);
-  return Math.min(Math.max(fit, 1), maxScale);
+  return Math.min(Math.max(computeMapFit(content, container, padding), 1), maxScale);
+}
+
+/**
+ * Ordine di lettura della sala per la vista a griglia (telefono): per righe dall'alto,
+ * poi da sinistra. Tavoli sulla stessa riga in mappa con y leggermente diverse
+ * (entro metà altezza) restano sulla stessa riga.
+ */
+export function sortTablesForGrid<T extends MapTableBounds>(tables: T[]): T[] {
+  const byY = [...tables].sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows: T[][] = [];
+  for (const table of byY) {
+    const row = rows[rows.length - 1];
+    const rowTop = row?.[0];
+    if (row && rowTop && table.y - rowTop.y < rowTop.height / 2) row.push(table);
+    else rows.push([table]);
+  }
+  return rows.flatMap((row) => row.sort((a, b) => a.x - b.x));
 }
 
 export function filterTablesByRoom<T extends { isVirtual: boolean; roomId?: string | null }>(

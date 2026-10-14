@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
+import { Card, CardContent, CardHeader, CardTitle, resolveEdgeUrl } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
 import { useEdgeWs } from "./lib/ws";
 
@@ -67,7 +67,7 @@ export default function App() {
   const loadTickets = useCallback(async () => {
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_EDGE_API_URL ?? "http://localhost:4100"}/api/kds/tickets`,
+        `${resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100")}/api/kds/tickets`,
       );
       if (res.ok) {
         const data = (await res.json()) as KdsSnapshot | KdsTicket[];

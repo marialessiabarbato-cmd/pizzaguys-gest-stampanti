@@ -1,5 +1,5 @@
 import type { CashService, CashSessionStatusPayload, FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
-import { isCashOperatorRole } from "@pizzaguys/types";
+import { isCashOperatorRole, randomId } from "@pizzaguys/types";
 import { Button, useTheme } from "@pizzaguys/ui";
 import { ComandaWorkspace, useComanda, type LiveTable as ComandaTable } from "@pizzaguys/comanda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -536,7 +536,7 @@ export function CassaPage({
       setPrintAlerts((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: randomId(),
           at: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
           messages: p.messages,
         },

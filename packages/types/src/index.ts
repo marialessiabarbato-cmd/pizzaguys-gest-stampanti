@@ -5,3 +5,4 @@ export * from "./api.js";
 export * from "./quick-notes.js";
 export * from "./course.js";
 export * from "./cash.js";
+export * from "./random-id.js";

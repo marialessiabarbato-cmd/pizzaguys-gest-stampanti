@@ -113,6 +113,17 @@ export function ComandaWorkspace({
   const [editConfirm, setEditConfirm] = useState<EditConfirm | null>(null);
   const [addedToast, setAddedToast] = useState<LastAddedLine | null>(null);
   const comandaRef = useRef<HTMLDivElement>(null);
+  // Palmare: la barra azioni è fissa sopra il footer e su telefono va su più righe.
+  // Se ne misura l'altezza reale per lasciare sotto la lista lo spazio giusto.
+  const selectionBarRef = useRef<HTMLDivElement>(null);
+  const [selectionBarHeight, setSelectionBarHeight] = useState(0);
+  useEffect(() => {
+    const el = selectionBarRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setSelectionBarHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const { menu, cart, submittedLines, lastAdded, selectedLineId, selectedSubmittedId } = c;
 
@@ -513,6 +524,8 @@ export function ComandaWorkspace({
             <ActionChip label="Storno" onClick={() => c.requestStorno(selectedSubmitted)} />
           </>
         )}
+        {/* Nasconde il pannello per scorrere il menu: la riga resta, si riseleziona dalla comanda */}
+        <ActionChip label="✕" ariaLabel="Chiudi pannello" compact onClick={() => selectLine(null)} />
       </div>
     </div>
   ) : null;
@@ -917,13 +930,13 @@ export function ComandaWorkspace({
     );
   }
 
-  const footerPad = hasSelection ? "pb-44" : "pb-28";
   const showMenu = c.workspaceTab === "menu";
   const showComanda = c.workspaceTab === "comanda";
 
   return (
     <SheetLayoutProvider layout="bottom">
-      <main className="flex h-screen max-h-screen flex-col overflow-hidden bg-[hsl(var(--pg-background))]">
+      {/* 100dvh = area visibile (su iOS 100vh include la barra di Safari); 100vh per browser vecchi */}
+      <main className="flex h-screen max-h-screen flex-col overflow-hidden bg-[hsl(var(--pg-background))] supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh">
         {banners}
         {header}
         {lockBanner}
@@ -942,7 +955,11 @@ export function ComandaWorkspace({
         </nav>
 
         {/* Contenuto: portrait = tab; landscape tablet = Comanda | Menu */}
-        <div className={`flex min-h-0 flex-1 flex-col tablet-l:flex-row ${footerPad}`}>
+        {/* 7rem = footer + margine per l'avviso di aggiunta; poi la barra azioni, se aperta */}
+        <div
+          className="flex min-h-0 flex-1 flex-col tablet-l:flex-row"
+          style={{ paddingBottom: `calc(7rem + ${selectionBarHeight}px)` }}
+        >
           <div
             className={`min-h-0 flex-1 overflow-y-auto tablet-l:border-r tablet-l:border-[hsl(var(--pg-border))] ${
               showComanda ? "block" : "hidden"
@@ -959,7 +976,7 @@ export function ComandaWorkspace({
             l'avviso non copre mai la barra azioni, che su telefono va su due righe. */}
         <div className="pointer-events-none fixed bottom-[4.5rem] left-0 right-0 z-20 flex flex-col">
           {addedToastEl}
-          {selectionBar}
+          <div ref={selectionBarRef}>{selectionBar}</div>
         </div>
 
         <footer className="fixed bottom-0 left-0 right-0 z-30 border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] p-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
@@ -1011,13 +1028,35 @@ function TabButton({
   );
 }
 
-function ActionChip({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
+function ActionChip({
+  label,
+  ariaLabel,
+  disabled,
+  compact,
+  onClick,
+}: {
+  label: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+  /**
+   * Azione secondaria (chiudi): larghezza fissa e stretta, così entra nella riga degli altri
+   * bottoni anche a 320 px invece di andare a capo e alzare il pannello.
+   */
+  compact?: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="min-h-12 min-w-[3.25rem] flex-1 basis-[4.5rem] rounded-xl border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/40 px-3 text-sm font-semibold disabled:opacity-30"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      className={`min-h-12 rounded-xl border border-[hsl(var(--pg-border))] text-sm font-semibold disabled:opacity-30 ${
+        compact
+          ? "w-12 flex-none bg-transparent text-[hsl(var(--pg-muted-foreground))]"
+          : "min-w-[3.25rem] flex-1 basis-[4.5rem] bg-[hsl(var(--pg-muted))]/40 px-3"
+      }`}
     >
       {label}
     </button>
