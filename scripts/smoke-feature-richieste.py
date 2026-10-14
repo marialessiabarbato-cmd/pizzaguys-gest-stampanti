@@ -19,6 +19,17 @@ PASS: list[str] = []
 FAIL: list[str] = []
 
 
+def cash_services_to_try(current: dict) -> list[str]:
+    """Servizio proposto dall'Edge, poi l'altro se non ancora usato oggi (pranzo chiuso → cena)."""
+    used = set(current.get("usedServicesToday") or [])
+    first = current.get("suggestedService", "DINNER")
+    order = [first] + [s for s in ("LUNCH", "DINNER") if s != first]
+    return [s for s in order if s not in used] or [first]
+
+
+NOTE = "Pranzo e cena di oggi sono già stati usati: resetta l'Edge di test (DB SQLite) e rilancia"
+
+
 def ok(name: str) -> None:
     PASS.append(name)
     print(f"  OK  {name}")
@@ -162,16 +173,18 @@ def main() -> int:
     opened_cash = None
     code, cash = req(EDGE, "GET", "/api/cash-sessions/current")
     if code == 200 and not cash.get("open"):
-        for cash_pin in ("1234", "5678"):
+        attempts = [(pin, svc) for svc in cash_services_to_try(cash) for pin in ("1234", "5678")]
+        for cash_pin, service in attempts:
             code, session = req(EDGE, "POST", "/api/cash-sessions/open", {
-                "pin": cash_pin, "service": cash.get("suggestedService", "DINNER"), "openingFund": 0,
+                "pin": cash_pin, "service": service, "openingFund": 0,
             })
             if code == 201:
-                ok(f"apre la cassa per il test (PIN {cash_pin})")
+                ok(f"apre la cassa per il test ({service}, PIN {cash_pin})")
                 opened_cash = (session["id"], cash_pin)
                 break
         else:
-            bad("apre la cassa per il test", f"HTTP {code} {session}")
+            detail = NOTE if session.get("code") == "CASH_SERVICE_ALREADY_USED" else f"HTTP {code} {session}"
+            bad("apre la cassa per il test", detail)
 
     # Counter orders list (handheld delivery)
     print("\n--- Asporto/Delivery ---")

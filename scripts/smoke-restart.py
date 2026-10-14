@@ -80,6 +80,17 @@ def name_of(x) -> str:
     return x["name"] if isinstance(x["name"], str) else x["name"]["it"]
 
 
+def cash_services_to_try(current: dict) -> list[str]:
+    """Servizio proposto dall'Edge, poi l'altro se non ancora usato oggi (pranzo chiuso → cena)."""
+    used = set(current.get("usedServicesToday") or [])
+    first = current.get("suggestedService", "DINNER")
+    order = [first] + [s for s in ("LUNCH", "DINNER") if s != first]
+    return [s for s in order if s not in used] or [first]
+
+
+NOTE = "Pranzo e cena di oggi sono già stati usati: resetta l'Edge di test (DB SQLite) e rilancia"
+
+
 def main() -> int:
     crash = "--crash" in sys.argv
     print(f"=== T19 smoke riavvio Edge ({'crash' if crash else 'pulito'}) ===\n")
@@ -89,8 +100,16 @@ def main() -> int:
     # Incassi e comande richiedono la cassa aperta: la apre il cassiere se serve.
     _, cash = req("GET", "/api/cash-sessions/current")
     if not cash.get("open"):
-        _, opened = req("POST", "/api/cash-sessions/open", {"pin": "5678", "service": cash.get("suggestedService", "DINNER"),
-                                                            "openingFund": 0})
+        opened: dict | str = {}
+        for service in cash_services_to_try(cash):
+            _, opened = req("POST", "/api/cash-sessions/open", {"pin": "5678", "service": service, "openingFund": 0})
+            if isinstance(opened, dict) and "id" in opened:
+                break
+        if not (isinstance(opened, dict) and "id" in opened):
+            print(f"Impossibile aprire la cassa: {opened}")
+            if "CASH_SERVICE_ALREADY_USED" in str(opened):
+                print(NOTE)
+            return 1
         cash_session_id = opened["id"]
     else:
         cash_session_id = cash["session"]["id"]

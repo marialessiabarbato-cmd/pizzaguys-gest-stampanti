@@ -202,6 +202,17 @@ def pay_table(
     return {"code": code, "body": pay, "total": total}
 
 
+
+def cash_services_to_try(current: dict) -> list[str]:
+    """Servizio proposto dall'Edge, poi l'altro se non ancora usato oggi (pranzo chiuso → cena)."""
+    used = set(current.get("usedServicesToday") or [])
+    first = current.get("suggestedService", "DINNER")
+    order = [first] + [s for s in ("LUNCH", "DINNER") if s != first]
+    return [s for s in order if s not in used] or [first]
+
+
+NOTE = "Pranzo e cena di oggi sono già stati usati: resetta l'Edge di test (DB SQLite) e rilancia"
+
 # ── Cloud ────────────────────────────────────────────────────────────────────
 
 
@@ -498,11 +509,14 @@ def test_edge_base() -> dict | None:
         ok("edge cassa già aperta")
         ctx["cash_session_id"] = current["session"]["id"]
     else:
-        code, session = req(EDGE, "POST", "/api/cash-sessions/open", {
-            "pin": "5678",
-            "service": current.get("suggestedService", "DINNER") if isinstance(current, dict) else "DINNER",
-            "openingFund": 100,
-        })
+        for service in cash_services_to_try(current if isinstance(current, dict) else {}):
+            code, session = req(EDGE, "POST", "/api/cash-sessions/open", {
+                "pin": "5678", "service": service, "openingFund": 100,
+            })
+            if code == 201:
+                break
+        if code != 201 and isinstance(session, dict) and session.get("code") == "CASH_SERVICE_ALREADY_USED":
+            session = {"error": NOTE}
         expect_status("edge apre la cassa (cassiere)", code, {201}, session)
         ctx["cash_session_id"] = session.get("id") if isinstance(session, dict) else None
 
