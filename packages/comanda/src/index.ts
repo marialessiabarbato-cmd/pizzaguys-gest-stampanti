@@ -3,6 +3,7 @@ export * from "./types";
 export * from "./menu";
 export * from "./course";
 export * from "./table-display";
+export * from "./table-layout";
 export * from "./table-seats";
 export * from "./allergens";
 export * from "./useComanda";

@@ -70,12 +70,13 @@ export function computeMapScale(
   container: { width: number; height: number },
   padding = 24,
   maxScale = 5,
+  minScale = 1,
 ): number {
   if (container.width <= padding || container.height <= padding) return 1;
   const sx = (container.width - padding) / content.width;
   const sy = (container.height - padding) / content.height;
   const fit = Math.min(sx, sy);
-  return Math.min(Math.max(fit, 1), maxScale);
+  return Math.min(Math.max(fit, minScale), maxScale);
 }
 
 export function filterTablesByRoom<T extends { isVirtual: boolean; roomId?: string | null }>(

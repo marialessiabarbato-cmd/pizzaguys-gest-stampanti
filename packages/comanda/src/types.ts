@@ -24,6 +24,8 @@ export interface LiveTable {
   lockedByName?: string;
   guests?: number;
   roomId?: string | null;
+  /** Ordine personalizzato in sala (0 = ordine naturale per etichetta) */
+  sortOrder?: number;
   /** Capienza effettiva dopo unione tavoli */
   tableCapacity?: number;
   /** Somma coperti del gruppo (host + annessi) */

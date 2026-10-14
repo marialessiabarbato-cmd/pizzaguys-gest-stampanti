@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { computeMapBounds, computeMapScale, type MapTableBounds } from "../lib/table-display";
 
+const MIN_SCALE = 0.5;
+
 export function TableMapViewport({
   tables,
   className,
@@ -32,12 +34,14 @@ export function TableMapViewport({
     return () => observer.disconnect();
   }, []);
 
-  const scale = computeMapScale(bounds, size, 24, maxScale ?? 3);
+  // Rimpicciolisce la mappa fino a farla entrare: i tavoli oltre il bordo non restano nascosti.
+  // Sotto MIN_SCALE i tavoli diventerebbero illeggibili, quindi si scorre (overflow-auto).
+  const scale = computeMapScale(bounds, size, 24, maxScale ?? 3, MIN_SCALE);
 
   return (
     <div
       ref={containerRef}
-      className={`flex min-h-0 flex-1 overflow-hidden p-4 ${align === "start" ? "items-start justify-start" : "items-center justify-center"} ${className ?? ""}`}
+      className={`flex min-h-0 flex-1 overflow-auto p-4 ${align === "start" || scale <= MIN_SCALE ? "items-start justify-start" : "items-center justify-center"} ${className ?? ""}`}
     >
       <div
         className="relative shrink-0"
