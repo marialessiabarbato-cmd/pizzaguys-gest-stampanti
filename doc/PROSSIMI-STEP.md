@@ -77,13 +77,14 @@
 | T21 | **Bozza del palmare dopo un ricaricamento**: verificare che i piatti non spediti non si perdano se la pagina si ricarica con l'Edge online | Un tablet che si riavvia non deve perdere la comanda | 0,5 g |
 | T22 | **Libera tavolo**: pulsante per liberare un tavolo aperto per errore (senza comande né conto) | Oggi resta occupato finché non si incassa o si chiude la giornata | 0,25 g |
 | T23 | **Marcia ▶ suggerita** anche dopo Spedisci: oggi il suggerimento guarda solo la bozza, dopo l'invio chiede la portata | Un tocco in meno per il cameriere | 0,25 g |
+| T25 | **Fatto 14/10** (branch `fix/test-ci-cassa`): servizio proposto all'apertura cassa salta pranzo/cena già usati; smoke test lanciabili in sequenza; CI senza e2e (`pnpm test:e2e` a parte) | La CI falliva sempre; il secondo smoke test della giornata falliva | — |
 | T24 | **Script di reset dell'ambiente di test** (chiude turni, libera tavoli, svuota KDS) | Oggi la pulizia si fa a mano | 0,25 g |
 
 ### P2 — pulizia tecnica e Fase 7
 
 | # | Attività | Perché |
 |---|----------|--------|
-| T13 | Seed `pnpm --filter @pizzaguys/db seed` resta appeso a fine esecuzione | Connessione DB non chiusa |
+| T13 | ✅ ~~Seed `pnpm --filter @pizzaguys/db seed` resta appeso a fine esecuzione~~ — fatto 14/10: `closeAllDb()` a fine script | Connessione DB non chiusa |
 | T14 | `drizzle.config.ts` non legge `.env` | Serve `source .env` prima di `pnpm db:migrate` |
 | T15 | `*.tsbuildinfo` tracciati in git ma in `.gitignore` | Rumore nei diff → `git rm --cached` |
 | T16 | Redis avviato da Docker ma non usato dal codice | Rimuovere o pianificarne l'uso |
