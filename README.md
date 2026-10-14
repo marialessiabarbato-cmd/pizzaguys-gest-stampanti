@@ -15,6 +15,20 @@ Documentazione: [`doc/HANDOFF.md`](doc/HANDOFF.md) (stato e contesto) · [`doc/T
 
 ## Avvio rapido (sviluppo Mac)
 
+Un solo comando, rilanciabile a ogni riavvio (salta i passi già fatti):
+
+```bash
+./scripts/dev-up.sh          # oppure pnpm dev:up; --log salva i log in tmp/dev.log
+./scripts/dev-up.sh --reset-edge   # Edge da zero (cassa, tavoli, conti), riprovisionata
+```
+
+Avvia Docker, Postgres/Redis, installa e builda, applica lo schema, fa il seed al primo avvio,
+lancia `pnpm dev` e in background provisiona l'Edge con operatori e tavoli di test
+(`scripts/dev-provision-edge.py`: PIN `1234` cameriere, `5678` admin di sede, `1111` cameriere;
+sala Interna T1–T4). Da Finder: doppio clic su `scripts/PizzaGuys-Dev.command` (trascinabile nel Dock).
+
+Passi manuali equivalenti:
+
 ```bash
 # 1. Env (contiene anche nome container e porte Docker)
 cp .env.example .env
