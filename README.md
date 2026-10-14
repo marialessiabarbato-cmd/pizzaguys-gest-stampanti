@@ -8,8 +8,8 @@ Documentazione: [`doc/HANDOFF.md`](doc/HANDOFF.md) (stato e contesto) · [`doc/T
 
 ## Requisiti
 
-- **Node.js 22** (vedi `.nvmrc`). Node 23+ non compila `better-sqlite3`: su Mac con Homebrew usare
-  `export PATH=/opt/homebrew/opt/node@22/bin:$PATH`
+- **Node.js 22 o 24** (`.nvmrc` = 22, come l'Edge in produzione). `better-sqlite3` 12 supporta
+  entrambe; con la 11 Node 23+ andava in crash al riavvio dell'Edge.
 - pnpm 9 (`npm i -g pnpm@9.15.9` oppure `npx pnpm@9.15.9`)
 - Docker (PostgreSQL + Redis)
 
