@@ -2,6 +2,7 @@ import { edgeState } from "@pizzaguys/edge-db";
 import { provisionEdgeSchema } from "@pizzaguys/validators";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { checkUserAdmin } from "../lib/operator-sessions.js";
 import { getMenuSnapshot, provisionEdge } from "../lib/provision.js";
 import { getRestoreInfo } from "../lib/runtime-persistence.js";
 import { getCashSessionStatus, suggestCashService } from "../lib/cash-session.js";
@@ -62,6 +63,15 @@ export async function statusRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/provision", async (req, reply) => {
+    // Primo provisioning libero; ricollegare un Edge già attivo è dell'Admin di sede.
+    const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
+    if (state?.status === "ACTIVE") {
+      const check = checkUserAdmin(app.edgeDb, req);
+      if (!check.ok) {
+        return reply.status(check.status).send({ error: check.error, code: "ADMIN_REQUIRED" });
+      }
+    }
+
     const parsed = provisionEdgeSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Token non valido", details: parsed.error.flatten() });

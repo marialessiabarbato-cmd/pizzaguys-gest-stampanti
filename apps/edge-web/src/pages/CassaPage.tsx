@@ -28,7 +28,7 @@ import { CashMovementModal } from "../components/CashMovementModal";
 import { CashOpenModal } from "../components/CashOpenModal";
 import { OperatorShiftsPanel } from "../components/OperatorShiftsPanel";
 import { TableTransferModal } from "../components/TableTransferModal";
-import { edgeApi } from "../lib/api";
+import { edgeApi, setOperatorToken } from "../lib/api";
 import { dedupeRecentCustomers } from "../lib/counter-customers";
 import {
   TABLE_STATUS_COLORS,
@@ -120,6 +120,7 @@ interface Operator {
   firstName: string;
   lastName: string;
   role: string;
+  token?: string;
 }
 
 interface BillLine {
@@ -607,6 +608,7 @@ export function CassaPage({
         method: "POST",
         body: JSON.stringify({ pin: value, startShift: true }),
       });
+      setOperatorToken(op.token ?? null);
       setOperator(op);
       setPin("");
     } catch {
@@ -1424,7 +1426,7 @@ export function CassaPage({
         onCloseCash={() => setShowCashClose(true)}
         onCashMovements={() => setShowCashMovements(true)}
         onOperatorShifts={() => setShowOperatorShifts(true)}
-        onAdmin={onAdmin}
+        onAdmin={operator.role === "USER_ADMIN" ? onAdmin : undefined}
         onProfile={() => setShowProfileModal(true)}
         onLogout={() => setConfirmLogout(true)}
       />
@@ -2368,6 +2370,8 @@ export function CassaPage({
           confirmLabel="Esci"
           onConfirm={() => {
             setConfirmLogout(false);
+            void edgeApi("/api/staff/logout", { method: "POST", body: "{}" }).catch(() => {});
+            setOperatorToken(null);
             setOperator(null);
           }}
           onCancel={() => setConfirmLogout(false)}

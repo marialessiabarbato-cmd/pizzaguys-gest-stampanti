@@ -1,7 +1,7 @@
 import { Button } from "@pizzaguys/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Shell, type EdgePage } from "./components/Shell";
-import { edgeApi } from "./lib/api";
+import { edgeApi, onAdminRequired, setOperatorToken } from "./lib/api";
 import { CassaPage } from "./pages/CassaPage";
 import { PrintersPage } from "./pages/PrintersPage";
 import { ProvisionPage } from "./pages/ProvisionPage";
@@ -31,6 +31,17 @@ export default function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Impostazioni senza sessione Admin valida (es. Edge riavviato): si torna al PIN.
+  useEffect(() => {
+    onAdminRequired(() => setPage("cassa"));
+    return () => onAdminRequired(null);
+  }, []);
+
+  // Tornando in cassa si rientra con il PIN: la sessione precedente non vale più.
+  useEffect(() => {
+    if (page === "cassa") setOperatorToken(null);
+  }, [page]);
 
   if (!status) {
     return <main className="flex min-h-screen items-center justify-center p-6">Caricamento...</main>;

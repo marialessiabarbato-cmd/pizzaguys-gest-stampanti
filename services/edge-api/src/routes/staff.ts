@@ -6,6 +6,14 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { writeEdgeAudit } from "../lib/audit.js";
 import {
+  bearerToken,
+  checkUserAdmin,
+  issueOperatorToken,
+  requireUserAdmin,
+  resolveOperator,
+  revokeOperatorToken,
+} from "../lib/operator-sessions.js";
+import {
   endOperatorShift,
   listOpenOperatorShifts,
   startOperatorShift,
@@ -43,7 +51,7 @@ export async function staffRoutes(app: FastifyInstance) {
       .all();
   });
 
-  app.post("/api/staff", async (req, reply) => {
+  app.post("/api/staff", { preHandler: requireUserAdmin(app.edgeDb) }, async (req, reply) => {
     const parsed = createStaffSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -91,6 +99,16 @@ export async function staffRoutes(app: FastifyInstance) {
     const parsed = updateStaffSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+    // Ogni operatore può cambiare il proprio PIN (Profilo in cassa); il resto è dell'Admin di sede.
+    const self = resolveOperator(app.edgeDb, req);
+    const ownPinOnly =
+      self?.id === req.params.id && Object.keys(parsed.data).every((key) => key === "pin");
+    if (!ownPinOnly) {
+      const check = checkUserAdmin(app.edgeDb, req);
+      if (!check.ok) {
+        return reply.status(check.status).send({ error: check.error, code: "ADMIN_REQUIRED" });
+      }
     }
     const patch: Record<string, unknown> = { ...parsed.data, updatedAt: new Date().toISOString() };
     if (parsed.data.pin) {
@@ -150,10 +168,17 @@ export async function staffRoutes(app: FastifyInstance) {
           lastName: member.lastName,
           role: member.role,
           shiftId: shift?.id,
+          token: issueOperatorToken(member.id),
         };
       }
     }
     return reply.status(401).send({ error: "PIN errato" });
+  });
+
+  app.post("/api/staff/logout", async (req) => {
+    const token = bearerToken(req);
+    if (token) revokeOperatorToken(token);
+    return { ok: true };
   });
 
   // Turni operatore (presenze): non sbloccano il locale, che dipende dalla sessione di cassa.

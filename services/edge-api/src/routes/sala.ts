@@ -3,14 +3,17 @@ import { rooms, tables } from "@pizzaguys/edge-db";
 import { createRoomSchema, createTableSchema, updateTableSchema } from "@pizzaguys/validators";
 import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireUserAdmin } from "../lib/operator-sessions.js";
 
 export async function salaRoutes(app: FastifyInstance) {
+  const admin = requireUserAdmin(app.edgeDb);
+
   app.get("/api/rooms", async (_req, reply) => {
     const rows = app.edgeDb.select().from(rooms).orderBy(asc(rooms.sortOrder)).all();
     return rows;
   });
 
-  app.post("/api/rooms", async (req, reply) => {
+  app.post("/api/rooms", { preHandler: admin }, async (req, reply) => {
     const parsed = createRoomSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -26,7 +29,7 @@ export async function salaRoutes(app: FastifyInstance) {
     return reply.status(201).send(row);
   });
 
-  app.delete<{ Params: { id: string } }>("/api/rooms/:id", async (req, reply) => {
+  app.delete<{ Params: { id: string } }>("/api/rooms/:id", { preHandler: admin }, async (req, reply) => {
     const deleted = app.edgeDb.delete(rooms).where(eq(rooms.id, req.params.id)).returning().get();
     if (!deleted) return reply.status(404).send({ error: "Sala non trovata" });
     return { ok: true };
@@ -40,7 +43,7 @@ export async function salaRoutes(app: FastifyInstance) {
     return app.edgeDb.select().from(tables).orderBy(asc(tables.sortOrder)).all();
   });
 
-  app.post("/api/tables", async (req, reply) => {
+  app.post("/api/tables", { preHandler: admin }, async (req, reply) => {
     const parsed = createTableSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -63,7 +66,7 @@ export async function salaRoutes(app: FastifyInstance) {
     return reply.status(201).send(row);
   });
 
-  app.patch<{ Params: { id: string } }>("/api/tables/:id", async (req, reply) => {
+  app.patch<{ Params: { id: string } }>("/api/tables/:id", { preHandler: admin }, async (req, reply) => {
     const parsed = updateTableSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -78,7 +81,7 @@ export async function salaRoutes(app: FastifyInstance) {
     return updated;
   });
 
-  app.delete<{ Params: { id: string } }>("/api/tables/:id", async (req, reply) => {
+  app.delete<{ Params: { id: string } }>("/api/tables/:id", { preHandler: admin }, async (req, reply) => {
     const deleted = app.edgeDb.delete(tables).where(eq(tables.id, req.params.id)).returning().get();
     if (!deleted) return reply.status(404).send({ error: "Tavolo non trovato" });
     return { ok: true };

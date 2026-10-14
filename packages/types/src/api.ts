@@ -32,6 +32,7 @@ export interface SnapshotStaff {
   firstName: string;
   lastName: string;
   role: "USER_ADMIN" | "CASHIER" | "WAITER";
+  email?: string;
   pinHash: string;
   isActive: boolean;
 }

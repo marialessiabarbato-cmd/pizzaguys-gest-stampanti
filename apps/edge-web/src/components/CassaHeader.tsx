@@ -58,7 +58,8 @@ export function CassaHeader({
   onCloseCash: () => void;
   onCashMovements: () => void;
   onOperatorShifts: () => void;
-  onAdmin: () => void;
+  /** Impostazioni (sala, stampanti, routing, staff): solo per l'Admin di sede. */
+  onAdmin?: () => void;
   onProfile: () => void;
   onLogout: () => void;
 }) {
@@ -143,7 +144,7 @@ export function CassaHeader({
               <HeaderMenuItem onClick={onClosureHistory}>Storico chiusure</HeaderMenuItem>
             </>
           )}
-          <HeaderMenuItem onClick={onAdmin}>Impostazioni</HeaderMenuItem>
+          {onAdmin && <HeaderMenuItem onClick={onAdmin}>Impostazioni</HeaderMenuItem>}
           {canManage && (
             <HeaderMenuItem onClick={onClosureDay} danger>
               Chiusura giornata

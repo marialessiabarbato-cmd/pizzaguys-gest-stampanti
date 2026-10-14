@@ -8,6 +8,7 @@ import {
 } from "@pizzaguys/validators";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireUserAdmin } from "../lib/operator-sessions.js";
 import { friendlyReason } from "../lib/print-alerts.js";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 
@@ -15,11 +16,13 @@ const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
 const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 export async function printerRoutes(app: FastifyInstance) {
+  const admin = requireUserAdmin(app.edgeDb);
+
   app.get("/api/printers", async () => {
     return app.edgeDb.select().from(printers).all();
   });
 
-  app.post("/api/printers", async (req, reply) => {
+  app.post("/api/printers", { preHandler: admin }, async (req, reply) => {
     const parsed = createPrinterSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
@@ -37,7 +40,7 @@ export async function printerRoutes(app: FastifyInstance) {
     return reply.status(201).send(row);
   });
 
-  app.patch<{ Params: { id: string } }>("/api/printers/:id", async (req, reply) => {
+  app.patch<{ Params: { id: string } }>("/api/printers/:id", { preHandler: admin }, async (req, reply) => {
     const parsed = updatePrinterSchema.safeParse(req.body);
     if (!parsed.success) {
       const fields = parsed.error.flatten().fieldErrors;
@@ -101,7 +104,7 @@ export async function printerRoutes(app: FastifyInstance) {
     return app.edgeDb.select().from(categoryRouting).all();
   });
 
-  app.put("/api/category-routing", async (req, reply) => {
+  app.put("/api/category-routing", { preHandler: admin }, async (req, reply) => {
     const parsed = categoryRoutingSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
