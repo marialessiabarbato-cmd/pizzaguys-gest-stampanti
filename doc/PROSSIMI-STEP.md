@@ -1,6 +1,6 @@
 # Prossimi step — checklist di validazione e todo
 
-> Da rivedere insieme. Aggiornato: **6 ottobre 2026** (T1–T3, T19 e UX palmare/cassa completati) — branch `fix-comanda-cassa`.
+> Da rivedere insieme. Aggiornato: **14 ottobre 2026** — branch `main`. Cronologia del fatto: [`HANDOFF.md`](HANDOFF.md).
 > Legenda priorità: **P0** prima del pilota · **P1** consigliato per il pilota · **P2** dopo il pilota / Fase 7.
 
 ---
@@ -32,20 +32,9 @@
 - [ ] **Smistamento reparti**: oggi tutte le categorie vanno in Pizzeria → definire quali categorie vanno a Cucina / Bar / Chef
 - [ ] **Copia non fiscale** (`RECEIPT_COPY_PRINT`): solo per i test o anche in produzione finché il fiscale è mock?
 - [ ] **Stampanti del pilota**: quante, quali modelli, IP previsti (piano rete FASE-6 usa `192.168.10.x`)
-- [ ] **Repository**: `fix-comanda-cassa` (= `unione-branch` + lavoro 5–6/10) va unito a `unione-branch` / `main`? In quale repo (`marialessiabarbato-cmd/...` o `wearedexin-git/...`)?
+- [x] **Repository**: tutto unito in `main` di `marialessiabarbato-cmd/pizzaguys-gest-stampanti` (14/10)
 - [ ] **PIN responsabile sullo storno**: oggi qualsiasi cameriere può annullare un piatto già inviato (gli sconti invece chiedono il PIN)
 - [ ] **X DOLCE**: resta un meccanismo separato (i dolci differiti aspettano "X DOLCE" anche in Ora) — confermare con la cucina
-
-### Fatto 5–6 ottobre (richieste del cliente)
-
-| Area | Modifica |
-|------|----------|
-| Cassa | Sessioni di cassa pranzo/cena (`PIANO-TURNI-CASSA.md`): senza cassa aperta banner su palmare e cassa, bloccati invio comande, incassi e banco (Edge `409 CASH_SESSION_CLOSED`, evento `CASH_SESSION_STATUS`). Solo Cassiere/Admin aprono e chiudono con PIN; fondo, prelievi, conteggio, scostamenti, report e sync Cloud. Turni operatore = presenze |
-| Palmare | Piatto aggiunto evidente (avviso con Annulla, contatore n× sul menu, riga evidenziata); nota in un solo passaggio con note rapide; pannelli sopra la tastiera |
-| Testi | Font più grandi su palmare e cassa (scala comune `packages/ui/type-scale.ts`, `text-sm` 14→16 px) |
-| Comanda | **Stessa comanda su palmare e cassa** (`packages/comanda`): in cassa ora ci sono piatti già inviati con storno, prezzo, barra azioni, bozza per portata, Spedisci, Marcia, X DOLCE, sconto, sposta conto, filtro allergeni. Il Preconto in cassa resta solo nel Conto |
-| Cucina | HOLD deciso dalla portata (V6), applicato anche dall'Edge |
-| Correzioni | Note della cassa perse in comanda; piatto in un'altra portata sommato alla riga sbagliata; tavolo non rilasciato dal palmare dopo Spedisci; sconto rimasto applicato annullando il PIN |
 
 ---
 
@@ -61,6 +50,7 @@
 | T4 | ⏸ **ON HOLD** (serve il mini PC) — **Fix `install-caserta.sh`** | Su un mini PC nuovo la copia di `edge.env` fallisce (`/etc/pizzaguys` viene creata dopo); inoltre copia l'example sopra `/etc/pizzaguys/edge.env`, quindi `CLOUD_API_URL` passato allo script viene ignorato e ogni reinstallazione sovrascrive la configurazione | 0,25 g |
 | T5 | ⏸ **ON HOLD** (decisione cucina) — Configurare smistamento reparti Caserta (dopo decisione) | Comande al reparto giusto | 0,25 g |
 | T6 | ⏸ **ON HOLD** (conferma cucina/titolare) — Validare allergeni e aggiornare `seed-menu-data.ts` / Cloud Admin | Obbligo normativo | dipende dal cliente |
+| T26 | **`JWT_SECRET` obbligatoria in produzione**: oggi senza variabile il Cloud usa `dev-secret-change-me`; far fallire l'avvio se manca. Seed di produzione con `SEED_ADMIN_PASSWORD` propria (il default è nel repo pubblico) | Con il default chiunque abbia letto il codice può firmare token di accesso al Cloud ([`VARIABILI-AMBIENTE.md`](VARIABILI-AMBIENTE.md)) | 0,25 g |
 | T19 | ✅ ~~**Stato operativo dell'Edge salvato su disco**~~ — fatto 3/10: salvataggio automatico su SQLite (`runtime_state`) e ripristino all'avvio; blocchi rilasciati, token sconto scartati, avviso in cassa. Test: 7 unitari + `scripts/smoke-restart.py` (riavvio pulito e forzato) | Solo in memoria: ordini aperti, ticket KDS, stato/lock tavoli, split, richieste di pagamento (`runtime.ts`) e **incassi del turno** (`shift-ledger.ts`). Dopo un riavvio dell'Edge i tavoli aperti spariscono e il turno risulta ancora aperto ma con incassi azzerati (chiusura turno errata). Il turno in sé e lo storico vendite sono già su SQLite. Non dipende dall'apertura turno. Emerso nei test del 3/10 | 2–3 g |
 
 ### P1 — consigliato per il pilota
@@ -77,25 +67,29 @@
 | T21 | **Bozza del palmare dopo un ricaricamento**: verificare che i piatti non spediti non si perdano se la pagina si ricarica con l'Edge online | Un tablet che si riavvia non deve perdere la comanda | 0,5 g |
 | T22 | **Libera tavolo**: pulsante per liberare un tavolo aperto per errore (senza comande né conto) | Oggi resta occupato finché non si incassa o si chiude la giornata | 0,25 g |
 | T23 | **Marcia ▶ suggerita** anche dopo Spedisci: oggi il suggerimento guarda solo la bozza, dopo l'invio chiede la portata | Un tocco in meno per il cameriere | 0,25 g |
-| T25 | **Fatto 14/10** (branch `fix/test-ci-cassa`): servizio proposto all'apertura cassa salta pranzo/cena già usati; smoke test lanciabili in sequenza; CI senza e2e (`pnpm test:e2e` a parte) | La CI falliva sempre; il secondo smoke test della giornata falliva | — |
-| T24 | **Script di reset dell'ambiente di test** (chiude turni, libera tavoli, svuota KDS) | Oggi la pulizia si fa a mano | 0,25 g |
+| T25 | ✅ ~~Servizio proposto all'apertura cassa salta pranzo/cena già usati; smoke test in sequenza; CI senza e2e~~ — fatto 14/10, in `main` | La CI falliva sempre; il secondo smoke test della giornata falliva | — |
+| T27 | **Unire `feat/sala-modifica-tavolo`**: scheda tavolo nel Sala Builder (etichetta, coperti, elimina al tocco), blocco eliminazione di tavoli/sale in uso, etichette uniche | Pronto e testato, non ancora in `main` | — |
+| T28 | **Sala Builder: tavoli virtuali** (Asporto/Delivery) disegnati in alto a sinistra sopra i tavoli di ogni sala | Possono coprire un tavolo vero e intercettarne il tocco | 0,25 g |
+| T24 | ✅ ~~Script di reset dell'ambiente di test~~ — fatto 14/10: `./scripts/dev-up.sh --reset-edge` (Edge da zero, riprovisionata) | Oggi la pulizia si fa a mano | — |
 
 ### P2 — pulizia tecnica e Fase 7
 
 | # | Attività | Perché |
 |---|----------|--------|
 | T13 | ✅ ~~Seed `pnpm --filter @pizzaguys/db seed` resta appeso a fine esecuzione~~ — fatto 14/10: `closeAllDb()` a fine script | Connessione DB non chiusa |
-| T14 | `drizzle.config.ts` non legge `.env` | Serve `source .env` prima di `pnpm db:migrate` |
-| T15 | `*.tsbuildinfo` tracciati in git ma in `.gitignore` | Rumore nei diff → `git rm --cached` |
-| T16 | Redis avviato da Docker ma non usato dal codice | Rimuovere o pianificarne l'uso |
+| T14 | ✅ ~~`drizzle.config.ts` non legge `.env`~~ — risolto: `process.loadEnvFile` | Serviva `source .env` prima di `pnpm db:migrate` |
+| T15 | ✅ ~~`*.tsbuildinfo` tracciati in git~~ — risolto (nessuno tracciato) | Rumore nei diff |
+| T16 | Redis avviato da Docker ma non usato dal codice (`REDIS_URL` non letta) | Rimuovere o pianificarne l'uso |
 | T17 | Integrazione RT Micrelec Hydra SF20 (T7.1) | Scontrino fiscale e Z reali |
 | T18 | Stato stampante (carta finita, coperchio aperto) via comandi ESC/POS di stato | Diagnostica in cassa |
+| T29 | Aggiornare le action della CI (`checkout`, `setup-node`, `pnpm/action-setup` su Node 20, deprecato) e verificare il passaggio di `ubuntu-latest` a Ubuntu 26 (dal 19/10) | Avvisi nella CI del 14/10 |
 
 ---
 
 ## 2b. In attesa di informazioni (T4, T5, T6 on hold — 3/10)
 
 **Mini PC / rete del locale (sblocca T4)**
+- [ ] Terminale touch già nel locale: **Windows 10 Enterprise LTSC 2019** (1809, build 17763), touch 10 punti, con stampanti e fiscale collegati. Decidere se l'Edge gira lì (servizio Windows, nessun hardware nuovo) o su un mini PC Linux (script già pronto). Servono: tipo sistema (32/64 bit), CPU, RAM, disco, come sono collegate le stampanti (USB/seriale/rete) — oggi il bridge supporta solo stampanti di rete
 - [ ] Modello e sistema operativo (lo script presuppone **Ubuntu + systemd**)
 - [ ] Rete del locale: router, subnet, IP fisso del mini PC
 - [ ] Stampanti del pilota: quante, modelli, rete o USB, IP
@@ -113,6 +107,6 @@
 
 1. Giro di validazione della sezione 1 (30–45 min insieme, con la ST30 collegata)
 2. P0: ✅ T1, T2, T3, T19 · T4/T5/T6 on hold fino alle informazioni della sezione 2b
-3. Giro di prova con il cliente su `fix-comanda-cassa` (checklist sezione **T**, stampa sulla ST30)
-4. Decisioni aperte: PIN sullo storno, X DOLCE, unione del branch
+3. Giro di prova con il cliente su `main` (checklist sezione **T**, stampa sulla ST30, palmare anche da smartphone)
+4. Decisioni aperte: PIN sullo storno, X DOLCE, Edge su Windows o mini PC · T26 prima del deploy cloud
 5. P1 in base alla data del pilota (T20–T23 sono piccoli e utili prima della formazione)

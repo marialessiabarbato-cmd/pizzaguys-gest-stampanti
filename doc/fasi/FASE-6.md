@@ -31,7 +31,7 @@ Portare l'ecosistema completo (cloud + edge + tablet) in produzione pilota a **C
 
 ## T6.1 — Deploy cloud
 
-Vedi [`deploy/cloud/README.md`](../deploy/cloud/README.md).
+Vedi [`deploy/cloud/README.md`](../../deploy/cloud/README.md).
 
 ```bash
 docker compose up -d
@@ -49,7 +49,7 @@ Checklist post-deploy:
 
 ## T6.2 — Installazione Edge (mini PC)
 
-Script: [`scripts/edge/install-caserta.sh`](../scripts/edge/install-caserta.sh)
+Script: [`scripts/edge/install-caserta.sh`](../../scripts/edge/install-caserta.sh)
 
 ```bash
 sudo CLOUD_API_URL=https://api.pizzaguys.example ./scripts/edge/install-caserta.sh
@@ -57,12 +57,12 @@ sudo systemctl start pizzaguys-edge
 ```
 
 File di servizio: `scripts/edge/pizzaguys-edge.service`  
-Config: `/etc/pizzaguys/edge.env` (da `pizzaguys-edge.env.example`)
+Config: `/etc/pizzaguys/edge.env` (da `pizzaguys-edge.env.example`; variabili in [`VARIABILI-AMBIENTE.md`](../VARIABILI-AMBIENTE.md))
 
 Dopo l'avvio:
 
 1. Main Station → **Provision** → incolla API token sede Caserta
-2. Configura sala, stampanti (IP:porta reali con `HARDWARE_BRIDGE_MODE=network`, altrimenti mock), staff con PIN
+2. Con il PIN dell'Admin di sede, Impostazioni: sala, stampanti (IP:porta reali con `HARDWARE_BRIDGE_MODE=network`, altrimenti mock), staff con PIN (o da Cloud Admin → Utenti)
 3. Verifica heartbeat su Cloud Admin → sede ONLINE
 
 ## T6.3 — Tablet Fire + rete LAN
@@ -83,6 +83,9 @@ Dopo l'avvio:
    - Cassa: solo sul mini PC in kiosk (`http://localhost:5173` o build statica)
 3. Verifica WebSocket: banner offline assente su comanda test
 4. Wi-Fi dedicato sala (SSID isolato dalla rete ospiti)
+
+Anche **smartphone** dei camerieri, con le stesse regole (browser → `http://<IP edge>:5174`): su telefono la
+mappa sala diventa una griglia di tavoli. Senza HTTPS il browser non installa la PWA come app.
 
 ### Kiosk cassa (Chromium)
 
@@ -123,7 +126,7 @@ cd e2e && pnpm install && pnpm test
 | `e2e/cloud-admin.spec.ts` | Login SuperAdmin, pagine dettaglio (UI) |
 | `e2e/edge.spec.ts` | Health, status provisioning |
 
-Copertura API più ampia oggi negli smoke Python: `scripts/smoke-giro-test.py` (112 check) e
+Copertura API più ampia oggi negli smoke Python: `scripts/smoke-giro-test.py` (113 check) e
 `scripts/smoke-feature-richieste.py`.
 
 Flussi e2e prioritari (da estendere):
@@ -167,7 +170,7 @@ Prerequisiti completati:
 | `scripts/edge/install-caserta.sh` | Install edge Ubuntu (T6.2) |
 | `packages/db/src/seed-menu.ts` | Seed catalogo pilota (T6.4) |
 | `e2e/` | Smoke Playwright (T6.5) |
-| `doc/FASE-6.md` | Questo documento |
+| `doc/fasi/FASE-6.md` | Questo documento |
 
 ## Flusso go-live Caserta
 

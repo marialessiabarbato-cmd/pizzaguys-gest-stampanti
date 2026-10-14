@@ -1,127 +1,80 @@
 # Pizza Guys Gest
 
-Piattaforma POS multi-sede per Pizza Guys (Cloud + Edge + PWA).
+Piattaforma POS multi-sede per Pizza Guys: **Cloud** (SuperAdmin, menu, report), **Edge** nel locale
+(cassa, sala, stampanti, funziona anche senza internet) e **app web** per cassa, palmare e cucina.
+Pilota: sede di Caserta. Stato del progetto: [`doc/HANDOFF.md`](doc/HANDOFF.md).
 
-Documentazione: [`doc/HANDOFF.md`](doc/HANDOFF.md) (stato e contesto) · [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md) (link, accessi, stampante) · [`doc/CHECKLIST-TEST-MANUALI.md`](doc/CHECKLIST-TEST-MANUALI.md) · [`doc/PROSSIMI-STEP.md`](doc/PROSSIMI-STEP.md) · [`doc/PIANO-OPERATIVO.md`](doc/PIANO-OPERATIVO.md)
+## Avvio rapido (sviluppo su Mac)
 
-**Login dev:** `admin@pizzaguys.it` / `PizzaGuys2026!` → http://localhost:3000/login
-
-## Requisiti
-
-- **Node.js 22 o 24** (`.nvmrc` = 22, come l'Edge in produzione). `better-sqlite3` 12 supporta
-  entrambe; con la 11 Node 23+ andava in crash al riavvio dell'Edge.
-- pnpm 9 (`npm i -g pnpm@9.15.9` oppure `npx pnpm@9.15.9`)
-- Docker (PostgreSQL + Redis)
-
-## Avvio rapido (sviluppo Mac)
-
-Un solo comando, rilanciabile a ogni riavvio (salta i passi già fatti):
+Requisiti: **Node.js 22 o 24**, **Docker Desktop**. pnpm 9 lo installa lo script se manca.
 
 ```bash
-./scripts/dev-up.sh          # oppure pnpm dev:up; --log salva i log in tmp/dev.log
-./scripts/dev-up.sh --reset-edge   # Edge da zero (cassa, tavoli, conti), riprovisionata
+./scripts/dev-up.sh              # oppure pnpm dev:up
 ```
 
-Avvia Docker, Postgres/Redis, installa e builda, applica lo schema, fa il seed al primo avvio,
-lancia `pnpm dev` e in background provisiona l'Edge con operatori e tavoli di test
-(`scripts/dev-provision-edge.py`: PIN `1234` cameriere, `5678` admin di sede, `1111` cameriere;
-sala Interna T1–T4). Da Finder: doppio clic su `scripts/PizzaGuys-Dev.command` (trascinabile nel Dock).
+Avvia Docker, Postgres/Redis, installa le dipendenze (solo se il lockfile è cambiato), applica lo
+schema, fa il seed al primo avvio, lancia tutte le app e prepara l'Edge con operatori e tavoli di test.
+Si rilancia a ogni riavvio: i passi già fatti vengono saltati.
 
-Passi manuali equivalenti:
+| Opzione | Effetto |
+|---------|---------|
+| `--log` | Log in streaming, copiati in `tmp/dev.log` |
+| `--reset-edge` | Edge da zero (cassa, tavoli, conti) e riprovisioning |
+| `--stop` | Ferma l'ambiente, anche se avviato da un altro terminale |
+
+Da Finder: doppio clic su `scripts/PizzaGuys-Dev.command` (trascinabile nel Dock).
+Link, PIN di test, uso da smartphone, stampante e reset: [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md).
+
+| App | URL locale |
+|-----|------------|
+| Cloud Admin (SuperAdmin) | http://localhost:3000 |
+| Cassa — Main Station | http://localhost:5173 |
+| Palmare cameriere | http://localhost:5174 |
+| KDS cucina (simulato) | http://localhost:5175 |
+| Cloud API · Edge API + WebSocket | http://localhost:4000 · http://localhost:4100 (`/ws`) |
+
+## Struttura
+
+| Cartella | Contenuto |
+|----------|-----------|
+| `apps/cloud-api`, `apps/cloud-web` | Cloud: API Fastify + Postgres, Cloud Admin Next.js |
+| `services/edge-api` | Edge del locale: API Fastify + SQLite, WebSocket, stampa, sync col Cloud |
+| `services/hardware-bridge` | Stampa ESC/POS: `mock` (file) o `network` (TCP :9100) |
+| `apps/edge-web`, `apps/handheld-web`, `apps/kds-web` | Cassa (Main Station), palmare, KDS — Vite + React |
+| `packages/comanda` | **Comanda unica** di palmare e cassa (`useComanda`, `ComandaWorkspace`): senza build, le app leggono `src/` |
+| `packages/db`, `packages/edge-db` | Schemi Drizzle Cloud (Postgres) ed Edge (SQLite), seed |
+| `packages/types`, `validators`, `ui`, `escpos`, `fiscal`, `i18n` | Tipi e regole condivise, schemi zod, UI, ticket ESC/POS, calcoli fiscali |
+| `scripts/` | Avvio sviluppo, provisioning di test, smoke test, stampante simulata, installazione Edge |
+| `deploy/cloud/` | Deploy del Cloud (Fly.io / Railway) |
+| `e2e/` | Test Playwright |
+
+## Comandi
 
 ```bash
-# 1. Env (contiene anche nome container e porte Docker)
-cp .env.example .env
-
-# 2. Database
-docker compose up -d
-
-# 3. Dipendenze
-pnpm install
-
-# 4. Build package condivisi
-pnpm exec turbo build --filter='./packages/*' --filter='./services/hardware-bridge'
-
-# 5. Database schema + seed (prima volta)
-set -a; source .env; set +a          # drizzle-kit non legge .env da solo
-pnpm --filter @pizzaguys/db migrate
-pnpm --filter @pizzaguys/db seed      # brand + SuperAdmin
-pnpm db:seed:menu                     # menu "Travelling Kitchen" + sede Caserta
-
-# 6. Avvia tutto
-pnpm dev
+pnpm typecheck && pnpm test     # TypeScript + test unitari (Vitest) — quello che fa la CI
+pnpm test:e2e                   # Playwright (servizi avviati)
+python3 scripts/smoke-giro-test.py           # giro completo API Cloud + Edge
+python3 scripts/smoke-feature-richieste.py   # funzionalità richieste dal cliente
+python3 scripts/smoke-restart.py             # stato dell'Edge dopo un riavvio
+pnpm db:migrate                 # applica lo schema Postgres (legge .env)
 ```
 
-Primo avvio Edge: provisioning con il token della sede (Cloud Admin → Sedi → Rigenera token,
-poi `POST /api/provision` sull'Edge o dalla Main Station), quindi sala, staff con PIN e stampanti.
+La CI (GitHub Actions) esegue build, typecheck e test a ogni push su `main` e sulle pull request.
 
-### Più copie del progetto sullo stesso Mac
+## Documentazione
 
-`docker-compose.yml` legge da `.env` nome container e porte:
+| Documento | Quando serve |
+|-----------|--------------|
+| [`doc/HANDOFF.md`](doc/HANDOFF.md) | Stato del progetto, decisioni prese, contesto per una nuova chat |
+| [`doc/PROSSIMI-STEP.md`](doc/PROSSIMI-STEP.md) | Decisioni da validare e todo |
+| [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md) | Ambiente locale: accessi, smartphone, stampante, reset, test |
+| [`doc/VARIABILI-AMBIENTE.md`](doc/VARIABILI-AMBIENTE.md) | Tutte le variabili d'ambiente e quali sono segrete |
+| [`doc/CHECKLIST-TEST-MANUALI.md`](doc/CHECKLIST-TEST-MANUALI.md) | Giro di test manuale prima di un rilascio |
+| [`doc/PIANO-TURNI-CASSA.md`](doc/PIANO-TURNI-CASSA.md) | Sessioni di cassa pranzo/cena e turni operatore |
+| [`doc/STAMPANTI-CASERTA.md`](doc/STAMPANTI-CASERTA.md) | Censimento stampanti del locale pilota |
+| [`deploy/cloud/README.md`](deploy/cloud/README.md) | Deploy del Cloud |
+| [`doc/fasi/`](doc/fasi/) | Fasi 1–6: task, API e scelte di ogni fase (la 6, pilota, è in corso) |
+| [`doc/progetto/`](doc/progetto/) | Specifiche v2.0, user story e piano operativo originali |
 
-```dotenv
-COMPOSE_PROJECT_NAME=pizzaguys-fix-richieste
-COMPOSE_CONTAINER_PREFIX=pizzaguys-fix-richieste
-POSTGRES_HOST_PORT=5433
-REDIS_HOST_PORT=6380
-DATABASE_URL=postgresql://pizzaguys:pizzaguys@localhost:5433/pizzaguys_cloud
-```
-
-Senza queste variabili valgono i default (`pizzaguys-postgres` / `pizzaguys-redis`, porte 5432 / 6379).
-
-## Servizi locali
-
-| Servizio | URL |
-|----------|-----|
-| Cloud Admin | http://localhost:3000 |
-| Cloud API | http://localhost:4000 |
-| Edge Web (cassa) | http://localhost:5173 |
-| Handheld (sala) | http://localhost:5174 |
-| KDS simulato | http://localhost:5175 |
-| Edge API + WS | http://localhost:4100 — `ws://localhost:4100/ws` |
-
-Le porte API si possono cambiare da `.env` (`CLOUD_API_PORT`, `EDGE_API_PORT`): quelle della copia
-di sviluppo attuale sono in [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md).
-
-## Cassa: sessioni pranzo/cena e turni operatore
-
-Il locale è operativo solo con una **sessione di cassa aperta** (Pranzo o Cena): senza, l'Edge blocca
-comande, incassi e banco (`409 CASH_SESSION_CLOSED`). Solo l'operatore cassa (Cassiere o Admin di
-sede) apre la cassa con il fondo iniziale e la chiude con prelievi, conteggio contanti, strisciata POS
-e scostamenti (report sulla stampante Bar, sync al Cloud). I turni degli operatori sono presenze che
-partono all'accesso con PIN. Logica in `services/edge-api/src/lib/cash-session.ts`, regole e decisioni
-in [`doc/PIANO-TURNI-CASSA.md`](doc/PIANO-TURNI-CASSA.md).
-
-## Comanda (palmare e cassa)
-
-La comanda è **una sola** per palmare e cassa: logica e schermata stanno in `packages/comanda`
-(`useComanda` + `ComandaWorkspace`), le app scelgono solo l'impaginazione (`layout="handheld"` o
-`"cassa"`). Il pacchetto non ha una build: Vite e TypeScript leggono direttamente `src/`, e le
-configurazioni Tailwind di palmare e cassa includono `packages/comanda/src`. Una modifica alla
-comanda va fatta lì e vale per entrambe le app.
-
-Regole condivise in `packages/types`: attesa delle portate (`isHeldCourse`: Ora subito, Segue in attesa
-fino alla Marcia) e note rapide (`QUICK_NOTES`).
-
-## Stampa
-
-| `HARDWARE_BRIDGE_MODE` | Comportamento |
-|------------------------|---------------|
-| `mock` (default) | Ticket ESC/POS scritti in `tmp/prints/` |
-| `network` | Comande, annulli, preconti, marcia, prenotazioni via TCP raw all'IP:porta di ogni stampante (`/api/printers`) |
-
-Scontrino fiscale, Z-report e cassetto restano **mock** in entrambi i casi (RT Micrelec in Fase 7).
-`RECEIPT_COPY_PRINT=true` stampa una copia **non fiscale** dello scontrino sulla stampante Bar a ogni incasso.
-Stampante simulata per i test: `node scripts/fake-printer.mjs [porta]`. Dettagli in [`doc/TEST-LOCALE.md`](doc/TEST-LOCALE.md).
-
-## Script utili
-
-```bash
-pnpm typecheck    # TypeScript
-pnpm test         # Vitest (+ Playwright e2e se i servizi sono avviati)
-pnpm test:e2e     # Solo Playwright
-pnpm build        # Build completa
-python3 scripts/smoke-giro-test.py          # Giro API cloud + edge
-python3 scripts/smoke-feature-richieste.py  # Feature richieste cliente
-./scripts/git-flow.sh   # Git interattivo
-```
+> Il repository è **pubblico**: niente segreti nei file committati. `.env` e `*.local.md` sono ignorati
+> da git; regole in [`doc/VARIABILI-AMBIENTE.md`](doc/VARIABILI-AMBIENTE.md).
