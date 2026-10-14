@@ -5,6 +5,7 @@ import { ConfirmModal } from "@pizzaguys/comanda";
 import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModal";
 import { RoomTabs } from "../components/RoomTabs";
 import { CashClosedBanner } from "@pizzaguys/comanda";
+import { TableList, TableReorderList } from "../components/TableListView";
 import { TableMapViewport } from "../components/TableMapViewport";
 import {
   TABLE_STATUS_COLORS,
@@ -14,13 +15,33 @@ import {
   filterTablesByRoom,
   isUnionHost,
   mapTableMeta,
-  sortTablesForGrid,
+  sortTablesSequential,
   tableLabelFontClass,
 } from "@pizzaguys/comanda";
 import type { LiveTable, Operator } from "../lib/types";
 
 /** Larghezza indicativa di una tessera in griglia, per scegliere il corpo dell'etichetta. */
 const GRID_LABEL_WIDTH = 96;
+
+type TablesView = "map" | "list";
+const VIEW_STORAGE_KEY = "pg-handheld-tables-view";
+
+/** Vista scelta su questo dispositivo (mappa o lista): solo comodità, può mancare. */
+function readStoredView(): TablesView {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "map";
+  } catch {
+    return "map";
+  }
+}
+
+function storeView(view: TablesView) {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+  } catch {
+    /* storage non disponibile (navigazione privata): resta la scelta in memoria */
+  }
+}
 
 export function MapScreen({
   operator,
@@ -36,6 +57,7 @@ export function MapScreen({
   guestsModalLoading,
   guestsModalError,
   onSelectTable,
+  onSaveTableOrder,
   onOpenCounter,
   onLogout,
   onConfirmLogout,
@@ -56,6 +78,8 @@ export function MapScreen({
   guestsModalLoading: boolean;
   guestsModalError: string;
   onSelectTable: (t: LiveTable) => void;
+  /** Salva il nuovo ordine dei tavoli della sala (riservato all'Admin di sede). */
+  onSaveTableOrder: (roomId: string | null, tableIds: string[]) => Promise<void>;
   onOpenCounter?: () => void;
   onLogout: () => void;
   onConfirmLogout: () => void;
@@ -64,6 +88,15 @@ export function MapScreen({
   onCancelGuests: () => void;
 }) {
   const [selectedRoomId, setSelectedRoomId] = useState("");
+  const [view, setView] = useState<TablesView>(readStoredView);
+  const [reordering, setReordering] = useState(false);
+  const canReorder = operator.role === "USER_ADMIN";
+
+  const changeView = (next: TablesView) => {
+    setView(next);
+    storeView(next);
+    if (next === "map") setReordering(false);
+  };
 
   useEffect(() => {
     if (rooms.length === 0) {
@@ -105,8 +138,16 @@ export function MapScreen({
     [rooms, selectedRoomId],
   );
 
-  // Griglia (telefono): tessere tutte uguali, in ordine di lettura della sala.
-  const gridTables = useMemo(() => sortTablesForGrid(displayTables), [displayTables]);
+  // Griglia (telefono) e lista: ordine sequenziale (personalizzato, poi naturale per nome).
+  const gridTables = useMemo(() => sortTablesSequential(displayTables), [displayTables]);
+
+  // Riordino: tutti i tavoli fisici della sala, compresi gli annessi nascosti in mappa,
+  // perché l'Edge salva l'ordine dell'intera sala.
+  const orderRoomId = selectedRoomId || null;
+  const reorderTables = useMemo(
+    () => tables.filter((t) => !t.isVirtual && (t.roomId ?? null) === orderRoomId),
+    [tables, orderRoomId],
+  );
 
   const emptyMessage = (
     <p className="px-6 py-10 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">
@@ -223,49 +264,108 @@ export function MapScreen({
               {visibleTables.length} {visibleTables.length === 1 ? "tavolo" : "tavoli"}
               {activeRoomName ? ` · ${activeRoomName}` : " in sala"}
             </p>
-            <RoomTabs rooms={rooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} />
+            <div className="flex items-center gap-2">
+              <div className="inline-flex rounded-lg border border-[hsl(var(--pg-border))] p-0.5" role="group" aria-label="Vista tavoli">
+                {(["map", "list"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={view === option}
+                    disabled={reordering}
+                    onClick={() => changeView(option)}
+                    className={`h-9 rounded-md px-4 text-sm font-medium ${
+                      view === option
+                        ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                        : "text-[hsl(var(--pg-muted-foreground))]"
+                    }`}
+                  >
+                    {option === "map" ? "Mappa" : "Lista"}
+                  </button>
+                ))}
+              </div>
+              {view === "list" && canReorder && !reordering && reorderTables.length > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ml-auto h-9 px-3 text-sm"
+                  disabled={isOffline}
+                  onClick={() => setReordering(true)}
+                >
+                  Riordina
+                </Button>
+              )}
+            </div>
+            {!reordering && (
+              <RoomTabs rooms={rooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} />
+            )}
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <TableMapViewport
-              tables={displayTables}
-              maxScale={1.15}
-              align="start"
-              className="!p-0"
-              renderGrid={() =>
-                displayTables.length > 0 ? (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3 pb-2">
-                    {gridTables.map((table) => renderTable(table, "grid", GRID_LABEL_WIDTH))}
-                  </div>
-                ) : (
-                  emptyMessage
-                )
-              }
-            >
-              {(scale) => (
-                <>
-                  {displayTables.map((table) => renderTable(table, "map", table.width * scale))}
+            {view === "list" ? (
+              reordering ? (
+                <TableReorderList
+                  key={orderRoomId ?? "none"}
+                  tables={reorderTables}
+                  onCancel={() => setReordering(false)}
+                  onSave={async (ids) => {
+                    await onSaveTableOrder(orderRoomId, ids);
+                    setReordering(false);
+                  }}
+                />
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <TableList
+                    tables={gridTables}
+                    allTables={tables}
+                    lockPending={lockPending}
+                    onSelectTable={onSelectTable}
+                    empty={emptyMessage}
+                  />
+                </div>
+              )
+            ) : (
+              <TableMapViewport
+                tables={displayTables}
+                maxScale={1.15}
+                align="start"
+                className="!p-0"
+                renderGrid={() =>
+                  displayTables.length > 0 ? (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3 pb-2">
+                      {gridTables.map((table) => renderTable(table, "grid", GRID_LABEL_WIDTH))}
+                    </div>
+                  ) : (
+                    emptyMessage
+                  )
+                }
+              >
+                {(scale) => (
+                  <>
+                    {displayTables.map((table) => renderTable(table, "map", table.width * scale))}
 
-                  {displayTables.length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center">{emptyMessage}</div>
-                  )}
-                </>
-              )}
-            </TableMapViewport>
+                    {displayTables.length === 0 && (
+                      <div className="absolute inset-0 flex items-center justify-center">{emptyMessage}</div>
+                    )}
+                  </>
+                )}
+              </TableMapViewport>
+            )}
 
-            <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[hsl(var(--pg-border))] px-4 py-2.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
-              {(Object.keys(TABLE_STATUS_DOT) as TableStatus[]).map((status) => (
-                <span key={status} className="flex items-center gap-1.5">
-                  <span className={`h-2.5 w-2.5 rounded-full ${TABLE_STATUS_DOT[status]}`} />
-                  {TABLE_STATUS_LABELS[status]}
-                  {statusSummary[status] != null && statusSummary[status]! > 0 && (
-                    <span className="tabular-nums text-[hsl(var(--pg-foreground))]">
-                      ({statusSummary[status]})
-                    </span>
-                  )}
-                </span>
-              ))}
-            </div>
+            {!reordering && (
+              <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[hsl(var(--pg-border))] px-4 py-2.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                {(Object.keys(TABLE_STATUS_DOT) as TableStatus[]).map((status) => (
+                  <span key={status} className="flex items-center gap-1.5">
+                    <span className={`h-2.5 w-2.5 rounded-full ${TABLE_STATUS_DOT[status]}`} />
+                    {TABLE_STATUS_LABELS[status]}
+                    {statusSummary[status] != null && statusSummary[status]! > 0 && (
+                      <span className="tabular-nums text-[hsl(var(--pg-foreground))]">
+                        ({statusSummary[status]})
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </main>

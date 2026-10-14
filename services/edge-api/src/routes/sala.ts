@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { rooms, tables } from "@pizzaguys/edge-db";
-import { createRoomSchema, createTableSchema, updateTableSchema } from "@pizzaguys/validators";
+import {
+  createRoomSchema,
+  createTableSchema,
+  reorderTablesSchema,
+  updateTableSchema,
+} from "@pizzaguys/validators";
 import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireUserAdmin } from "../lib/operator-sessions.js";
+import { applyTableOrder, nextTableSortOrder } from "../lib/table-order.js";
 
 export async function salaRoutes(app: FastifyInstance) {
   const admin = requireUserAdmin(app.edgeDb);
@@ -59,11 +65,21 @@ export async function salaRoutes(app: FastifyInstance) {
       defaultGuests: parsed.data.defaultGuests ?? 2,
       isVirtual: parsed.data.isVirtual ?? false,
       virtualType: parsed.data.virtualType ?? null,
-      sortOrder: 0,
+      sortOrder: parsed.data.isVirtual ? 0 : nextTableSortOrder(app.edgeDb, parsed.data.roomId ?? null),
       createdAt: new Date().toISOString(),
     };
     app.edgeDb.insert(tables).values(row).run();
     return reply.status(201).send(row);
+  });
+
+  app.put("/api/tables/order", { preHandler: admin }, async (req, reply) => {
+    const parsed = reorderTablesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+    const result = applyTableOrder(app.edgeDb, parsed.data.roomId, parsed.data.tableIds);
+    if (!result.ok) return reply.status(409).send({ error: result.error });
+    return { ok: true };
   });
 
   app.patch<{ Params: { id: string } }>("/api/tables/:id", { preHandler: admin }, async (req, reply) => {

@@ -27,6 +27,12 @@ export const createTableSchema = z.object({
 
 export const updateTableSchema = createTableSchema.partial();
 
+/** Nuovo ordine dei tavoli di una sala (trascinamento dal palmare): id dal primo all'ultimo. */
+export const reorderTablesSchema = z.object({
+  roomId: z.string().min(1).nullable(),
+  tableIds: z.array(z.string().min(1)).min(1).max(500),
+});
+
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 const HOSTNAME = /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 

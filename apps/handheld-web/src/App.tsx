@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal";
 import { TableTransferModal } from "./components/TableTransferModal";
-import { edgeApi } from "./lib/api";
+import { edgeApi, setOperatorToken } from "./lib/api";
 import { clearDraft, loadDraft, saveDraft } from "./lib/offline";
 import type { LiveTable, Operator, Screen, WorkspaceTab } from "./lib/types";
 import { useEdgeWs } from "./lib/ws";
@@ -347,10 +347,11 @@ export default function App() {
   const verifyPin = async (value: string) => {
     setPinError("");
     try {
-      const op = await edgeApi<Operator>("/api/staff/verify-pin", {
+      const { token, ...op } = await edgeApi<Operator & { token?: string }>("/api/staff/verify-pin", {
         method: "POST",
         body: JSON.stringify({ pin: value, startShift: true }),
       });
+      setOperatorToken(token ?? null);
       setOperator(op);
       setPin("");
       setScreen("map");
@@ -623,7 +624,20 @@ export default function App() {
     logout();
   };
 
+  /** Nuovo ordine dei tavoli di una sala (riordino dal palmare, solo Admin di sede). */
+  const saveTableOrder = async (roomId: string | null, tableIds: string[]) => {
+    await edgeApi("/api/tables/order", {
+      method: "PUT",
+      body: JSON.stringify({ roomId, tableIds }),
+    });
+    loadTables();
+  };
+
   const logout = () => {
+    void edgeApi("/api/staff/logout", { method: "POST" }).catch(() => {
+      /* sessione già scaduta sull'Edge */
+    });
+    setOperatorToken(null);
     setOperator(null);
     setScreen("pin");
     setActiveTable(null);
@@ -753,6 +767,7 @@ export default function App() {
           guestsModalLoading={guestsModalLoading}
           guestsModalError={guestsModalError}
           onSelectTable={selectTable}
+          onSaveTableOrder={saveTableOrder}
           onOpenCounter={() => setScreen("counter")}
           onLogout={() => setLogoutConfirm(true)}
           onConfirmLogout={() => {
