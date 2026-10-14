@@ -36,6 +36,9 @@ export function SalaPage() {
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(false);
   const [confirmDeleteTable, setConfirmDeleteTable] = useState<{ id: string; label: string } | null>(null);
+  /** Scheda del tavolo (tocco o clic sulla mappa): etichetta, coperti, elimina. */
+  const [editTable, setEditTable] = useState<{ id: string; label: string; guests: number } | null>(null);
+  const [editError, setEditError] = useState("");
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
@@ -107,8 +110,35 @@ export function SalaPage() {
   };
 
   const deleteTable = async (id: string) => {
-    await edgeApi(`/api/tables/${id}`, { method: "DELETE" });
+    try {
+      setMessage("");
+      await edgeApi(`/api/tables/${id}`, { method: "DELETE" });
+      setEditTable(null);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Errore eliminazione tavolo");
+    }
     void load();
+  };
+
+  const openEditTable = (table: Table) => {
+    setEditError("");
+    setEditTable({ id: table.id, label: table.label, guests: table.defaultGuests });
+  };
+
+  const saveTable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTable) return;
+    try {
+      setEditError("");
+      await edgeApi(`/api/tables/${editTable.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ label: editTable.label, defaultGuests: editTable.guests }),
+      });
+      setEditTable(null);
+      void load();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Errore salvataggio tavolo");
+    }
   };
 
   const deleteRoom = async () => {
@@ -147,7 +177,7 @@ export function SalaPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold">Sala Builder</h1>
           <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
-            Organizza le sale e trascina i tavoli sulla mappa. Doppio click su un tavolo per eliminarlo.
+            Organizza le sale e trascina i tavoli sulla mappa. Tocca un tavolo per modificarlo o eliminarlo.
           </p>
         </div>
         <Button type="button" variant="outline" onClick={() => setShowCreateRoomModal(true)}>
@@ -214,22 +244,11 @@ export function SalaPage() {
             <div className="overflow-auto rounded border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/30 p-2">
               <Stage width={900} height={520}>
                 <Layer>
-                  {roomTables.map((t) => (
-                    <TableShape
-                      key={t.id}
-                      table={t}
-                      onMove={moveTable}
-                      onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
-                    />
+                  {physicalTables.map((t) => (
+                    <TableShape key={t.id} table={t} onMove={moveTable} onSelect={openEditTable} />
                   ))}
                   {virtualTables.map((t) => (
-                    <TableShape
-                      key={t.id}
-                      table={t}
-                      onMove={moveTable}
-                      onDelete={(id, label) => setConfirmDeleteTable({ id, label })}
-                      virtual
-                    />
+                    <TableShape key={t.id} table={t} onMove={moveTable} virtual />
                   ))}
                 </Layer>
               </Stage>
@@ -271,6 +290,61 @@ export function SalaPage() {
           }}
           onCancel={() => setConfirmDeleteTable(null)}
         />
+      )}
+
+      {editTable && (
+        <ActionModal
+          title={`Tavolo ${formatTableLabel(tables.find((t) => t.id === editTable.id)?.label ?? editTable.label)}`}
+          onClose={() => setEditTable(null)}
+          footer={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="mr-auto text-red-600"
+                onClick={() => {
+                  setConfirmDeleteTable({ id: editTable.id, label: editTable.label });
+                  setEditTable(null);
+                }}
+              >
+                Elimina
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setEditTable(null)}>
+                Annulla
+              </Button>
+              <Button type="submit" form="edit-table-form">
+                Salva
+              </Button>
+            </>
+          }
+        >
+          <form id="edit-table-form" onSubmit={saveTable} className="space-y-3">
+            <label className="block space-y-1 text-sm">
+              <span className="text-[hsl(var(--pg-muted-foreground))]">Etichetta</span>
+              <input
+                className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-sm"
+                value={editTable.label}
+                maxLength={20}
+                onChange={(e) => setEditTable({ ...editTable, label: e.target.value })}
+                required
+                autoFocus
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span className="text-[hsl(var(--pg-muted-foreground))]">Coperti predefiniti</span>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                className="w-full rounded-md border border-[hsl(var(--pg-border))] bg-transparent px-3 py-2 text-sm"
+                value={editTable.guests}
+                onChange={(e) => setEditTable({ ...editTable, guests: Number(e.target.value) })}
+                required
+              />
+            </label>
+            {editError && <p className="text-sm text-red-600">{editError}</p>}
+          </form>
+        </ActionModal>
       )}
 
       {showCreateRoomModal && (
@@ -383,12 +457,13 @@ function ActionModal({
 function TableShape({
   table,
   onMove,
-  onDelete,
+  onSelect,
   virtual,
 }: {
   table: Table;
   onMove: (id: string, x: number, y: number) => void;
-  onDelete: (id: string, label: string) => void;
+  /** Tocco o clic (non dopo un trascinamento): apre la scheda del tavolo. */
+  onSelect?: (table: Table) => void;
   virtual?: boolean;
 }) {
   const label = formatTableLabel(table.label);
@@ -410,7 +485,8 @@ function TableShape({
         shadowOffset={{ x: 0, y: 2 }}
         draggable
         onDragEnd={(e) => onMove(table.id, e.target.x(), e.target.y())}
-        onDblClick={() => onDelete(table.id, table.label)}
+        onClick={() => onSelect?.(table)}
+        onTap={() => onSelect?.(table)}
       />
       <Text
         x={table.x + 6}
@@ -422,6 +498,7 @@ function TableShape({
         fontStyle="bold"
         fill="#fff"
         ellipsis
+        listening={false}
       />
       {!virtual && (
         <Text
@@ -432,6 +509,7 @@ function TableShape({
           text={`${table.defaultGuests} cop.`}
           fontSize={10}
           fill="rgba(255,255,255,0.92)"
+          listening={false}
         />
       )}
     </>
