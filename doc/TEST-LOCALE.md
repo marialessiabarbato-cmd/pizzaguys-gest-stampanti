@@ -35,6 +35,16 @@ python3 scripts/dev-provision-edge.py # provisioning Edge, operatori e tavoli di
 porta) e `CLOUD_API_PORT` / `EDGE_API_PORT`. Smoke test e Playwright vanno poi lanciati con
 `CLOUD_API_URL` / `EDGE_API_URL`, es. `CLOUD_API_URL=http://localhost:4001 EDGE_API_URL=http://localhost:4101 pnpm test:e2e`.
 
+**Spostare il lavoro su un altro PC** (dati Cloud, Edge, `.env`):
+
+```bash
+./scripts/dev-export.sh               # anche ad ambiente acceso → tmp/backup/pizzaguys-backup-<data>.tar.gz
+./scripts/dev-import.sh <archivio>    # sul nuovo PC, ad ambiente fermo; poi ./scripts/dev-up.sh senza --reset-edge
+```
+
+L'archivio contiene segreti (token sede, hash dei PIN, dati clienti): solo canali privati, mai GitHub.
+Lavorare su un PC alla volta: due copie degli stessi dati non si riuniscono.
+
 ## Accessi e dati di test
 
 Creati da `scripts/dev-provision-edge.py` (sede **Caserta — Corso Trieste**):
