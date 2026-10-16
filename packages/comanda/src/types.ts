@@ -129,6 +129,11 @@ export interface LastAddedLine {
 export interface SubmittedLine {
   orderId: string;
   lineId: string;
+  /** Per "+1": ripete lo stesso piatto in bozza */
+  productId?: string;
+  course?: number;
+  notes?: string;
+  dessertDefer?: boolean;
   name: string;
   quantity: number;
   unitPrice: number;

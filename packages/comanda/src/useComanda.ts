@@ -82,6 +82,10 @@ interface DraftResponse {
     id: string;
     lines: Array<{
       id: string;
+      productId?: string;
+      course?: number;
+      notes?: string;
+      dessertDefer?: boolean;
       name: string;
       quantity: number;
       unitPrice: number;
@@ -222,6 +226,10 @@ export function useComanda(options: UseComandaOptions) {
           submitted.push({
             orderId: order.id,
             lineId: line.id,
+            productId: line.productId,
+            course: line.course,
+            notes: line.notes,
+            dessertDefer: line.dessertDefer,
             name: line.name,
             quantity: line.quantity,
             unitPrice: line.unitPrice,
@@ -341,6 +349,42 @@ export function useComanda(options: UseComandaOptions) {
         return;
       }
       mergeCartLine(line);
+    });
+  };
+
+  /**
+   * "+1" su una riga già spedita (es. un'altra acqua): stessa portata, varianti e nota in
+   * bozza, pronta da spedire. Il prezzo è quello di listino attuale.
+   */
+  const repeatSubmitted = (submitted: SubmittedLine) => {
+    if (!menu) return;
+    const product = menu.products.find((p) => p.id === submitted.productId);
+    if (!product) {
+      setMessage(`${submitted.name}: prodotto non più nel menu`);
+      return;
+    }
+    ensureLock(() => {
+      const line = buildCartLine(
+        product,
+        findCategory(product.categoryId),
+        channel,
+        menu.prices ?? [],
+        submitted.variants ?? [],
+        normalizeCourse(submitted.course ?? activeCourse),
+        submitted.forTableId && submitted.forTableLabel
+          ? { id: submitted.forTableId, label: submitted.forTableLabel }
+          : resolveOrderForTable(),
+      );
+      if ("error" in line) {
+        setMessage(line.error);
+        return;
+      }
+      const notes = normalizeLineNote(submitted.notes);
+      mergeCartLine({
+        ...line,
+        ...(notes ? { notes } : {}),
+        ...(submitted.dessertDefer ? { dessertDefer: true } : {}),
+      });
     });
   };
 
@@ -756,6 +800,7 @@ export function useComanda(options: UseComandaOptions) {
     stornoQtyTarget,
     setStornoQtyTarget,
     requestStorno,
+    repeatSubmitted,
     executeStorno,
     priceOverrideTarget,
     setPriceOverrideTarget,

@@ -324,8 +324,13 @@ export function ComandaWorkspace({
                         </span>
                       )}
                       {(l.variants?.length ?? 0) > 0 && (
-                        <span className="block truncate text-xs text-[hsl(var(--pg-muted-foreground))]">
+                        <span className="block break-words text-xs text-[hsl(var(--pg-muted-foreground))]">
                           {(l.variants ?? []).map((v) => (v.type === "REMOVE" ? `−${v.name}` : `+${v.name}`)).join(", ")}
+                        </span>
+                      )}
+                      {l.notes && (
+                        <span className="mt-0.5 block break-words text-xs font-medium italic text-amber-700">
+                          Nota: {l.notes}
                         </span>
                       )}
                     </span>
@@ -411,7 +416,7 @@ export function ComandaWorkspace({
                           </span>
                         )}
                         {l.variants.length > 0 && (
-                          <p className="truncate text-xs text-[hsl(var(--pg-muted-foreground))]">
+                          <p className="break-words text-xs text-[hsl(var(--pg-muted-foreground))]">
                             {l.variants.map((v) => (v.type === "REMOVE" ? `−${v.name}` : `+${v.name}`)).join(", ")}
                           </p>
                         )}
@@ -517,6 +522,11 @@ export function ComandaWorkspace({
         )}
         {selectedSubmitted && !selectedLine && (
           <>
+            <ActionChip
+              label="+1"
+              disabled={!selectedSubmitted.productId || cashClosed}
+              onClick={() => c.repeatSubmitted(selectedSubmitted)}
+            />
             <ActionChip
               label="Prezzo"
               onClick={() => c.openPriceOverride({ kind: "submitted", lineId: selectedSubmitted.lineId })}
