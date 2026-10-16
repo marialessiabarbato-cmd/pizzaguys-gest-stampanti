@@ -38,6 +38,14 @@
 | F18 | **Tavoli: tempo dall'ultimo invio in cucina** | Nella tabella tavoli; si azzera a ogni invio/sollecito | ✅ |
 | F19 | **Ordinamento a trascinamento** di prodotti e varianti | In Cloud Admin; vale per palmare e cassa | ✅ |
 
+## Aggiunte del 16/10 (dopo le prime prove)
+
+| # | Task | Decisione | Stato |
+|---|------|-----------|-------|
+| F20 | **Sposta portata in blocco** | Intestazione della portata in bozza → "Sposta…": selezione dei piatti (tutta la portata o singoli) e "Sposta in". Solo bozza | ✅ |
+| F21 | **Palmare su telefono: barra compatta allo scorrimento** | Giù: una riga (tavolo, coperti, bozza, totale); su o in cima: barra completa | ✅ |
+| — | Drag & drop tavoli da tablet nell'editor sala | Sospeso: da ritestare (riguarda solo l'editor sala, non la mappa) | ⏸ |
+
 ## Dalla lista del 14/10 (`PROSSIMI-STEP.md`) che si sovrappone
 - T22 "Libera tavolo" → assorbito da F4 ✅
 - T20 annullo al reparto giusto → fatto con F4 ✅ (storno singolo e chiusura tavolo)
