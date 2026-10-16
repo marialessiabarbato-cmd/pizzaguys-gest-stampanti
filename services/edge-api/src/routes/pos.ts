@@ -51,7 +51,10 @@ import {
   applyTableDiscount,
   cancelActiveSplit,
   clearTableDiscounts,
+  setTableCoverWaived,
+  setTableDiscountAmount,
 } from "../lib/runtime.js";
+import { DISCOUNT_LINE_ID } from "../lib/bill.js";
 import { verifyManagerPin } from "../lib/staff-auth.js";
 import { CASH_SESSION_CLOSED, isCashSessionOpen } from "../lib/cash-session.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
@@ -317,6 +320,56 @@ export async function posRoutes(app: FastifyInstance) {
       updatedLines: result.updatedLines,
       authorizedBy,
     };
+  });
+
+  /** Sconto libero in euro sul conto (F12): sempre con PIN responsabile. amount 0 lo toglie. */
+  app.post<{ Params: { id: string } }>("/api/pos/tables/:id/discount-amount", async (req, reply) => {
+    const body = req.body as { amount?: number; managerPin?: string };
+    const amount = Math.round(Number(body.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < 0) {
+      return reply.status(400).send({ error: "Importo sconto non valido" });
+    }
+    if (!body.managerPin) return reply.status(401).send({ error: "PIN manager richiesto per lo sconto in euro" });
+    const ctx = resolveTableContext(req.params.id, app.edgeDb);
+    if (!ctx) return reply.status(404).send({ error: "Tavolo non trovato" });
+    const manager = await verifyManagerPin(app.edgeDb, body.managerPin);
+    if (!manager) return reply.status(401).send({ error: "PIN manager non valido" });
+
+    const before = consolidateBillForTable(app.edgeDb, req.params.id);
+    const grossTotal = Math.round(
+      before.lines.filter((l) => l.id !== DISCOUNT_LINE_ID).reduce((s, l) => s + l.lineTotal, 0) * 100,
+    ) / 100;
+    if (amount > grossTotal) {
+      return reply.status(400).send({ error: `Lo sconto supera il conto (€ ${grossTotal.toFixed(2)})` });
+    }
+    const authorizedBy = `${manager.firstName} ${manager.lastName}`;
+    setTableDiscountAmount(req.params.id, amount, authorizedBy);
+    writeEdgeAudit(app.edgeDb, {
+      staffId: manager.id,
+      operation: "POS_DISCOUNT_AMOUNT_APPLIED",
+      severity: "WARNING",
+      nextState: { tableId: req.params.id, amount, authorizedBy },
+    });
+    return { ok: true, bill: consolidateBillForTable(app.edgeDb, req.params.id), authorizedBy };
+  });
+
+  /** Togli / rimetti i coperti dal conto (F12): sempre con PIN responsabile. */
+  app.post<{ Params: { id: string } }>("/api/pos/tables/:id/cover-waive", async (req, reply) => {
+    const body = req.body as { waived?: boolean; managerPin?: string };
+    if (!body.managerPin) return reply.status(401).send({ error: "PIN manager richiesto per togliere i coperti" });
+    const ctx = resolveTableContext(req.params.id, app.edgeDb);
+    if (!ctx) return reply.status(404).send({ error: "Tavolo non trovato" });
+    const manager = await verifyManagerPin(app.edgeDb, body.managerPin);
+    if (!manager) return reply.status(401).send({ error: "PIN manager non valido" });
+    const waived = body.waived !== false;
+    setTableCoverWaived(req.params.id, waived);
+    writeEdgeAudit(app.edgeDb, {
+      staffId: manager.id,
+      operation: waived ? "POS_COVER_WAIVED" : "POS_COVER_RESTORED",
+      severity: "WARNING",
+      nextState: { tableId: req.params.id, authorizedBy: `${manager.firstName} ${manager.lastName}` },
+    });
+    return { ok: true, bill: consolidateBillForTable(app.edgeDb, req.params.id) };
   });
 
   app.post<{ Params: { id: string } }>("/api/pos/tables/:id/discount-clear", async (req, reply) => {

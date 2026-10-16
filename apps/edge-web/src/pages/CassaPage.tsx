@@ -11,6 +11,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
 import { DiscountModal } from "../components/DiscountModal";
 import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
+import { TableDiscountModal, type TableDiscountRequest } from "../components/TableDiscountModal";
 import { PaymentScreen, type PaymentChoice } from "../components/PaymentScreen";
 import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
 import { parsePaymentAmount } from "../components/PaymentPad";
@@ -156,6 +157,8 @@ interface TableBill {
   virtualType: string | null;
   romanSplit?: RomanSplitInfo;
   analyticSplit?: AnalyticSplitInfo;
+  discountAmount?: number;
+  coverWaived?: boolean;
   counterOrder?: {
     displayNumber: string;
     customerName?: string;
@@ -262,6 +265,8 @@ export function CassaPage({
   const [remainderCashAmount, setRemainderCashAmount] = useState("");
   const [pendingPreset, setPendingPreset] = useState<LocationDiscountPreset | null>(null);
   const [presetPinError, setPresetPinError] = useState("");
+  const [showTableDiscount, setShowTableDiscount] = useState(false);
+  const [tableDiscountError, setTableDiscountError] = useState("");
   const [panelTab, setPanelTab] = useState<"conto" | "comanda">("conto");
   const [pendingUnlockAction, setPendingUnlockAction] = useState<"view" | "comanda" | null>(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -1085,7 +1090,7 @@ export function CassaPage({
       );
       setBill(result.bill);
       setDiscountLine(null);
-      setMessage(`Sconto ${percent}% applicato`);
+      setMessage(`Sconto ${String(percent).replace(".", ",")}% applicato`);
     } catch (err) {
       setDiscountError(err instanceof Error ? err.message : "Sconto rifiutato");
     } finally {
@@ -1154,7 +1159,49 @@ export function CassaPage({
     }
   };
 
-  const hasBillDiscounts = Boolean(bill?.lines.some((l) => l.discountPercent && l.discountPercent > 0));
+  const hasBillDiscounts = Boolean(
+    bill?.lines.some((l) => l.discountPercent && l.discountPercent > 0) ||
+      (bill?.discountAmount ?? 0) > 0 ||
+      bill?.coverWaived,
+  );
+
+  const handleTableDiscount = async (req: TableDiscountRequest) => {
+    if (!selectedTable) return;
+    setTableDiscountError("");
+    setLoading(true);
+    try {
+      let result: { bill: TableBill };
+      if (req.kind === "percent") {
+        result = await edgeApi<{ bill: TableBill }>(`/api/pos/tables/${selectedTable.id}/discount-preset`, {
+          method: "POST",
+          body: JSON.stringify({
+            percent: req.percent,
+            presetLabel: `Sconto ${String(req.percent).replace(".", ",")}%`,
+            ...(req.managerPin ? { managerPin: req.managerPin } : {}),
+          }),
+        });
+        setMessage(`Sconto ${String(req.percent).replace(".", ",")}% applicato a tutte le righe`);
+      } else if (req.kind === "amount") {
+        result = await edgeApi<{ bill: TableBill }>(`/api/pos/tables/${selectedTable.id}/discount-amount`, {
+          method: "POST",
+          body: JSON.stringify({ amount: req.amount, managerPin: req.managerPin }),
+        });
+        setMessage(`Sconto € ${req.amount.toFixed(2).replace(".", ",")} applicato al conto`);
+      } else {
+        result = await edgeApi<{ bill: TableBill }>(`/api/pos/tables/${selectedTable.id}/cover-waive`, {
+          method: "POST",
+          body: JSON.stringify({ waived: req.waived, managerPin: req.managerPin }),
+        });
+        setMessage(req.waived ? "Coperti tolti dal conto" : "Coperti rimessi nel conto");
+      }
+      setBill(result.bill);
+      setShowTableDiscount(false);
+    } catch (err) {
+      setTableDiscountError(err instanceof Error ? err.message : "Sconto non applicato");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const analyticCheck = bill?.analyticSplit?.checks.find((c) => c.id === analyticCheckId);
   const payAmount =
@@ -2204,6 +2251,17 @@ export function CassaPage({
                         onApply={(preset) => handlePresetClick(preset)}
                         onClear={() => void clearDiscountPresets()}
                       />
+                      <Button
+                        variant="outline"
+                        className="min-h-11 w-full"
+                        disabled={loading || isCounterOrderSelected || bill.lines.length === 0}
+                        onClick={() => {
+                          setTableDiscountError("");
+                          setShowTableDiscount(true);
+                        }}
+                      >
+                        Sconto libero (%, € o coperti)
+                      </Button>
                       {discountPresets.length === 0 && !hasBillDiscounts && (
                         <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                           Nessuno sconto preset. Usa «Sconto» sulle singole righe.
@@ -2405,6 +2463,25 @@ export function CassaPage({
             setDiscountError("");
           }}
           error={discountError}
+        />
+      )}
+
+      {showTableDiscount && bill && (
+        <TableDiscountModal
+          total={bill.total}
+          maxPercent={maxDiscount}
+          pinThreshold={pinDiscountThreshold}
+          coverWaived={Boolean(bill.coverWaived)}
+          coverTotal={bill.lines
+            .filter((l) => l.id.startsWith("__cover_charge__"))
+            .reduce((sum, l) => sum + l.lineTotal, 0)}
+          currentAmount={bill.discountAmount}
+          error={tableDiscountError}
+          onApply={(req) => void handleTableDiscount(req)}
+          onCancel={() => {
+            setShowTableDiscount(false);
+            setTableDiscountError("");
+          }}
         />
       )}
 

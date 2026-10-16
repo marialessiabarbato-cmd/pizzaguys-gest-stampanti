@@ -95,6 +95,11 @@ export interface TableRuntime {
   mergedIntoTableId?: string;
   /** Prima apertura conto del servizio corrente */
   openedAt?: string;
+  /** Sconto libero in euro sul conto (F12), autorizzato con PIN responsabile */
+  discountAmount?: number;
+  discountAuthorizedBy?: string;
+  /** Coperti tolti dal conto (F12), con PIN responsabile */
+  coverWaived?: boolean;
 }
 
 export interface RomanSplit {
@@ -615,8 +620,32 @@ export function applyTableDiscount(
   return { ok: true, updatedLines };
 }
 
+/** Sconto libero in € sul conto; 0 lo toglie. */
+export function setTableDiscountAmount(tableId: string, amount: number, authorizedBy?: string) {
+  const current = getTableRuntime(tableId);
+  tableRuntime.set(tableId, {
+    ...current,
+    discountAmount: amount > 0 ? Math.round(amount * 100) / 100 : undefined,
+    discountAuthorizedBy: amount > 0 ? authorizedBy : undefined,
+  });
+}
+
+export function setTableCoverWaived(tableId: string, waived: boolean) {
+  const current = getTableRuntime(tableId);
+  tableRuntime.set(tableId, { ...current, coverWaived: waived || undefined });
+}
+
 export function clearTableDiscounts(tableId: string): { ok: boolean; error?: string } {
-  let found = false;
+  const runtime = getTableRuntime(tableId);
+  let found = Boolean(runtime.discountAmount || runtime.coverWaived);
+  if (found) {
+    tableRuntime.set(tableId, {
+      ...runtime,
+      discountAmount: undefined,
+      discountAuthorizedBy: undefined,
+      coverWaived: undefined,
+    });
+  }
   for (const [orderId, order] of orders) {
     if (order.tableId !== tableId) continue;
     found = true;

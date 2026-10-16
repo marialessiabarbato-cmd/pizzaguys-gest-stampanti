@@ -2,7 +2,7 @@ import { rooms, tables, type EdgeDatabase } from "@pizzaguys/edge-db";
 import { eq } from "drizzle-orm";
 import { consolidateTableBill, type CoverChargeParams } from "./bill.js";
 import { getMenuSnapshot } from "./provision.js";
-import { getChargedGuests } from "./runtime.js";
+import { getChargedGuests, getTableRuntime } from "./runtime.js";
 
 type MenuSettings = { coverChargeAmount?: number };
 
@@ -12,6 +12,7 @@ export function resolveCoverCharge(
 ): CoverChargeParams | undefined {
   const table = edgeDb.select().from(tables).where(eq(tables.id, tableId)).get();
   if (!table || table.isVirtual) return undefined;
+  if (getTableRuntime(tableId).coverWaived) return undefined;
 
   const room = table.roomId
     ? edgeDb.select().from(rooms).where(eq(rooms.id, table.roomId)).get()

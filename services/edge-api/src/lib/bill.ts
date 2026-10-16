@@ -5,6 +5,7 @@ import {
   getOrderByTable,
   getRomanSplit,
   getSubmittedOrdersByTable,
+  getTableRuntime,
 } from "./runtime.js";
 
 export interface BillLine {
@@ -49,6 +50,10 @@ export interface TableBill {
   coverCharge?: { guestCount: number; unitPrice: number; lineTotal: number };
   romanSplit?: RomanSplitInfo;
   analyticSplit?: AnalyticSplitInfo;
+  /** Sconto in euro applicato (F12) */
+  discountAmount?: number;
+  /** Coperti tolti dal conto (F12) */
+  coverWaived?: boolean;
 }
 
 export interface CoverChargeParams {
@@ -59,6 +64,9 @@ export interface CoverChargeParams {
 export const COVER_LINE_ID = "__cover_charge__";
 
 /** Riga coperto: unica ("__cover_charge__") o, in split analitico, una per persona ("__cover_charge__#1"…). */
+/** Sconto libero in euro sul conto: riga negativa in fondo (F12). */
+export const DISCOUNT_LINE_ID = "__discount_amount__";
+
 export function isCoverLineId(id: string): boolean {
   return id === COVER_LINE_ID || id.startsWith(`${COVER_LINE_ID}#`);
 }
@@ -142,6 +150,21 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
     };
   }
 
+  // Sconto in euro: mai oltre il totale
+  const discountAmount = getTableRuntime(tableId).discountAmount ?? 0;
+  if (discountAmount > 0 && total > 0) {
+    const applied = Math.min(discountAmount, total);
+    lines.push({
+      id: DISCOUNT_LINE_ID,
+      orderId: "discount",
+      name: "Sconto",
+      quantity: 1,
+      unitPrice: -applied,
+      lineTotal: -applied,
+    });
+    total = roundToFiveCents(total - applied);
+  }
+
   const split = getRomanSplit(tableId);
   const romanSplit = split
     ? {
@@ -175,7 +198,18 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
     };
   }
 
-  return { tableId, lines, total, orderCount: orders.length, coverCharge: coverChargeInfo, romanSplit, analyticSplit };
+  const runtime = getTableRuntime(tableId);
+  return {
+    tableId,
+    lines,
+    total,
+    orderCount: orders.length,
+    coverCharge: coverChargeInfo,
+    romanSplit,
+    analyticSplit,
+    discountAmount: runtime.discountAmount,
+    coverWaived: runtime.coverWaived,
+  };
 }
 
 export function billLinesForCheck(bill: TableBill, checkId: string): BillLine[] {

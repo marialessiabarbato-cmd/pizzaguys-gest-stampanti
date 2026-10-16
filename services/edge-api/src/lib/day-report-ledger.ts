@@ -3,7 +3,7 @@ import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { categoryRouting, dayReportStornos, dayReportTransactions, tables } from "@pizzaguys/edge-db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { isCoverLineId, type TableBill } from "./bill.js";
+import { DISCOUNT_LINE_ID, isCoverLineId, type TableBill } from "./bill.js";
 import { consolidateBillForTable } from "./cover-charge.js";
 import { getMenuSnapshot } from "./provision.js";
 import {
@@ -221,6 +221,20 @@ export function enrichBillLinesForReport(
         lineTotal: billLine.lineTotal,
         vatRate: 10,
         categoryName: "COPERTO",
+        workCenter: "NO STAMPA",
+        discountAmount: 0,
+        promotionAmount: 0,
+        supplementAmount: 0,
+      };
+    }
+
+    if (billLine.id === DISCOUNT_LINE_ID) {
+      return {
+        name: "Sconto",
+        quantity: 1,
+        lineTotal: billLine.lineTotal,
+        vatRate: 10,
+        categoryName: "SCONTO",
         workCenter: "NO STAMPA",
         discountAmount: 0,
         promotionAmount: 0,

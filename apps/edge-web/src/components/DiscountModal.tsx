@@ -23,13 +23,16 @@ export function DiscountModal({
   onCancel: () => void;
   error?: string;
 }) {
-  const [percent, setPercent] = useState(10);
+  const [percentText, setPercentText] = useState("10");
+  // Decimali con la virgola (es. 0,75)
+  const percent = Number(percentText.replace(",", "."));
+  const setPercent = (value: number) => setPercentText(String(value).replace(".", ","));
   const [needsPin, setNeedsPin] = useState(false);
 
   const fallbackPresets = FALLBACK_PRESETS.filter((p) => p <= maxPercent);
 
   const handleApply = () => {
-    if (percent < 1 || percent > maxPercent) return;
+    if (!Number.isFinite(percent) || percent <= 0 || percent > maxPercent) return;
     if (percent > pinThreshold) {
       setNeedsPin(true);
       return;
@@ -40,7 +43,7 @@ export function DiscountModal({
   if (needsPin) {
     return (
       <PinModal
-        title={`PIN manager — sconto ${percent}%`}
+        title={`PIN manager — sconto ${percentText}%`}
         onComplete={(pin) => onApply(percent, pin)}
         onCancel={() => setNeedsPin(false)}
         error={error}
@@ -89,11 +92,10 @@ export function DiscountModal({
         <label className="mb-4 block text-sm">
           Percentuale (max {maxPercent}%)
           <input
-            type="number"
-            min={1}
-            max={maxPercent}
-            value={percent}
-            onChange={(e) => setPercent(Number(e.target.value))}
+            type="text"
+            inputMode="decimal"
+            value={percentText}
+            onChange={(e) => setPercentText(e.target.value.replace(/[^0-9.,]/g, ""))}
             className="mt-1 min-h-12 w-full rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2 text-lg"
           />
         </label>

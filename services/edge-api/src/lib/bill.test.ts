@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { billLinesForCheck, consolidateTableBill, isCoverLineId } from "./bill.js";
+import { billLinesForCheck, consolidateTableBill, DISCOUNT_LINE_ID, isCoverLineId } from "./bill.js";
 import {
   clearAnalyticSplit,
   clearTableOrders,
   importRuntimeState,
   markOrderSubmitted,
+  setTableDiscountAmount,
   startAnalyticSplit,
   updateAnalyticSplit,
   upsertOrder,
@@ -68,5 +69,25 @@ describe("coperto nel conto", () => {
     // la somma dei conti copre l'intero tavolo: niente più buchi
     expect((totals[0] ?? 0) + (totals[1] ?? 0)).toBe(bill.total);
     expect(billLinesForCheck(bill, c2.id).filter((l) => isCoverLineId(l.id))).toHaveLength(2);
+  });
+});
+
+describe("sconto in euro", () => {
+  it("aggiunge la riga Sconto in fondo e riduce il totale", () => {
+    seedOrder();
+    setTableDiscountAmount(TABLE, 5, "Test Admin");
+    const bill = consolidateTableBill(TABLE, { guestCount: 2, unitPrice: 2 });
+    const last = bill.lines[bill.lines.length - 1];
+    expect(last?.id).toBe(DISCOUNT_LINE_ID);
+    expect(last?.lineTotal).toBe(-5);
+    expect(bill.total).toBe(16); // 8 + 9 + 4 coperti − 5
+    expect(bill.discountAmount).toBe(5);
+  });
+
+  it("non supera il totale", () => {
+    seedOrder();
+    setTableDiscountAmount(TABLE, 100);
+    const bill = consolidateTableBill(TABLE);
+    expect(bill.total).toBe(0);
   });
 });

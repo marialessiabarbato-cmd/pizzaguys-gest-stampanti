@@ -1,5 +1,5 @@
 import { Button } from "@pizzaguys/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { OffCanvas, offCanvasFooterClass } from "./OffCanvas";
 import { PinPad } from "./PinPad";
 
@@ -12,6 +12,10 @@ interface Props {
 
 export function PinModal({ title, onComplete, onCancel, error }: Props) {
   const [pin, setPin] = useState("");
+  // PIN rifiutato: svuota i pallini, altrimenti il tastierino resta pieno e ignora i tocchi
+  useEffect(() => {
+    if (error) setPin("");
+  }, [error]);
 
   return (
     <OffCanvas widthClass="max-w-sm" zClass="z-[60]" onClose={onCancel}>

@@ -10,7 +10,8 @@ export const createLocationDiscountPresetSchema = z.object({
 export const updateLocationDiscountPresetSchema = createLocationDiscountPresetSchema.partial();
 
 export const applyTableDiscountPresetSchema = z.object({
-  percent: z.number().int().min(1).max(100),
+  // Anche sconto libero sul tavolo, con decimali (es. 0,75%)
+  percent: z.number().min(0.01).max(100),
   presetId: z.string().uuid().optional(),
   presetLabel: z.string().max(40).optional(),
   managerPin: z.string().regex(/^[0-9]{4}$/).optional(),
