@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { writeEdgeAudit } from "../lib/audit.js";
+import { printNonFiscalCopy } from "../lib/payment.js";
+import { reportPrintFailures } from "../lib/print-alerts.js";
 import {
   buildFiscalDocumentsCsv,
   getFiscalDocument,
@@ -101,14 +103,24 @@ export async function fiscalDocumentRoutes(app: FastifyInstance) {
     });
     await writeFile(txtPath, text, "utf8");
 
+    // Lo scontrino fiscale è ancora simulato: la ristampa esce come copia non fiscale sulla
+    // stampante Bar (prima veniva solo scritta su file e in sala non usciva nulla).
+    const printResult = await printNonFiscalCopy(app.edgeDb, text, `reprint-${doc.id}-${stamp}`);
+    const printWarnings = reportPrintFailures(
+      app.edgeDb,
+      "COPIA_SCONTRINO",
+      String(doc.meta?.tableLabel ?? doc.documentNumber ?? doc.id),
+      [printResult],
+    );
+
     writeEdgeAudit(app.edgeDb, {
       staffId: doc.operatorStaffId ?? undefined,
       operation: "FISCAL_DOCUMENT_REPRINT",
       severity: "INFO",
-      nextState: { documentId: doc.id, path: txtPath },
+      nextState: { documentId: doc.id, path: txtPath, printed: printResult.success },
     });
 
-    return { ok: true, path: txtPath, preview: text };
+    return { ok: true, path: txtPath, preview: text, printed: printResult.success, printWarnings };
   });
 
   app.post<{ Params: { id: string } }>(
@@ -126,15 +138,22 @@ export async function fiscalDocumentRoutes(app: FastifyInstance) {
       const txtPath = join(PRINT_DIR, `${stamp}-proforma-${doc.id}.txt`);
       const text = formatProformaInvoiceText(doc, state?.locationName ?? undefined);
       await writeFile(txtPath, text, "utf8");
+      const printResult = await printNonFiscalCopy(app.edgeDb, text, `proforma-${doc.id}-${stamp}`);
+      const printWarnings = reportPrintFailures(
+        app.edgeDb,
+        "COPIA_SCONTRINO",
+        String(doc.meta?.tableLabel ?? doc.documentNumber ?? doc.id),
+        [printResult],
+      );
 
       writeEdgeAudit(app.edgeDb, {
         staffId: doc.operatorStaffId ?? undefined,
         operation: "FISCAL_DOCUMENT_REPRINT_PROFORMA",
         severity: "INFO",
-        nextState: { documentId: doc.id, path: txtPath },
+        nextState: { documentId: doc.id, path: txtPath, printed: printResult.success },
       });
 
-      return { ok: true, path: txtPath, preview: text };
+      return { ok: true, path: txtPath, preview: text, printed: printResult.success, printWarnings };
     },
   );
 

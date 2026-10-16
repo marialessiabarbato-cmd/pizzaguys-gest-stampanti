@@ -69,14 +69,19 @@ async function printReceiptCopy(
   receipt: MockReceipt,
   meta: Parameters<typeof formatMockReceiptText>[1],
 ) {
+  return printNonFiscalCopy(edgeDb, formatMockReceiptText(receipt, meta), `receipt-copy-${receipt.id}`);
+}
+
+/** Copia non fiscale (testo dello scontrino) sulla stampante Bar, o sulla prima attiva. */
+export async function printNonFiscalCopy(edgeDb: EdgeDatabase, receiptText: string, jobId: string) {
   const printer =
     edgeDb.select().from(printers).all().find((p) => p.enabled && p.workCenter === "BAR") ??
     edgeDb.select().from(printers).all().find((p) => p.enabled);
-  const payload = buildReceiptCopyTicket({ receiptText: formatMockReceiptText(receipt, meta) });
+  const payload = buildReceiptCopyTicket({ receiptText });
   return hardware.printEscPos(
     printer?.id ?? "cassa",
     payload,
-    `receipt-copy-${receipt.id}`,
+    jobId,
     printer ? { host: printer.host, port: printer.port } : undefined,
   );
 }

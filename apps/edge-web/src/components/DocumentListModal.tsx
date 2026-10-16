@@ -233,10 +233,15 @@ export function DocumentListModal({
     setMessage("");
     setError("");
     try {
-      const result = await edgeApi<{ path: string }>(`/api/fiscal-documents/${selected.id}/reprint`, {
-        method: "POST",
-      });
-      setMessage(`Ristampa salvata: ${result.path}`);
+      const result = await edgeApi<{ path: string; printed?: boolean; printWarnings?: string[] }>(
+        `/api/fiscal-documents/${selected.id}/reprint`,
+        { method: "POST" },
+      );
+      if (result.printed === false) {
+        setError(result.printWarnings?.join(" · ") || "Ristampa non riuscita: controlla la stampante Bar");
+      } else {
+        setMessage("Copia non fiscale stampata sulla stampante Bar");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore ristampa");
     } finally {
@@ -250,11 +255,15 @@ export function DocumentListModal({
     setMessage("");
     setError("");
     try {
-      const result = await edgeApi<{ path: string }>(
+      const result = await edgeApi<{ path: string; printed?: boolean; printWarnings?: string[] }>(
         `/api/fiscal-documents/${selected.id}/reprint-proforma`,
         { method: "POST" },
       );
-      setMessage(`Proforma salvata: ${result.path}`);
+      if (result.printed === false) {
+        setError(result.printWarnings?.join(" · ") || "Proforma non stampata: controlla la stampante Bar");
+      } else {
+        setMessage("Proforma stampata sulla stampante Bar");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore ristampa proforma");
     } finally {
