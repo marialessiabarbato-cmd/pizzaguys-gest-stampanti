@@ -165,6 +165,45 @@ function SortableCategory({
   );
 }
 
+/** Riga trascinabile (prodotti, varianti): maniglia ⋮⋮ a sinistra, solo se il riordino è attivo. */
+function SortableRow({
+  id,
+  enabled,
+  className,
+  children,
+}: {
+  id: string;
+  enabled: boolean;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled: !enabled,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className={`${className} ${isDragging ? "shadow-md" : ""}`}>
+      {enabled && (
+        <button
+          type="button"
+          className="mr-1 cursor-grab touch-none text-xs opacity-50"
+          aria-label="Trascina per riordinare"
+          {...attributes}
+          {...listeners}
+        >
+          ⋮⋮
+        </button>
+      )}
+      {children}
+    </div>
+  );
+}
+
 function CategoryCheckboxPicker({
   categories,
   selectedIds,
@@ -333,6 +372,41 @@ export default function MenuPage() {
     await api("/api/v2/categories/reorder", {
       method: "POST",
       body: JSON.stringify({ ids: reordered.map((c) => c.id) }),
+    });
+  };
+
+  /** Riordino prodotti della categoria selezionata (F19) */
+  const onProductDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const inCategory = products.filter((p) => p.categoryId === selectedCatId);
+    const oldIndex = inCategory.findIndex((p) => p.id === active.id);
+    const newIndex = inCategory.findIndex((p) => p.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(inCategory, oldIndex, newIndex);
+    setProducts((prev) => [...prev.filter((p) => p.categoryId !== selectedCatId), ...reordered]);
+    await api("/api/v2/products/reorder", {
+      method: "POST",
+      body: JSON.stringify({ ids: reordered.map((p) => p.id) }),
+    });
+  };
+
+  /** Riordino varianti del gruppo selezionato (F19) */
+  const onVariantDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !selectedGroupId) return;
+    const group = variantGroups.find((g) => g.id === selectedGroupId);
+    if (!group) return;
+    const oldIndex = group.variants.findIndex((v) => v.id === active.id);
+    const newIndex = group.variants.findIndex((v) => v.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(group.variants, oldIndex, newIndex);
+    setVariantGroups((prev) =>
+      prev.map((g) => (g.id === selectedGroupId ? { ...g, variants: reordered } : g)),
+    );
+    await api("/api/v2/variants/reorder", {
+      method: "POST",
+      body: JSON.stringify({ groupId: selectedGroupId, ids: reordered.map((v) => v.id) }),
     });
   };
 
@@ -819,12 +893,21 @@ export default function MenuPage() {
                     onSearchChange={setProductSearch}
                     searchPlaceholder="Cerca prodotto…"
                   />
+                  {!productSearch.trim() && filteredProducts.length > 1 && (
+                    <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                      Trascina ⋮⋮ per cambiare l&apos;ordine in cui i prodotti appaiono su palmare e cassa.
+                    </p>
+                  )}
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void onProductDragEnd(e)}>
+                  <SortableContext items={filteredProducts.map((p) => p.id)} strategy={verticalListSortingStrategy}>
                   {filteredProducts.map((p) => (
-                    <div
+                    <SortableRow
                       key={p.id}
-                      className={`${listRowClass(false)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
+                      id={p.id}
+                      enabled={!productSearch.trim()}
+                      className={`${listRowClass(false)} rounded-md border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3 py-2`}
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="font-medium">{localizedName(p.name)}</p>
                         <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
                           {euro(p.basePrice)}
@@ -849,8 +932,10 @@ export default function MenuPage() {
                           Elimina
                         </Button>
                       </span>
-                    </div>
+                    </SortableRow>
                   ))}
+                  </SortableContext>
+                  </DndContext>
                   {products.filter((p) => p.categoryId === selectedCatId).length === 0 && (
                     <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                       Nessun prodotto in questa categoria. Usa &quot;Nuovo prodotto&quot; per
@@ -1175,12 +1260,21 @@ export default function MenuPage() {
                       },
                     ]}
                   />
+                  {!variantOptionSearch.trim() && !variantTypeFilter && filteredGroupVariants.length > 1 && (
+                    <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                      Trascina ⋮⋮ per cambiare l&apos;ordine delle varianti su palmare e cassa.
+                    </p>
+                  )}
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void onVariantDragEnd(e)}>
+                  <SortableContext items={filteredGroupVariants.map((v) => v.id)} strategy={verticalListSortingStrategy}>
                   {filteredGroupVariants.map((v) => (
-                    <div
+                    <SortableRow
                       key={v.id}
-                      className={`${listRowClass(false)} rounded-md border border-[hsl(var(--pg-border))] px-3 py-2`}
+                      id={v.id}
+                      enabled={!variantOptionSearch.trim() && !variantTypeFilter}
+                      className={`${listRowClass(false)} rounded-md border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3 py-2`}
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="font-medium">{localizedName(v.name)}</p>
                         <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
                           {variantTypeLabel(v.type)} · {variantPriceLabel(v.type, v.priceDelta)}
@@ -1210,8 +1304,10 @@ export default function MenuPage() {
                           Elimina
                         </Button>
                       </span>
-                    </div>
+                    </SortableRow>
                   ))}
+                  </SortableContext>
+                  </DndContext>
                   {groupVariants.length === 0 && (
                     <p className="text-sm text-[hsl(var(--pg-muted-foreground))]">
                       Nessuna variante in questo gruppo. Usa &quot;Nuova variante&quot; per

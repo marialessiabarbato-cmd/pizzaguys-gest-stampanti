@@ -3,8 +3,9 @@ import {
   createCategorySchema,
   createProductSchema,
   reorderCategoriesSchema,
+  reorderProductsSchema,
 } from "@pizzaguys/validators";
-import { eq } from "drizzle-orm";
+import { and, eq, max } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { writeAudit } from "../lib/audit.js";
 import { getDefaultBrand } from "../lib/brand.js";
@@ -62,6 +63,25 @@ export async function menuRoutes(app: FastifyInstance) {
           .update(categories)
           .set({ sortOrder: index, updatedAt: new Date() })
           .where(eq(categories.id, id)),
+      ),
+    );
+    await bumpSchemaVersion(app, brand.id);
+    return { ok: true };
+  });
+
+  /** Ordine dei prodotti di una categoria (trascinamento, F19): vale per palmare e cassa. */
+  app.post("/api/v2/products/reorder", guard, async (req, reply) => {
+    const parsed = reorderProductsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+    const brand = await getDefaultBrand(app.db);
+    await Promise.all(
+      parsed.data.ids.map((id, index) =>
+        app.db
+          .update(products)
+          .set({ sortOrder: index, updatedAt: new Date() })
+          .where(and(eq(products.id, id), eq(products.brandId, brand.id))),
       ),
     );
     await bumpSchemaVersion(app, brand.id);
@@ -127,7 +147,15 @@ export async function menuRoutes(app: FastifyInstance) {
         hold: parsed.data.hold,
         dessert: parsed.data.dessert,
         allergenIds: parsed.data.allergenIds,
-        sortOrder: parsed.data.sortOrder ?? 0,
+        // Nuovo prodotto in fondo alla sua categoria
+        sortOrder:
+          parsed.data.sortOrder ??
+          ((
+            await app.db
+              .select({ m: max(products.sortOrder) })
+              .from(products)
+              .where(and(eq(products.brandId, brand.id), eq(products.categoryId, parsed.data.categoryId)))
+          )[0]?.m ?? -1) + 1,
       })
       .returning();
     await bumpSchemaVersion(app, brand.id);

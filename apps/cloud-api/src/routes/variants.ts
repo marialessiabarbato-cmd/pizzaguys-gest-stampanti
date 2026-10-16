@@ -1,6 +1,6 @@
 import { variantGroups, variants } from "@pizzaguys/db/schema";
-import { createVariantGroupSchema, createVariantSchema } from "@pizzaguys/validators";
-import { eq } from "drizzle-orm";
+import { createVariantGroupSchema, createVariantSchema, reorderVariantsSchema } from "@pizzaguys/validators";
+import { and, eq, max } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { writeAudit } from "../lib/audit.js";
 import { getDefaultBrand } from "../lib/brand.js";
@@ -19,7 +19,9 @@ export async function variantRoutes(app: FastifyInstance) {
       : [];
     return groups.map((g) => ({
       ...g,
-      variants: allVariants.filter((v) => v.groupId === g.id),
+      variants: allVariants
+        .filter((v) => v.groupId === g.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
     }));
   });
 
@@ -86,11 +88,38 @@ export async function variantRoutes(app: FastifyInstance) {
         name: parsed.data.name,
         type: parsed.data.type,
         priceDelta: String(parsed.data.priceDelta),
+        // Nuova variante in fondo al gruppo
+        sortOrder:
+          ((
+            await app.db
+              .select({ m: max(variants.sortOrder) })
+              .from(variants)
+              .where(eq(variants.groupId, parsed.data.groupId))
+          )[0]?.m ?? -1) + 1,
       })
       .returning();
     const brand = await getDefaultBrand(app.db);
     await bumpSchemaVersion(app, brand.id);
     return reply.status(201).send(row);
+  });
+
+  /** Ordine delle varianti di un gruppo (trascinamento, F19): vale per palmare e cassa. */
+  app.post("/api/v2/variants/reorder", guard, async (req, reply) => {
+    const parsed = reorderVariantsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+    }
+    await Promise.all(
+      parsed.data.ids.map((id, index) =>
+        app.db
+          .update(variants)
+          .set({ sortOrder: index })
+          .where(and(eq(variants.id, id), eq(variants.groupId, parsed.data.groupId))),
+      ),
+    );
+    const brand = await getDefaultBrand(app.db);
+    await bumpSchemaVersion(app, brand.id);
+    return { ok: true };
   });
 
   app.patch<{ Params: { id: string } }>("/api/v2/variants/:id", guard, async (req, reply) => {

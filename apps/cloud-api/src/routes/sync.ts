@@ -46,13 +46,17 @@ async function buildCatalogSnapshot(
   const cats = await app.db.query.categories.findMany({
     where: eq(categories.brandId, brandId),
   });
+  // Ordine di Cloud Admin (F19): palmare e cassa mostrano prodotti e varianti in quest'ordine
   const prods = await app.db.query.products.findMany({
     where: eq(products.brandId, brandId),
+    orderBy: (p, { asc }) => [asc(p.sortOrder)],
   });
   const groups = await app.db.query.variantGroups.findMany({
     where: eq(variantGroups.brandId, brandId),
   });
-  const vars = groups.length ? await app.db.query.variants.findMany() : [];
+  const vars = groups.length
+    ? await app.db.query.variants.findMany({ orderBy: (v, { asc }) => [asc(v.sortOrder)] })
+    : [];
   const prices = await app.db.query.productPrices.findMany({
     where: eq(productPrices.locationId, locationId),
   });

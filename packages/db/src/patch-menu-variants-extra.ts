@@ -66,6 +66,7 @@ async function main() {
   const existing = await db.select().from(variants).where(eq(variants.groupId, best.id));
   const have = new Set(existing.map((v) => `${v.type}:${itName(v.name as Record<string, string>)}`));
   let added = 0;
+  let nextOrder = existing.reduce((m, v) => Math.max(m, v.sortOrder ?? 0), -1) + 1;
   for (const v of EXTRA_VARIANTS) {
     if (have.has(`${v.type}:${v.name.toLowerCase()}`)) continue;
     await db.insert(variants).values({
@@ -73,6 +74,7 @@ async function main() {
       name: { it: v.name },
       type: v.type,
       priceDelta: String(v.priceDelta),
+      sortOrder: nextOrder++,
     });
     added += 1;
     console.log(`  + ${v.type === "ADD" ? "Aggiungi" : "Togli"} ${v.name}${v.priceDelta ? ` (+${v.priceDelta} €)` : ""}`);

@@ -68,6 +68,8 @@ export const variants = pgTable("variants", {
   name: jsonb("name").$type<Record<string, string>>().notNull(),
   type: variantTypeEnum("type").notNull(),
   priceDelta: numeric("price_delta", { precision: 10, scale: 2 }).notNull(),
+  /** Ordine di visualizzazione nel gruppo (trascinamento in Cloud Admin, F19) */
+  sortOrder: integer("sort_order").notNull().default(0),
 });
 
 export const productPrices = pgTable("product_prices", {

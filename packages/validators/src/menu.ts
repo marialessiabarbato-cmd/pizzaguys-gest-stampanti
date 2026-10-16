@@ -28,3 +28,14 @@ export const createProductSchema = z.object({
 export const reorderCategoriesSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 });
+
+/** Ordine dei prodotti di una categoria (F19) */
+export const reorderProductsSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+});
+
+/** Ordine delle varianti di un gruppo (F19) */
+export const reorderVariantsSchema = z.object({
+  groupId: z.string().uuid(),
+  ids: z.array(z.string().uuid()).min(1),
+});
