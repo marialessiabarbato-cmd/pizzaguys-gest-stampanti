@@ -270,6 +270,9 @@ export function CassaPage({
   const [confirmClosure, setConfirmClosure] = useState(false);
   const [confirmClosePanel, setConfirmClosePanel] = useState(false);
   const [confirmCancelSplit, setConfirmCancelSplit] = useState(false);
+  /** Chiudi tavolo senza incasso (F4): conferma → PIN responsabile */
+  const [closeTableStep, setCloseTableStep] = useState<"confirm" | "pin" | null>(null);
+  const [closeTableError, setCloseTableError] = useState("");
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profilePin, setProfilePin] = useState("");
   const [profilePinConfirm, setProfilePinConfirm] = useState("");
@@ -890,6 +893,36 @@ export function CassaPage({
     setBill(null);
     setPaymentResult(null);
     setShowCounterModal(true);
+  };
+
+  const handleCloseTableWithoutPayment = async (managerPin: string) => {
+    if (!selectedTable || !operator) return;
+    setCloseTableError("");
+    try {
+      const result = await edgeApi<{ voided: Array<{ itemName: string; quantity: number }>; printWarnings: string[] }>(
+        `/api/tables/${selectedTable.id}/close-without-payment`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            operatorId: operator.id,
+            operatorName: `${operator.firstName} ${operator.lastName}`,
+            managerPin,
+          }),
+        },
+      );
+      setCloseTableStep(null);
+      const pieces = result.voided.reduce((n, v) => n + v.quantity, 0);
+      setMessage(
+        `Tavolo ${selectedTable.label} chiuso senza incasso` +
+          (pieces > 0 ? ` — ${pieces} ${pieces === 1 ? "piatto stornato" : "piatti stornati"}, annullo inviato ai reparti` : "") +
+          (result.printWarnings.length > 0 ? `. ATTENZIONE: ${result.printWarnings.join(" · ")}` : ""),
+      );
+      setSelectedTable(null);
+      setBill(null);
+      loadTables();
+    } catch (err) {
+      setCloseTableError(err instanceof Error ? err.message : "Chiusura non riuscita");
+    }
   };
 
   const handleChannelFilter = (id: ChannelFilter) => {
@@ -2284,6 +2317,18 @@ export function CassaPage({
                       Sposta / unisci tavoli
                     </Button>
                     <Button
+                      className="min-h-12 w-full text-base"
+                      variant="danger"
+                      disabled={loading || isCounterOrderSelected || selectedTable.status === "FREE"}
+                      onClick={() => {
+                        setContoMoreOpen(false);
+                        setCloseTableError("");
+                        setCloseTableStep("confirm");
+                      }}
+                    >
+                      Chiudi tavolo senza incasso
+                    </Button>
+                    <Button
                       variant="ghost"
                       className="min-h-12 w-full"
                       onClick={() => {
@@ -2445,6 +2490,33 @@ export function CassaPage({
             setShowClosureWizard(true);
           }}
           onCancel={() => setConfirmClosure(false)}
+        />
+      )}
+
+      {closeTableStep === "confirm" && selectedTable && (
+        <ConfirmModal
+          title={`Chiudere ${selectedTable.label} senza incasso?`}
+          message={
+            bill && bill.lines.some((l) => !l.id.startsWith("__cover_charge__"))
+              ? "I piatti già inviati verranno stornati e il ticket di annullo uscirà nei reparti. Coperti e conto vengono azzerati e il tavolo torna libero. Serve il PIN del responsabile."
+              : "Il tavolo torna libero e i coperti vengono azzerati. Serve il PIN del responsabile."
+          }
+          confirmLabel="Continua"
+          variant="danger"
+          onConfirm={() => setCloseTableStep("pin")}
+          onCancel={() => setCloseTableStep(null)}
+        />
+      )}
+
+      {closeTableStep === "pin" && selectedTable && (
+        <PinModal
+          title={`PIN responsabile — chiudi ${selectedTable.label}`}
+          onComplete={(pin) => void handleCloseTableWithoutPayment(pin)}
+          onCancel={() => {
+            setCloseTableStep(null);
+            setCloseTableError("");
+          }}
+          error={closeTableError}
         />
       )}
 

@@ -25,11 +25,14 @@ import { recordDayStorno } from "../lib/day-report-ledger.js";
 import { getMenuSnapshot } from "../lib/provision.js";
 import {
   bumpChargedGuests,
+  clearTableOrders,
   consumeDiscountToken,
   createDiscountToken,
+  getAnalyticSplit,
   getKdsSnapshot,
   getOrder,
   getOrderByTable,
+  getRomanSplit,
   getSubmittedOrdersByTable,
   getTableRuntime,
   getUnionGuestTotal,
@@ -40,6 +43,7 @@ import {
   releaseLock,
   requestLock,
   setLineUnitPrice,
+  setTableFree,
   setTableOccupied,
   releaseDessertQueue,
   stornoLine,
@@ -146,6 +150,84 @@ function validateOrderLines(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Dopo uno storno già registrato (stornoLine): ticket ANNULLO al reparto del piatto,
+ * registro storni del giorno, audit e aggiornamento KDS.
+ */
+async function printVoidedLine(
+  app: FastifyInstance,
+  params: {
+    order: TableOrder;
+    line: OrderLine;
+    quantity: number;
+    stornoBy: string;
+    staffId: string;
+    reason?: string;
+  },
+) {
+  const { order, line, quantity: qty, stornoBy } = params;
+  const tableLabel = resolveOrderTableLabel(app.edgeDb, order.tableId);
+  const payload = buildCancelTicket({
+    tableLabel,
+    itemName: line.name,
+    quantity: qty,
+    operatorName: order.operatorName,
+    authorizedBy: stornoBy,
+  });
+  // Annullo al reparto che ha ricevuto il piatto (prima andava sempre in Cucina)
+  const workCenter = createWorkCenterResolver(app.edgeDb)(line.productId);
+  const printer =
+    app.edgeDb.select().from(printers).where(eq(printers.workCenter, workCenter)).get() ??
+    app.edgeDb.select().from(printers).where(eq(printers.workCenter, "CUCINA")).get();
+  const printResult = await hardware.printEscPos(
+    printer?.id ?? "printer-cucina",
+    payload,
+    `storno-${line.id}`,
+    printer ? { host: printer.host, port: printer.port } : undefined,
+  );
+
+  const value = Math.round(line.unitPrice * qty * 100) / 100;
+  recordDayStorno(app.edgeDb, new Date().toISOString().slice(0, 10), {
+    at: new Date().toISOString(),
+    tableLabel,
+    itemName: line.name,
+    quantity: qty,
+    amount: value,
+    operatorName: stornoBy,
+  });
+  writeEdgeAudit(app.edgeDb, {
+    staffId: params.staffId,
+    operation: "ORDER_STORNO",
+    severity: "WARNING",
+    nextState: {
+      orderId: order.id,
+      tableId: order.tableId,
+      lineId: line.id,
+      itemName: line.name,
+      quantity: qty,
+      value,
+      operatorId: order.operatorId,
+      operatorName: order.operatorName,
+      stornoBy,
+      ...(params.reason ? { reason: params.reason } : {}),
+    },
+  });
+
+  const updatedOrder = getOrder(order.id);
+  if (updatedOrder) rebuildKdsTicketsForOrder(updatedOrder, tableLabel);
+  const cancellation = recordKdsCancellation({
+    tableLabel,
+    course: line.course ?? 1,
+    itemName: line.name,
+    quantity: qty,
+    cancelledAt: new Date().toISOString(),
+  });
+  broadcastKdsUpdate({ cancellation });
+
+  const printWarnings = reportPrintFailures(app.edgeDb, "ANNULLO", tableLabel, [printResult]);
+  return { printResult, printWarnings, cancellation };
 }
 
 export async function orderRoutes(app: FastifyInstance) {
@@ -562,73 +644,81 @@ export async function orderRoutes(app: FastifyInstance) {
     const line = order.lines.find((l) => l.id === parsed.data.lineId);
     if (!line) return reply.status(404).send({ error: "Riga non trovata" });
 
-    const table = app.edgeDb.select().from(tables).where(eq(tables.id, order.tableId)).get();
     const qty = parsed.data.quantity ?? line.quantity - (line.voidedQuantity ?? 0);
-    const stornoBy = parsed.data.operatorName.trim();
-    const payload = buildCancelTicket({
-      tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
-      itemName: line.name,
+    const { printResult, printWarnings, cancellation } = await printVoidedLine(app, {
+      order,
+      line,
       quantity: qty,
-      operatorName: order.operatorName,
-      authorizedBy: stornoBy,
-    });
-    const cucinaPrinter = app.edgeDb
-      .select()
-      .from(printers)
-      .where(eq(printers.workCenter, "CUCINA"))
-      .get();
-    const printResult = await hardware.printEscPos(
-      cucinaPrinter?.id ?? "printer-cucina",
-      payload,
-      `storno-${parsed.data.lineId}`,
-      cucinaPrinter ? { host: cucinaPrinter.host, port: cucinaPrinter.port } : undefined,
-    );
-
-    const value = Math.round(line.unitPrice * qty * 100) / 100;
-    recordDayStorno(app.edgeDb, new Date().toISOString().slice(0, 10), {
-      at: new Date().toISOString(),
-      tableLabel: resolveOrderTableLabel(app.edgeDb, order.tableId),
-      itemName: line.name,
-      quantity: qty,
-      amount: value,
-      operatorName: stornoBy,
-    });
-    writeEdgeAudit(app.edgeDb, {
+      stornoBy: parsed.data.operatorName.trim(),
       staffId: operator.id,
-      operation: "ORDER_STORNO",
+    });
+    return { ok: true, line: result.line, printResult, printWarnings, cancellation };
+  });
+
+  /**
+   * Chiude un tavolo senza incasso (es. aperto per errore o per una dimostrazione), solo da
+   * cassa con PIN responsabile. I piatti già inviati vengono stornati e stampano l'annullo al
+   * reparto; la bozza non inviata viene scartata; coperti e tavolo tornano liberi.
+   */
+  app.post<{ Params: { id: string } }>("/api/tables/:id/close-without-payment", async (req, reply) => {
+    const body = req.body as { operatorId?: string; operatorName?: string; managerPin?: string };
+    if (!body.operatorId || !body.managerPin) {
+      return reply.status(400).send({ error: "operatorId e PIN responsabile richiesti" });
+    }
+    const operator = getActiveStaffById(app.edgeDb, body.operatorId);
+    if (!operator) return reply.status(401).send({ error: "Operatore non valido" });
+    const manager = await verifyManagerPin(app.edgeDb, body.managerPin);
+    if (!manager) return reply.status(401).send({ error: "PIN responsabile non valido" });
+
+    const tableId = req.params.id;
+    const roman = getRomanSplit(tableId);
+    const analytic = getAnalyticSplit(tableId);
+    if ((roman && roman.paidShares > 0) || analytic?.checks.some((c) => c.paid)) {
+      return reply.status(409).send({
+        error: "Il conto è già stato pagato in parte: completa l'incasso invece di chiudere il tavolo",
+      });
+    }
+
+    const stornoBy = `${manager.firstName} ${manager.lastName}`;
+    const voided: Array<{ itemName: string; quantity: number }> = [];
+    const printWarnings: string[] = [];
+    for (const order of getSubmittedOrdersByTable(tableId)) {
+      for (const line of order.lines) {
+        const qty = line.quantity - (line.voidedQuantity ?? 0);
+        if (qty <= 0) continue;
+        const current = getOrder(order.id) ?? order;
+        const result = stornoLine(order.id, line.id, qty);
+        if (!result.ok) continue;
+        const printed = await printVoidedLine(app, {
+          order: current,
+          line,
+          quantity: qty,
+          stornoBy,
+          staffId: manager.id,
+          reason: "Chiusura tavolo senza incasso",
+        });
+        voided.push({ itemName: line.name, quantity: qty });
+        printWarnings.push(...printed.printWarnings);
+      }
+    }
+
+    const tableLabel = resolveOrderTableLabel(app.edgeDb, tableId);
+    clearTableOrders(tableId);
+    setTableFree(tableId);
+    broadcastTableStatus(tableId, getTableRuntime(tableId).status);
+    writeEdgeAudit(app.edgeDb, {
+      staffId: manager.id,
+      operation: "TABLE_CLOSED_WITHOUT_PAYMENT",
       severity: "WARNING",
       nextState: {
-        orderId: order.id,
-        tableId: order.tableId,
-        lineId: parsed.data.lineId,
-        itemName: line.name,
-        quantity: qty,
-        value,
-        operatorId: order.operatorId,
-        operatorName: order.operatorName,
-        stornoBy,
+        tableId,
+        tableLabel,
+        voided,
+        requestedBy: `${operator.firstName} ${operator.lastName}`,
+        authorizedBy: stornoBy,
       },
     });
-
-    const tableLabel = resolveOrderTableLabel(app.edgeDb, order.tableId);
-    const updatedOrder = getOrder(order.id)!;
-    rebuildKdsTicketsForOrder(updatedOrder, tableLabel);
-    const cancellation = recordKdsCancellation({
-      tableLabel,
-      course: line.course ?? 1,
-      itemName: line.name,
-      quantity: qty,
-      cancelledAt: new Date().toISOString(),
-    });
-    broadcastKdsUpdate({ cancellation });
-
-    const printWarnings = reportPrintFailures(
-      app.edgeDb,
-      "ANNULLO",
-      resolveOrderTableLabel(app.edgeDb, order.tableId),
-      [printResult],
-    );
-    return { ok: true, line: result.line, printResult, printWarnings, cancellation };
+    return { ok: true, tableId, voided, printWarnings };
   });
 
   app.post("/api/orders/line-price", async (req, reply) => {
