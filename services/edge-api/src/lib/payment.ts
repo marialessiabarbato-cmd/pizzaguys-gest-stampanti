@@ -238,6 +238,17 @@ export async function executeTablePayment(
     const check = analytic.checks.find((c) => c.id === params.checkId);
     if (!check) return { ok: false, error: "Conto non trovato", status: 404 };
     if (check.paid) return { ok: false, error: "Conto già pagato", status: 400 };
+    const otherUnpaid = analytic.checks.filter((c) => c.id !== check.id && !c.paid).length;
+    const unassigned = bill.analyticSplit?.unassignedLineIds.length ?? 0;
+    if (otherUnpaid === 0 && unassigned > 0) {
+      // Ultimo conto: se resta qualcosa fuori dai conti (es. coperti) il tavolo si chiuderebbe
+      // senza che nessuno l'abbia pagato.
+      return {
+        ok: false,
+        error: `${unassigned === 1 ? "C'è 1 riga" : `Ci sono ${unassigned} righe`} non assegnate a nessun conto (es. coperti): spostale su un conto prima di incassare l'ultimo`,
+        status: 409,
+      };
+    }
     const checkLines = billLinesForCheck(bill, params.checkId);
     if (checkLines.length === 0) {
       return { ok: false, error: "Nessuna riga nel conto selezionato", status: 400 };

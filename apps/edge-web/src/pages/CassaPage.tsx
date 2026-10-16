@@ -1594,7 +1594,7 @@ export function CassaPage({
                         lineTotal: line.lineTotal,
                       }))
                   : bill.lines
-                      .filter((line) => line.id !== "__cover_charge__" || line.lineTotal > 0)
+                      .filter((line) => !line.id.startsWith("__cover_charge__") || line.lineTotal > 0)
                       .map((line) => ({
                         name: line.name,
                         quantity: line.quantity,
@@ -2678,7 +2678,7 @@ export function CassaPage({
         <TableTransferModal
           sourceTable={selectedTable}
           operator={operator}
-          billLines={bill.lines.filter((l) => l.id !== "__cover_charge__")}
+          billLines={bill.lines.filter((l) => !l.id.startsWith("__cover_charge__"))}
           tables={tables}
           rooms={rooms}
           connected={connected}

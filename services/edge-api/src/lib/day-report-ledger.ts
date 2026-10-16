@@ -3,7 +3,7 @@ import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { categoryRouting, dayReportStornos, dayReportTransactions, tables } from "@pizzaguys/edge-db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { TableBill } from "./bill.js";
+import { isCoverLineId, type TableBill } from "./bill.js";
 import { consolidateBillForTable } from "./cover-charge.js";
 import { getMenuSnapshot } from "./provision.js";
 import {
@@ -16,7 +16,6 @@ import { localDateKey } from "./business-date.js";
 
 export type { DailyReportSnapshot };
 
-const COVER_LINE_ID = "__cover_charge__";
 
 export type ServiceType = "BAR" | "TABLE" | "TAKEAWAY" | "DELIVERY";
 
@@ -215,7 +214,7 @@ export function enrichBillLinesForReport(
   const orderLines = orderLinesForTable(tableId);
 
   return bill.lines.map((billLine) => {
-    if (billLine.id === COVER_LINE_ID) {
+    if (isCoverLineId(billLine.id)) {
       return {
         name: "Coperto",
         quantity: billLine.quantity,

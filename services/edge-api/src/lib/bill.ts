@@ -56,7 +56,12 @@ export interface CoverChargeParams {
   guestCount: number;
 }
 
-const COVER_LINE_ID = "__cover_charge__";
+export const COVER_LINE_ID = "__cover_charge__";
+
+/** Riga coperto: unica ("__cover_charge__") o, in split analitico, una per persona ("__cover_charge__#1"…). */
+export function isCoverLineId(id: string): boolean {
+  return id === COVER_LINE_ID || id.startsWith(`${COVER_LINE_ID}#`);
+}
 
 /** Etichetta riga unica scontrino riassuntivo (somministrazione) */
 export const FULL_MEAL_RECEIPT_LABEL = "PASTO COMPLETO";
@@ -101,18 +106,34 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
   const lines = orders.flatMap(orderToBillLines);
   let total = roundToFiveCents(lines.reduce((sum, l) => sum + l.lineTotal, 0));
 
+  const analytic = getAnalyticSplit(tableId);
+
   let coverChargeInfo: TableBill["coverCharge"];
   if (coverCharge && coverCharge.guestCount > 0 && coverCharge.unitPrice > 0) {
     const lineTotal =
       Math.round(coverCharge.unitPrice * coverCharge.guestCount * 100) / 100;
-    lines.push({
-      id: COVER_LINE_ID,
-      orderId: "cover",
-      name: "Coperto",
-      quantity: coverCharge.guestCount,
-      unitPrice: coverCharge.unitPrice,
-      lineTotal,
-    });
+    // Coperto sempre al primo posto. In split analitico una riga per persona, da spostare
+    // sul conto di chi paga (con una riga sola "× N" il coperto restava fuori da tutti i conti).
+    const coverLines: BillLine[] = analytic
+      ? Array.from({ length: coverCharge.guestCount }, (_, i) => ({
+          id: `${COVER_LINE_ID}#${i + 1}`,
+          orderId: "cover",
+          name: "Coperto",
+          quantity: 1,
+          unitPrice: coverCharge.unitPrice,
+          lineTotal: Math.round(coverCharge.unitPrice * 100) / 100,
+        }))
+      : [
+          {
+            id: COVER_LINE_ID,
+            orderId: "cover",
+            name: "Coperto",
+            quantity: coverCharge.guestCount,
+            unitPrice: coverCharge.unitPrice,
+            lineTotal,
+          },
+        ];
+    lines.unshift(...coverLines);
     total = roundToFiveCents(total + lineTotal);
     coverChargeInfo = {
       guestCount: coverCharge.guestCount,
@@ -133,12 +154,10 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
       }
     : undefined;
 
-  const analytic = getAnalyticSplit(tableId);
   let analyticSplit: AnalyticSplitInfo | undefined;
   if (analytic) {
     const assigned = new Set(analytic.checks.flatMap((c) => c.lineIds));
-    const foodLines = lines.filter((l) => l.id !== COVER_LINE_ID);
-    const unassignedLineIds = foodLines.filter((l) => !assigned.has(l.id)).map((l) => l.id);
+    const unassignedLineIds = lines.filter((l) => !assigned.has(l.id)).map((l) => l.id);
     const checks: AnalyticCheckInfo[] = analytic.checks.map((c) => ({
       id: c.id,
       label: c.label,
@@ -151,7 +170,7 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
     analyticSplit = {
       checks,
       unassignedLineIds,
-      allAssigned: unassignedLineIds.length === 0 && foodLines.length > 0,
+      allAssigned: unassignedLineIds.length === 0 && lines.length > 0,
       allPaid: checks.length > 0 && checks.every((c) => c.paid),
     };
   }
@@ -162,9 +181,7 @@ export function consolidateTableBill(tableId: string, coverCharge?: CoverChargeP
 export function billLinesForCheck(bill: TableBill, checkId: string): BillLine[] {
   const check = bill.analyticSplit?.checks.find((c) => c.id === checkId);
   if (!check) return [];
-  return bill.lines.filter(
-    (l) => l.id !== COVER_LINE_ID && check.lineIds.includes(l.id),
-  );
+  return bill.lines.filter((l) => check.lineIds.includes(l.id));
 }
 
 export function billToReceiptLines(
