@@ -504,6 +504,16 @@ export default function MenuPage() {
     void load();
   };
 
+  /** Duplica: apre "Nuova variante" già compilata (nome "… (copia)", stesso tipo e prezzo). */
+  const startDuplicateVariant = (variant: Variant) => {
+    setVariantForm({
+      name: `${localizedName(variant.name)} (copia)`,
+      type: variant.type,
+      priceDelta: String(Number(variant.priceDelta)),
+    });
+    setVariantPanel({ mode: "create" });
+  };
+
   const startEditVariant = (variant: Variant) => {
     setVariantForm({
       name: localizedName(variant.name),
@@ -1183,6 +1193,13 @@ export default function MenuPage() {
                           onClick={() => startEditVariant(v)}
                         >
                           Modifica
+                        </Button>
+                        <Button
+                          size={btnSize.list}
+                          variant="outline"
+                          onClick={() => startDuplicateVariant(v)}
+                        >
+                          Duplica
                         </Button>
                         <Button
                           size={btnSize.list}
