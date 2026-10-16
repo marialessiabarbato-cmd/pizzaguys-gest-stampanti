@@ -219,6 +219,9 @@ export interface PrebillLine {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  /** Aggiunte/rimozioni già formattate (es. "NO Cipolla", "Patatine") */
+  variants?: string[];
+  discountPercent?: number;
 }
 
 export interface PrebillTicketParams {
@@ -226,6 +229,12 @@ export interface PrebillTicketParams {
   lines: PrebillLine[];
   total: number;
   operatorName?: string;
+  /** Coperti del tavolo: sotto il totale stampa la quota a persona */
+  guests?: number;
+}
+
+function euroIt(value: number): string {
+  return value.toFixed(2).replace(".", ",");
 }
 
 export function buildPrebillTicket(params: PrebillTicketParams): Buffer {
@@ -236,23 +245,35 @@ export function buildPrebillTicket(params: PrebillTicketParams): Buffer {
     textLine("PRECONTO"),
     CMD_ALIGN_LEFT,
     textLine(`Tavolo: ${params.tableLabel}`),
-    textLine("---"),
+    separatorLine(),
   ];
 
+  // Una riga per voce con il prezzo a destra; il coperto arriva già per primo dal conto.
   for (const line of params.lines) {
-    parts.push(textLine(`${line.quantity}x ${line.name}`));
-    parts.push(textLine(`  € ${line.lineTotal.toFixed(2)}`));
+    parts.push(textLine(twoColumnLineIt(`${line.quantity}x ${line.name}`, line.lineTotal)));
+    if (line.quantity > 1) {
+      parts.push(textLine(`   ${line.quantity} x ${euroIt(line.unitPrice)}`));
+    }
+    for (const v of line.variants ?? []) {
+      parts.push(textLine(`   ${v}`));
+    }
+    if (line.discountPercent) {
+      parts.push(textLine(`   sconto ${String(line.discountPercent).replace(".", ",")}%`));
+    }
   }
 
   parts.push(
-    textLine("---"),
-    CMD_ALIGN_CENTER,
+    separatorLine(),
+    // Doppia dimensione: metà colonne
     CMD_DOUBLE_SIZE,
-    textLine(`TOTALE € ${params.total.toFixed(2)}`),
+    textLine(twoColumnLineIt("TOTALE", params.total, LINE_WIDTH / 2)),
     CMD_NORMAL_SIZE,
-    CMD_ALIGN_LEFT,
-    textLine(new Date().toLocaleString("it-IT")),
   );
+  if (params.guests && params.guests > 1) {
+    const perHead = Math.round((params.total / params.guests) * 100) / 100;
+    parts.push(textLine(twoColumnLineIt(`A persona (${params.guests} coperti)`, perHead)));
+  }
+  parts.push(textLine(""), textLine(new Date().toLocaleString("it-IT")));
 
   if (params.operatorName) {
     parts.push(textLine(`Operatore: ${params.operatorName}`));
@@ -412,6 +433,14 @@ export interface CashSessionReportTicketParams {
   sections: CashSessionReportRow[][];
   notes?: string | null;
   footer: string[];
+}
+
+/** Come twoColumnLine ma con la virgola decimale (preconto per il cliente). */
+export function twoColumnLineIt(label: string, amount: number, width = LINE_WIDTH): string {
+  const value = `${amount < 0 ? "-" : ""}€ ${euroIt(Math.abs(amount))}`;
+  const space = Math.max(1, width - value.length);
+  const left = label.length > space - 1 ? label.slice(0, space - 1) : label;
+  return left + " ".repeat(width - left.length - value.length) + value;
 }
 
 /** Riga a due colonne su LINE_WIDTH caratteri: etichetta a sinistra, importo a destra. */

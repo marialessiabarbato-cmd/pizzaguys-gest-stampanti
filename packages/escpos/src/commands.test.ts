@@ -57,6 +57,28 @@ describe("preconto", () => {
   });
 });
 
+describe("preconto con prezzi", () => {
+  it("riga con prezzo a destra, prezzo unitario, varianti e quota a persona", () => {
+    const text = buildPrebillTicket({
+      tableLabel: "T5",
+      lines: [
+        { name: "Coperto", quantity: 4, unitPrice: 2.5, lineTotal: 10 },
+        { name: "Margherita", quantity: 2, unitPrice: 8, lineTotal: 16, variants: ["NO Basilico"] },
+      ],
+      total: 26,
+      guests: 4,
+    }).toString("latin1");
+    const lines = text.split("\n");
+    const coperto = lines.find((l) => l.includes("4x Coperto"));
+    expect(coperto?.trimEnd().endsWith("10,00")).toBe(true);
+    expect(coperto?.length).toBe(48);
+    expect(text).toContain("2 x 8,00");
+    expect(text).toContain("NO Basilico");
+    expect(text.indexOf("Coperto")).toBeLessThan(text.indexOf("Margherita"));
+    expect(text).toMatch(/A persona \(4 coperti\) +\x80 6,50/);
+  });
+});
+
 describe("copia non fiscale scontrino", () => {
   it("riporta il testo dello scontrino con intestazione non fiscale e taglio", () => {
     const buf = buildReceiptCopyTicket({ receiptText: "Scontrino\nCaffè EUR 1.50\n" });

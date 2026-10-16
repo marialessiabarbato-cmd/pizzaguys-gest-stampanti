@@ -4,7 +4,7 @@ import { buildPrebillTicket } from "@pizzaguys/escpos";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { consolidateBillForTable } from "./cover-charge.js";
 import { resolveTableContext } from "./counter-order.js";
-import { setBillRequested } from "./runtime.js";
+import { getTableRuntime, setBillRequested } from "./runtime.js";
 import { reportPrintFailures } from "./print-alerts.js";
 import { broadcastTableStatus } from "./ws-hub.js";
 
@@ -31,8 +31,11 @@ export async function printTablePrebill(edgeDb: EdgeDatabase, tableId: string) {
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       lineTotal: l.lineTotal,
+      variants: l.variants,
+      discountPercent: l.discountPercent,
     })),
     total: bill.total,
+    guests: bill.coverCharge?.guestCount ?? getTableRuntime(tableId).guests,
   });
 
   const printResult = await hardware.printEscPos(
