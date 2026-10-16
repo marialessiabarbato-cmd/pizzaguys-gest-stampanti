@@ -206,10 +206,15 @@ export async function executeTablePayment(
       status: 400,
     };
   }
-  if (params.paymentSplits?.length && (isRoman || isAnalytic)) {
+  // Contanti + POS è ammesso anche sulla singola quota/conto; il buono pasto misto resta solo sul tavolo intero.
+  if (
+    params.paymentSplits?.some((s) => s.paymentMethod === "MEAL_VOUCHER") &&
+    params.paymentSplits.length > 1 &&
+    (isRoman || isAnalytic)
+  ) {
     return {
       ok: false,
-      error: "Pagamento misto non disponibile con split conto",
+      error: "Buono pasto misto non disponibile con split conto",
       status: 400,
     };
   }

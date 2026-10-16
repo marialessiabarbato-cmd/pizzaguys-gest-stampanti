@@ -5,9 +5,13 @@ import { PaymentPad, parsePaymentAmount } from "./PaymentPad";
 import { EMPTY_INVOICE_CUSTOMER, InvoiceCustomerForm, isInvoiceCustomerValid } from "./InvoiceCustomerForm";
 import { InvoiceCustomerPickerModal } from "./InvoiceCustomerPickerModal";
 
-const METHODS: { id: PaymentMethod; label: string }[] = [
+/** Metodo scelto in cassa: i metodi fiscali più "Contanti + POS" (importo diviso liberamente). */
+export type PaymentChoice = PaymentMethod | "CASH_POS";
+
+const METHODS: { id: PaymentChoice; label: string }[] = [
   { id: "CASH", label: "Contanti" },
   { id: "POS", label: "POS / Carta" },
+  { id: "CASH_POS", label: "Contanti + POS" },
   { id: "MEAL_VOUCHER", label: "Buoni pasto" },
   { id: "SATISPAY", label: "Satispay" },
   { id: "OTHER", label: "Altro" },
@@ -40,7 +44,7 @@ function paymentConfirmHint({
   remainderMethod,
   remainderCashAmount,
 }: {
-  method: PaymentMethod;
+  method: PaymentChoice;
   documentType: FiscalDocumentType;
   invoiceCustomer: InvoiceCustomer;
   cashAmount: string;
@@ -55,6 +59,11 @@ function paymentConfirmHint({
   }
   if (method === "CASH" && parsePaymentAmount(cashAmount) < amount) {
     return "Inserisci l'importo ricevuto (deve coprire il totale).";
+  }
+  if (method === "CASH_POS") {
+    const cash = parsePaymentAmount(cashAmount);
+    if (cash <= 0) return "Inserisci la parte pagata in contanti: il resto va su POS.";
+    if (cash >= amount - 0.009) return "La parte in contanti copre già tutto: scegli Contanti.";
   }
   if (method === "MEAL_VOUCHER") {
     const voucher = parsePaymentAmount(mealVoucherAmount);
@@ -99,8 +108,8 @@ export function PaymentScreen({
   tableLabel?: string;
   billLines?: Array<{ name: string; quantity: number; lineTotal: number }>;
   amount: number;
-  method: PaymentMethod;
-  onMethod: (m: PaymentMethod) => void;
+  method: PaymentChoice;
+  onMethod: (m: PaymentChoice) => void;
   documentType: FiscalDocumentType;
   onDocumentType: (d: FiscalDocumentType) => void;
   invoiceCustomer: InvoiceCustomer;
@@ -135,9 +144,15 @@ export function PaymentScreen({
   const isMealVoucher = method === "MEAL_VOUCHER";
   const isMixed = isMealVoucher && remainder > 0.009;
 
+  const isCashPos = method === "CASH_POS";
+  const cashPart = parsePaymentAmount(cashAmount);
+  const posPart = Math.max(0, Math.round((amount - cashPart) * 100) / 100);
+
   const cashOk =
     method === "CASH"
       ? parsePaymentAmount(cashAmount) >= amount
+      : isCashPos
+        ? cashPart > 0 && cashPart < amount - 0.009
       : isMealVoucher
         ? voucherValue > 0 &&
           voucherValue <= amount + 0.001 &&
@@ -161,7 +176,7 @@ export function PaymentScreen({
 
   const showCashPad = method === "CASH" && !isMealVoucher;
   const showVoucherPad = isMealVoucher;
-  const showRightColumn = showCashPad || showVoucherPad;
+  const showRightColumn = showCashPad || showVoucherPad || isCashPos;
 
   return (
     <>
@@ -228,7 +243,7 @@ export function PaymentScreen({
                 <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
                   Metodo di pagamento
                 </p>
-                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                   {METHODS.map((m) => (
                     <Button
                       key={m.id}
@@ -378,6 +393,23 @@ export function PaymentScreen({
                 {showCashPad && (
                   <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-[hsl(var(--pg-border))] p-3">
                     <PaymentPad amount={cashAmount} onChange={onCashAmount} total={amount} />
+                  </section>
+                )}
+
+                {isCashPos && (
+                  <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-[hsl(var(--pg-border))] p-3">
+                    <p className="mb-2 shrink-0 text-sm font-medium">Parte pagata in contanti</p>
+                    <PaymentPad amount={cashAmount} onChange={onCashAmount} total={amount} />
+                    <div className="mt-3 grid shrink-0 grid-cols-2 gap-2 border-t border-[hsl(var(--pg-border))] pt-3 text-center">
+                      <div className="rounded-lg bg-[hsl(var(--pg-muted))] px-2 py-1.5">
+                        <p className="text-2xs uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">Contanti</p>
+                        <p className="text-lg font-bold tabular-nums">{euro(Math.min(cashPart, amount))}</p>
+                      </div>
+                      <div className="rounded-lg bg-[hsl(var(--pg-primary))]/10 px-2 py-1.5">
+                        <p className="text-2xs uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">POS / Carta</p>
+                        <p className="text-lg font-bold tabular-nums text-[hsl(var(--pg-primary))]">{euro(posPart)}</p>
+                      </div>
+                    </div>
                   </section>
                 )}
               </div>

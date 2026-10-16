@@ -11,7 +11,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
 import { DiscountModal } from "../components/DiscountModal";
 import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
-import { PaymentScreen } from "../components/PaymentScreen";
+import { PaymentScreen, type PaymentChoice } from "../components/PaymentScreen";
 import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
 import { parsePaymentAmount } from "../components/PaymentPad";
 import { PinModal } from "../components/PinModal";
@@ -222,7 +222,7 @@ export function CassaPage({
   const [lockPending, setLockPending] = useState<string | null>(null);
   const [pendingUnlockTable, setPendingUnlockTable] = useState<LiveTable | null>(null);
   const [pinModalError, setPinModalError] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentChoice>("CASH");
   const [documentType, setDocumentType] = useState<FiscalDocumentType>("RECEIPT");
   const [invoiceCustomer, setInvoiceCustomer] = useState<InvoiceCustomer>(EMPTY_INVOICE_CUSTOMER);
   const [fullMealReceipt, setFullMealReceipt] = useState(false);
@@ -1155,7 +1155,7 @@ export function CassaPage({
     setWorkspace("payment");
   };
 
-  const handlePaymentMethod = (method: PaymentMethod) => {
+  const handlePaymentMethod = (method: PaymentChoice) => {
     setPaymentMethod(method);
     if (method === "MEAL_VOUCHER") {
       setDocumentType("RECEIPT");
@@ -1207,6 +1207,18 @@ export function CassaPage({
         paymentBody.paymentMethod = "MEAL_VOUCHER";
         paymentBody.paymentSplits = [{ paymentMethod: "MEAL_VOUCHER", amount: voucher }];
       }
+    } else if (paymentMethod === "CASH_POS") {
+      // Importo diviso liberamente: es. 300 € = 100 contanti + 200 POS
+      const cash = Math.round(parsePaymentAmount(cashAmount) * 100) / 100;
+      const pos = Math.round((amount - cash) * 100) / 100;
+      if (cash <= 0 || pos <= 0.009) {
+        setPaymentError("Indica la parte in contanti (minore del totale): il resto va su POS");
+        return;
+      }
+      paymentBody.paymentSplits = [
+        { paymentMethod: "CASH", amount: cash, amountReceived: cash },
+        { paymentMethod: "POS", amount: pos },
+      ];
     } else if (paymentMethod === "CASH") {
       const received = parsePaymentAmount(cashAmount);
       if (received < amount) {
