@@ -308,7 +308,9 @@ export function forceUnlock(tableId: string) {
 
 export function releaseLock(tableId: string, operatorId: string): boolean {
   const current = getTableRuntime(tableId);
-  if (current.lockedBy && current.lockedBy !== operatorId) return false;
+  // Niente da rilasciare (tavolo libero, occupato, conto richiesto…): non toccare lo stato.
+  if (current.status !== "LOCKED" || !current.lockedBy) return false;
+  if (current.lockedBy !== operatorId) return false;
   const hasSubmitted = getSubmittedOrdersByTable(tableId).length > 0;
   const hasDraft = !!getOrderByTable(tableId);
   const hasGuests = (current.guests ?? 0) > 0 || (current.chargedGuests ?? 0) > 0;

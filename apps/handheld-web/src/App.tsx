@@ -536,8 +536,8 @@ export default function App() {
 
   const reenterTable = async (table: LiveTable) => {
     const data = await loadDraftForTable(table.id);
-    const tab: WorkspaceTab =
-      data.cart.length > 0 ? "comanda" : data.submitted.length > 0 ? "comanda" : "menu";
+    // Bozza non spedita: si riparte dalla comanda; altrimenti dal menu per aggiungere (F10).
+    const tab: WorkspaceTab = data.cart.length > 0 ? "comanda" : "menu";
     await openWorkspace({ ...table, status: "LOCKED" }, tab);
   };
 
@@ -568,12 +568,12 @@ export default function App() {
     ) {
       if (!table.lockedBy && operator) {
         pendingAfterLockRef.current = () => {
-          void openWorkspace(table, "comanda");
+          void openWorkspace(table, "menu");
         };
         void requestLock(table);
         return;
       }
-      void openWorkspace(table, "comanda");
+      void openWorkspace(table, "menu");
       return;
     }
     if (table.isVirtual) {
@@ -593,8 +593,10 @@ export default function App() {
   };
 
   const releaseLockIfHeld = () => {
-    // Dopo Spedisci il tavolo è OCCUPIED ma resta assegnato a chi ha inviato: va rilasciato comunque.
-    if (operator && activeTable?.lockedBy === operator.id) {
+    // Sempre: la copia locale del tavolo può non sapere ancora del blocco appena ottenuto
+    // (tavolo occupato riaperto), e il tavolo restava bloccato in cassa. L'Edge rilascia
+    // solo se il blocco è di questo operatore.
+    if (operator && activeTable) {
       send("RELEASE_TABLE_LOCK", { tableId: activeTable.id, operatorId: operator.id });
     }
   };
@@ -608,6 +610,21 @@ export default function App() {
     comanda.setSelectedLineId(null);
     comanda.setSelectedSubmittedId(null);
   };
+
+  // Tasto/gesto "indietro" di Android: dentro un tavolo equivale a "← Tavoli" (rilascia il
+  // tavolo). Senza questo il browser lasciava la pagina e il tavolo restava bloccato in cassa.
+  const leaveTableRef = useRef(leaveTable);
+  leaveTableRef.current = leaveTable;
+  useEffect(() => {
+    if (screen === "pin" || screen === "map") return;
+    window.history.pushState({ pgScreen: screen }, "");
+    const onPop = () => {
+      if (screen === "table") leaveTableRef.current();
+      else setScreen("map");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [screen]);
 
   /** Fine turno: chiude la presenza dell'operatore e torna al PIN. */
   const endShiftAndLogout = async () => {
