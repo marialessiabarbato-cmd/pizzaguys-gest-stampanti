@@ -162,11 +162,18 @@ export interface GeneralTicketParams {
   guests: number;
   operatorName: string;
   sections: GeneralTicketSection[];
+  /** Ristampa per la cassa (F14): "*** RISTAMPA ***" e titolo dedicato */
+  reprint?: boolean;
+  title?: string;
 }
 
 /** Comanda generale: tutto l'invio di Spedisci in un unico ticket, diviso per reparto. */
 export function buildGeneralTicket(params: GeneralTicketParams): Buffer {
-  const parts: Buffer[] = comandaHeader(params.tableLabel, false, "COMANDA GENERALE");
+  const parts: Buffer[] = comandaHeader(
+    params.tableLabel,
+    params.reprint ?? false,
+    params.title ?? "COMANDA GENERALE",
+  );
   params.sections.forEach((section, i) => {
     if (i > 0) parts.push(textLine(""));
     parts.push(

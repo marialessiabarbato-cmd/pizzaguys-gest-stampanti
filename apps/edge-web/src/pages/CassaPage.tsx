@@ -900,6 +900,30 @@ export function CassaPage({
     setShowCounterModal(true);
   };
 
+  /** Copia di tutta la comanda per la cassa, sulla stampante Bar (F14) */
+  const handleReprintComanda = async () => {
+    if (!selectedTable || !operator) return;
+    setLoading(true);
+    try {
+      const result = await edgeApi<{ ok: boolean; printWarnings: string[] }>(
+        `/api/tables/${selectedTable.id}/reprint-comanda`,
+        {
+          method: "POST",
+          body: JSON.stringify({ operatorName: `${operator.firstName} ${operator.lastName}` }),
+        },
+      );
+      setMessage(
+        result.ok
+          ? `Copia comanda di ${selectedTable.label} stampata sulla stampante Bar`
+          : `Copia comanda non stampata: ${result.printWarnings.join(" · ")}`,
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Ristampa comanda non riuscita");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCloseTableWithoutPayment = async (managerPin: string) => {
     if (!selectedTable || !operator) return;
     setCloseTableError("");
@@ -2373,6 +2397,17 @@ export function CassaPage({
                       }}
                     >
                       Sposta / unisci tavoli
+                    </Button>
+                    <Button
+                      className="min-h-12 w-full text-base"
+                      variant="outline"
+                      disabled={loading || bill.lines.length === 0}
+                      onClick={() => {
+                        setContoMoreOpen(false);
+                        void handleReprintComanda();
+                      }}
+                    >
+                      Ristampa comanda (copia cassa)
                     </Button>
                     <Button
                       className="min-h-12 w-full text-base"

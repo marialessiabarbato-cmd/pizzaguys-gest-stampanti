@@ -721,6 +721,73 @@ export async function orderRoutes(app: FastifyInstance) {
     return { ok: true, tableId, voided, printWarnings };
   });
 
+  /**
+   * Copia di tutta la comanda del tavolo per la cassa (F14): un ticket "RISTAMPA — COPIA
+   * CASSA" sulla stampante Bar, diviso per reparto. Non va ai reparti né al KDS.
+   */
+  app.post<{ Params: { id: string } }>("/api/tables/:id/reprint-comanda", async (req, reply) => {
+    const body = (req.body ?? {}) as { operatorName?: string };
+    const tableId = req.params.id;
+    const submitted = getSubmittedOrdersByTable(tableId);
+    const resolveCenter = createWorkCenterResolver(app.edgeDb);
+    type TicketLine = {
+      name: string;
+      quantity: number;
+      variants: string[];
+      notes?: string;
+      course?: number;
+      hold?: boolean;
+    };
+    const byCenter = new Map<string, TicketLine[]>();
+    for (const order of submitted) {
+      for (const line of order.lines) {
+        const qty = line.quantity - (line.voidedQuantity ?? 0);
+        if (qty <= 0) continue;
+        const center = resolveCenter(line.productId);
+        byCenter.set(center, [
+          ...(byCenter.get(center) ?? []),
+          {
+            name: kitchenLineName(line),
+            quantity: qty,
+            variants: variantLabels(line),
+            notes: line.notes,
+            course: line.course,
+            hold: false,
+          },
+        ]);
+      }
+    }
+    if (byCenter.size === 0) return reply.status(400).send({ error: "Nessun piatto inviato da ristampare" });
+
+    const sectionOrder = ["BAR", "CUCINA", "PIZZERIA", "CHEF"];
+    const rank = (c: string) => (sectionOrder.includes(c) ? sectionOrder.indexOf(c) : sectionOrder.length);
+    const sections = [...byCenter.entries()]
+      .map(([workCenter, lines]) => ({ workCenter, lines }))
+      .sort((a, b) => rank(a.workCenter) - rank(b.workCenter));
+    const runtime = getTableRuntime(tableId);
+    const table = app.edgeDb.select().from(tables).where(eq(tables.id, tableId)).get();
+    const tableLabel = resolveOrderTableLabel(app.edgeDb, tableId);
+    const payload = buildGeneralTicket({
+      tableLabel,
+      guests: runtime.guests ?? table?.defaultGuests ?? 0,
+      operatorName: body.operatorName?.trim() || submitted[0]?.operatorName || "Cassa",
+      sections,
+      reprint: true,
+      title: "COPIA CASSA",
+    });
+    const printerList = app.edgeDb.select().from(printers).all();
+    const barPrinter =
+      printerList.find((p) => p.workCenter === "BAR" && p.enabled) ?? printerList.find((p) => p.enabled);
+    const printResult = await hardware.printEscPos(
+      barPrinter?.id ?? "bar",
+      payload,
+      `copia-cassa-${tableId}-${Date.now()}`,
+      barPrinter ? { host: barPrinter.host, port: barPrinter.port } : undefined,
+    );
+    const printWarnings = reportPrintFailures(app.edgeDb, "COMANDA", tableLabel, [printResult]);
+    return { ok: printResult.success, printWarnings };
+  });
+
   app.post("/api/orders/line-price", async (req, reply) => {
     const parsed = setLinePriceSchema.safeParse(req.body);
     if (!parsed.success) {
