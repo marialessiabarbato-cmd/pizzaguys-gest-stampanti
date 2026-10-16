@@ -265,6 +265,7 @@ export const createCounterOrderSchema = z
     address: z.string().max(200).optional(),
     notes: z.string().max(500).optional(),
     broker: z.string().max(80).optional(),
+    platformOrderNumber: z.string().max(40).optional(),
     asap: z.boolean().default(true),
     scheduledAt: z.string().datetime().optional(),
   })

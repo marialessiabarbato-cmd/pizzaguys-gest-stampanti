@@ -100,6 +100,8 @@ export interface TableRuntime {
   discountAuthorizedBy?: string;
   /** Coperti tolti dal conto (F12), con PIN responsabile */
   coverWaived?: boolean;
+  /** Ultimo invio ai reparti: Spedisci, Marcia/sollecito, dolci (F18) */
+  lastKitchenAt?: string;
 }
 
 export interface RomanSplit {
@@ -618,6 +620,12 @@ export function applyTableDiscount(
   }
   if (updatedLines === 0) return { ok: false, updatedLines: 0, error: "Nessuna riga da scontare" };
   return { ok: true, updatedLines };
+}
+
+/** Registra un invio ai reparti (Spedisci, Marcia, dolci): azzera il "in cucina da" (F18). */
+export function markKitchenSent(tableId: string, at = new Date().toISOString()) {
+  const current = getTableRuntime(tableId);
+  tableRuntime.set(tableId, { ...current, lastKitchenAt: at });
 }
 
 /** Sconto libero in € sul conto; 0 lo toglie. */

@@ -91,6 +91,8 @@ export function formatMockReceiptText(
   receipt: MockReceipt,
   meta?: {
     tableLabel?: string;
+    /** "Tavolo" (default) o "Ordine" per asporto/delivery */
+    tableCaption?: string;
     guests?: number;
     operatorName?: string;
     amountReceived?: number;
@@ -155,7 +157,7 @@ export function formatMockReceiptText(
 
   const guests = meta?.guests != null && meta.guests > 0 ? `Ospiti: ${meta.guests}` : "";
   if (meta?.tableLabel || guests) {
-    lines.push(...row(meta?.tableLabel ? `Tavolo: ${meta.tableLabel}` : "", guests));
+    lines.push(...row(meta?.tableLabel ? `${meta.tableCaption ?? "Tavolo"}: ${meta.tableLabel}` : "", guests));
   }
   if (meta?.serviceTypeLabel) {
     lines.push(`Servizio: ${meta.serviceTypeLabel}`);

@@ -16,6 +16,7 @@ export interface CounterOrderForm {
   address: string;
   notes: string;
   broker: string;
+  platformOrderNumber: string;
   asap: boolean;
   hour: number;
   minute: number;
@@ -30,6 +31,7 @@ function defaultForm(channel: CounterChannel): CounterOrderForm {
     address: "",
     notes: "",
     broker: "",
+    platformOrderNumber: "",
     asap: true,
     hour: now.getHours(),
     minute: Math.ceil(now.getMinutes() / 5) * 5 % 60,
@@ -75,6 +77,7 @@ export function CounterOrderModal({
     address?: string;
     notes?: string;
     broker?: string;
+    platformOrderNumber?: string;
     asap: boolean;
     scheduledAt?: string;
   }) => void;
@@ -125,6 +128,8 @@ export function CounterOrderModal({
       address: form.channel === "DELIVERY" ? form.address.trim() || undefined : undefined,
       notes: form.notes.trim() || undefined,
       broker: form.channel === "DELIVERY" ? form.broker.trim() || undefined : undefined,
+      platformOrderNumber:
+        form.channel === "DELIVERY" ? form.platformOrderNumber.trim() || undefined : undefined,
       asap: form.asap,
       scheduledAt: buildScheduledAt(form.asap, form.hour, form.minute),
     });
@@ -225,7 +230,7 @@ export function CounterOrderModal({
         <section className="space-y-3">
           {form.channel === "DELIVERY" && brokers.length > 0 && (
             <div>
-              <label className="mb-1 block text-sm font-medium">Broker</label>
+              <label className="mb-1 block text-sm font-medium">Piattaforma</label>
               <select
                 className="h-12 w-full rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3"
                 value={form.broker}
@@ -238,6 +243,25 @@ export function CounterOrderModal({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {form.channel === "DELIVERY" && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                N° ordine {form.broker ? form.broker : "piattaforma"}
+              </label>
+              <input
+                className="h-12 w-full rounded-lg border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3"
+                value={form.platformOrderNumber}
+                inputMode="text"
+                maxLength={40}
+                placeholder="es. 1234"
+                onChange={(e) => setField("platformOrderNumber", e.target.value)}
+              />
+              <p className="mt-1 text-xs text-[hsl(var(--pg-muted-foreground))]">
+                In comanda e sullo scontrino: {form.broker ? form.broker.toUpperCase() : "Delivery"} n°{" "}
+                {form.platformOrderNumber.trim() || "…"}
+              </p>
             </div>
           )}
           <div>

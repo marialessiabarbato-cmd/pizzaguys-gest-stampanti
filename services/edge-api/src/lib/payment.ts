@@ -314,7 +314,8 @@ export async function executeTablePayment(
 
   const receiptMeta = {
     tableLabel: params.tableLabel,
-    guests: params.guests,
+    tableCaption: params.isVirtual ? "Ordine" : undefined,
+    guests: params.isVirtual ? undefined : params.guests,
     operatorName: params.operatorName,
     amountReceived: cashSplit?.amountReceived,
     paymentSplits,
@@ -470,7 +471,8 @@ export async function executeTablePayment(
     receipt: receiptResult.receipt,
     meta: {
       tableLabel: params.tableLabel,
-      guests: params.guests,
+      tableCaption: params.isVirtual ? "Ordine" : undefined,
+      guests: params.isVirtual ? undefined : params.guests,
       operatorName: params.operatorName,
       amountReceived: cashSplit?.amountReceived,
       paymentSplits: paymentSplits.length > 1 ? paymentSplits : undefined,

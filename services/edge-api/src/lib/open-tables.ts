@@ -69,6 +69,20 @@ function deriveCourseLabel(tableId: string): string {
   return `Portata ${maxCourse}`;
 }
 
+/** Ultimo invio ai reparti (Spedisci, Marcia, dolci); per i tavoli riaperti dopo un riavvio, l'ultimo Spedisci. */
+export function deriveLastKitchenAt(rt: TableRuntime, tableId: string): string | null {
+  if (rt.lastKitchenAt) return rt.lastKitchenAt;
+  const times = getSubmittedOrdersByTable(tableId)
+    .map((o) => o.submittedAt)
+    .filter(Boolean) as string[];
+  return times.length ? times.sort().reverse()[0]! : null;
+}
+
+export function elapsedMinutes(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+}
+
 export function formatElapsed(iso: string | null): string {
   if (!iso) return "—";
   const ms = Date.now() - new Date(iso).getTime();
@@ -103,6 +117,10 @@ export function buildOpenTablesSnapshot(
     lastOrderAt: string | null;
     openedElapsed: string;
     lastOrderElapsed: string;
+    /** Da quanto è arrivata in cucina l'ultima comanda o il sollecito (F18) */
+    kitchenAt: string | null;
+    kitchenElapsed: string;
+    kitchenMinutes: number | null;
   }> = [];
 
   let uncollectedTotal = 0;
@@ -155,6 +173,14 @@ export function buildOpenTablesSnapshot(
       lastOrderAt,
       openedElapsed: formatElapsed(openedAt),
       lastOrderElapsed: formatElapsed(lastOrderAt),
+      ...(() => {
+        const kitchenAt = deriveLastKitchenAt(getTableRuntime(rt.tableId), rt.tableId);
+        return {
+          kitchenAt,
+          kitchenElapsed: formatElapsed(kitchenAt),
+          kitchenMinutes: elapsedMinutes(kitchenAt),
+        };
+      })(),
     });
   }
 

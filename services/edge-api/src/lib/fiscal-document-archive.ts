@@ -15,6 +15,7 @@ export interface FiscalDocumentOrderLine {
 
 export interface FiscalDocumentMeta {
   tableLabel?: string;
+  tableCaption?: string;
   guests?: number;
   operatorName?: string;
   amountReceived?: number;

@@ -11,6 +11,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { CounterOrderModal, type CounterChannel } from "../components/CounterOrderModal";
 import { DiscountModal } from "../components/DiscountModal";
 import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
+import { DeliveryOrdersTable } from "../components/DeliveryOrdersTable";
 import { TableDiscountModal, type TableDiscountRequest } from "../components/TableDiscountModal";
 import { PaymentScreen, type PaymentChoice } from "../components/PaymentScreen";
 import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
@@ -174,6 +175,13 @@ interface TableBill {
 interface CounterOrderRow {
   id: string;
   displayNumber: string;
+  /** "GLOVO n° 1234" (F15) */
+  label?: string;
+  broker?: string;
+  platformOrderNumber?: string;
+  openedElapsed?: string;
+  kitchenElapsed?: string;
+  kitchenMinutes?: number | null;
   channel: CounterChannel;
   customerName?: string;
   phone?: string;
@@ -875,7 +883,7 @@ export function CassaPage({
   const selectCounterOrder = (order: CounterOrderRow) => {
     const table: LiveTable = {
       id: order.id,
-      label: order.displayNumber,
+      label: order.label ?? order.displayNumber,
       x: 0,
       y: 0,
       width: 0,
@@ -988,6 +996,7 @@ export function CassaPage({
         order: {
           id: string;
           displayNumber: string;
+          label?: string;
           virtualType: string;
         };
       }>("/api/pos/counter-orders", {
@@ -1000,7 +1009,7 @@ export function CassaPage({
       });
       const table: LiveTable = {
         id: result.order.id,
-        label: result.order.displayNumber,
+        label: result.order.label ?? result.order.displayNumber,
         x: 0,
         y: 0,
         width: 0,
@@ -1027,7 +1036,7 @@ export function CassaPage({
       } finally {
         setLockPending(null);
       }
-      setMessage(`Ordine ${result.order.displayNumber} aperto`);
+      setMessage(`Ordine ${result.order.label ?? result.order.displayNumber} aperto`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Errore apertura ordine");
     } finally {
@@ -1963,6 +1972,13 @@ export function CassaPage({
                   )}
                 </div>
               ) : (
+                channelFilter === "DELIVERY" ? (
+                  <DeliveryOrdersTable
+                    orders={counterOrders}
+                    selectedId={selectedTable?.id}
+                    onSelect={selectCounterOrder}
+                  />
+                ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {counterOrders.map((order) => (
                     <button
@@ -1976,7 +1992,7 @@ export function CassaPage({
                       }`}
                     >
                       <div className="mb-2 flex items-start justify-between gap-2">
-                        <p className="text-lg font-bold">{order.displayNumber}</p>
+                        <p className="text-lg font-bold">{order.label ?? order.displayNumber}</p>
                         <p className="font-semibold tabular-nums">€ {order.total.toFixed(2)}</p>
                       </div>
                       <p className="truncate text-sm text-[hsl(var(--pg-muted-foreground))]">
@@ -1989,6 +2005,7 @@ export function CassaPage({
                     </button>
                   ))}
                 </div>
+                )
               )}
             </div>
             )}

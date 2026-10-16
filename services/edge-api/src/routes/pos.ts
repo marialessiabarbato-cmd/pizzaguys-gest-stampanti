@@ -13,11 +13,17 @@ import {
 } from "@pizzaguys/validators";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { buildOpenTablesSnapshot } from "../lib/open-tables.js";
+import {
+  buildOpenTablesSnapshot,
+  deriveLastKitchenAt,
+  elapsedMinutes,
+  formatElapsed,
+} from "../lib/open-tables.js";
 import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
 import { consolidateBillForTable } from "../lib/cover-charge.js";
 import {
+  counterOrderLabel,
   createCounterOrder,
   formatScheduledTime,
   getCounterOrder,
@@ -104,12 +110,17 @@ export async function posRoutes(app: FastifyInstance) {
       return orders.map((order) => {
         const bill = consolidateBillForTable(app.edgeDb, order.id);
         const runtime = getTableRuntime(order.id);
+        const kitchenAt = deriveLastKitchenAt(runtime, order.id);
         return {
           ...order,
+          label: counterOrderLabel(order),
           scheduledLabel: formatScheduledTime(order),
           status: runtime.status,
           total: bill.total,
           lineCount: bill.lines.length,
+          openedElapsed: formatElapsed(order.createdAt),
+          kitchenElapsed: formatElapsed(kitchenAt),
+          kitchenMinutes: elapsedMinutes(kitchenAt),
         };
       });
     },
@@ -129,6 +140,7 @@ export async function posRoutes(app: FastifyInstance) {
       address: parsed.data.address,
       notes: parsed.data.notes,
       broker: parsed.data.broker,
+      platformOrderNumber: parsed.data.platformOrderNumber,
       asap: parsed.data.asap,
       scheduledAt: parsed.data.scheduledAt,
     });
@@ -139,6 +151,7 @@ export async function posRoutes(app: FastifyInstance) {
       ok: true,
       order: {
         ...order,
+        label: counterOrderLabel(order),
         scheduledLabel: formatScheduledTime(order),
         virtualType: order.channel === "TAKEAWAY" ? "ASPORTO" : "DELIVERY",
       },
@@ -177,6 +190,7 @@ export async function posRoutes(app: FastifyInstance) {
             address: counter.address,
             notes: counter.notes,
             broker: counter.broker,
+            platformOrderNumber: counter.platformOrderNumber,
             asap: counter.asap,
             scheduledAt: counter.scheduledAt,
             scheduledLabel: formatScheduledTime(counter),

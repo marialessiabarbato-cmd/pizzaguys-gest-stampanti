@@ -37,6 +37,7 @@ import {
   getTableRuntime,
   getUnionGuestTotal,
   applyGuestsByTable,
+  markKitchenSent,
   markOrderSubmitted,
   recordKdsCancellation,
   rebuildKdsTicketsForOrder,
@@ -589,6 +590,7 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     markOrderSubmitted(order.id);
+    markKitchenSent(order.tableId);
     rebuildKdsTicketsForOrder(getOrder(order.id)!, ticketTableLabel);
     broadcastKdsUpdate();
     setTableOccupied(order.tableId);
@@ -847,6 +849,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const table = app.edgeDb.select().from(tables).where(eq(tables.id, parsed.data.tableId)).get();
     const guestCount = getUnionGuestTotal(parsed.data.tableId) || table?.defaultGuests || 2;
     const released = releaseDessertQueue(parsed.data.tableId);
+    if (released.length > 0) markKitchenSent(parsed.data.tableId);
     const printResults: PrintResult[] = [];
 
     const printerList = app.edgeDb.select().from(printers).all();

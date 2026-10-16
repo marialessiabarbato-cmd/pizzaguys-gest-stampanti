@@ -13,10 +13,25 @@ export interface CounterOrder {
   address?: string;
   notes?: string;
   broker?: string;
+  /** N° ordine della piattaforma (es. Glovo), stampato al posto del codice interno */
+  platformOrderNumber?: string;
   asap: boolean;
   scheduledAt?: string;
   createdAt: string;
   paidAt?: string;
+}
+
+/**
+ * Etichetta leggibile dell'ordine al banco per comanda, preconto e scontrino (F15/F16):
+ * "GLOVO n° 1234", oppure "GLOVO #DEL-003" senza numero, oppure il numero interno.
+ */
+export function counterOrderLabel(order: CounterOrder): string {
+  const broker = order.broker?.trim().toUpperCase();
+  const num = order.platformOrderNumber?.trim();
+  if (broker && num) return `${broker} n° ${num}`;
+  if (broker) return `${broker} ${order.displayNumber}`;
+  if (num) return `${order.channel === "DELIVERY" ? "Delivery" : "Asporto"} n° ${num}`;
+  return order.displayNumber;
 }
 
 export interface TableContext {
@@ -52,6 +67,7 @@ export function createCounterOrder(params: {
   address?: string;
   notes?: string;
   broker?: string;
+  platformOrderNumber?: string;
   asap: boolean;
   scheduledAt?: string;
 }): CounterOrder {
@@ -65,6 +81,7 @@ export function createCounterOrder(params: {
     address: params.address?.trim() || undefined,
     notes: params.notes?.trim() || undefined,
     broker: params.broker?.trim() || undefined,
+    platformOrderNumber: params.platformOrderNumber?.trim() || undefined,
     asap: params.asap,
     scheduledAt: params.asap ? undefined : params.scheduledAt,
     createdAt: new Date().toISOString(),
@@ -115,7 +132,7 @@ export function resolveTableContext(
   if (counter) {
     return {
       id: tableId,
-      label: counter.displayNumber,
+      label: counterOrderLabel(counter),
       isVirtual: true,
       virtualType: counter.channel === "TAKEAWAY" ? "ASPORTO" : "DELIVERY",
       isCounterOrder: true,

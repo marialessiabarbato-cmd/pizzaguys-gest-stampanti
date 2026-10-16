@@ -17,6 +17,16 @@ interface OpenTableRow {
   courseLabel: string;
   openedElapsed: string;
   lastOrderElapsed: string;
+  kitchenElapsed?: string;
+  kitchenMinutes?: number | null;
+}
+
+/** Colore del "in cucina da": arancio da 15 minuti, rosso da 25 (F18) */
+export function kitchenTimeClass(minutes?: number | null): string {
+  if (minutes == null) return "";
+  if (minutes >= 25) return "rounded bg-red-600/15 px-1.5 font-semibold text-red-700";
+  if (minutes >= 15) return "rounded bg-amber-500/20 px-1.5 font-semibold text-amber-800";
+  return "";
 }
 
 interface OpenTablesSummary {
@@ -151,7 +161,7 @@ export function OpenTablesModal({
         )}
 
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="sticky top-0 bg-[hsl(var(--pg-muted))] text-left text-xs uppercase">
               <tr>
                 <th className="px-3 py-2">Ultimo ordine</th>
@@ -161,6 +171,9 @@ export function OpenTablesModal({
                 <th className="px-3 py-2">Operatore</th>
                 <th className="px-3 py-2">Da apertura</th>
                 <th className="px-3 py-2">Da ultimo ord.</th>
+                <th className="px-3 py-2" title="Dall'ultimo invio ai reparti (Spedisci, Marcia, sollecito)">
+                  In cucina da
+                </th>
                 <th className="px-3 py-2 text-right">Subtotale</th>
                 <th className="px-3 py-2 text-right">Media/cop.</th>
               </tr>
@@ -168,13 +181,13 @@ export function OpenTablesModal({
             <tbody>
               {loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-[hsl(var(--pg-muted-foreground))]">
+                  <td colSpan={10} className="px-3 py-8 text-center text-[hsl(var(--pg-muted-foreground))]">
                     Caricamento…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-[hsl(var(--pg-muted-foreground))]">
+                  <td colSpan={10} className="px-3 py-8 text-center text-[hsl(var(--pg-muted-foreground))]">
                     Nessun tavolo aperto
                   </td>
                 </tr>
@@ -204,6 +217,9 @@ export function OpenTablesModal({
                     <td className="px-3 py-2">{row.operatorName}</td>
                     <td className="px-3 py-2 tabular-nums">{row.openedElapsed}</td>
                     <td className="px-3 py-2 tabular-nums">{row.lastOrderElapsed}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      <span className={kitchenTimeClass(row.kitchenMinutes)}>{row.kitchenElapsed ?? "—"}</span>
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">{euro(row.subtotal)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{euro(row.averagePerCover)}</td>
                   </tr>

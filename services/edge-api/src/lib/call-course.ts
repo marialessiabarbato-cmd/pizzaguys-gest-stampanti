@@ -8,8 +8,7 @@ import { broadcastKdsUpdate } from "./kds-broadcast.js";
 import {
   callCourse,
   getUnionGuestTotal,
-  type KdsTicket,
-} from "./runtime.js";
+  type KdsTicket, markKitchenSent } from "./runtime.js";
 import { reportPrintFailures } from "./print-alerts.js";
 import { createWorkCenterResolver } from "./work-center.js";
 import { broadcast } from "./ws-hub.js";
@@ -42,6 +41,8 @@ export async function processCallCourse(
   printWarnings: string[];
 }> {
   const released = callCourse(tableId, course);
+  // Marcia/sollecito: riparte il "in cucina da" del tavolo (F18)
+  markKitchenSent(tableId);
   const table = app.edgeDb.select().from(tables).where(eq(tables.id, tableId)).get();
   const guestCount = getUnionGuestTotal(tableId) || table?.defaultGuests || 2;
   const printerList = app.edgeDb.select().from(printers).all();
