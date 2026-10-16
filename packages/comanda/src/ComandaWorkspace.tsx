@@ -8,7 +8,7 @@ import {
   stepLabel,
   suggestMarciaCourse,
 } from "./course";
-import { cartTotal, resolvePrice, tableOrderTotal, variantsForProduct } from "./menu";
+import { cartLineKey, cartTotal, resolvePrice, tableOrderTotal, variantsForProduct } from "./menu";
 import {
   compactMergedTableLabel,
   formatTableLabel,
@@ -21,6 +21,7 @@ import {
 import type { CartLine, LastAddedLine, LiveTable, Operator } from "./types";
 import { BottomSheet, SheetLayoutProvider, bottomSheetFooterClass } from "./ui/BottomSheet";
 import { ConfirmModal } from "./ui/ConfirmModal";
+import { BulkCourseSheet } from "./ui/BulkCourseSheet";
 import { CourseOptionsModal } from "./ui/CourseOptionsModal";
 import { CourseStepBar } from "./ui/CourseStepBar";
 import { MenuPanel } from "./ui/MenuPanel";
@@ -107,6 +108,8 @@ export function ComandaWorkspace({
 }) {
   const isCassa = layout === "cassa";
   const [courseModalLineId, setCourseModalLineId] = useState<string | null>(null);
+  /** Sposta in blocco: portata da cui si parte (tutti i suoi piatti preselezionati) */
+  const [bulkCourseFrom, setBulkCourseFrom] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [marciaPicker, setMarciaPicker] = useState(false);
   const [exitConfirm, setExitConfirm] = useState(false);
@@ -210,6 +213,24 @@ export function ComandaWorkspace({
     c.setCart((prev) =>
       prev.map((l) => (l.lineId === lineId ? { ...l, course: cn, hold: isHeldCourse(cn) } : l)),
     );
+  };
+
+  /** Sposta più righe della bozza in una portata; righe diventate uguali vengono unite. */
+  const moveLinesToCourse = (lineIds: string[], course: number) => {
+    const cn = normalizeCourse(course);
+    const ids = new Set(lineIds);
+    c.setCart((prev) => {
+      const moved = prev.map((l) => (ids.has(l.lineId) ? { ...l, course: cn, hold: isHeldCourse(cn) } : l));
+      const merged: CartLine[] = [];
+      for (const line of moved) {
+        const same = merged.find((m) => cartLineKey(m) === cartLineKey(line));
+        if (same) same.quantity += line.quantity;
+        else merged.push({ ...line });
+      }
+      return merged;
+    });
+    c.setSelectedLineId(null);
+    setBulkCourseFrom(null);
   };
 
   const executeEditConfirm = () => {
@@ -379,12 +400,22 @@ export function ComandaWorkspace({
                   ({lines.reduce((n, l) => n + l.quantity, 0)})
                 </span>
               </span>
-              {/* Il HOLD non si sceglie: i Segue aspettano sempre la Marcia. */}
-              {!isOraCourse(course) && (
-                <span className="rounded-full bg-[hsl(var(--pg-background))] px-3 py-1 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
-                  in attesa · Marcia
-                </span>
-              )}
+              <span className="flex items-center gap-2">
+                {/* Il HOLD non si sceglie: i Segue aspettano sempre la Marcia. */}
+                {!isOraCourse(course) && (
+                  <span className="rounded-full bg-[hsl(var(--pg-background))] px-3 py-1 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
+                    in attesa · Marcia
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={needsLock}
+                  onClick={() => setBulkCourseFrom(course)}
+                  className="min-h-8 rounded-full border border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3 text-xs font-semibold disabled:opacity-40"
+                >
+                  Sposta…
+                </button>
+              </span>
             </div>
             <ul className="space-y-2">
               {lines.map((l) => {
@@ -731,6 +762,15 @@ export function ComandaWorkspace({
           variant={confirmCopy.variant}
           onConfirm={executeEditConfirm}
           onCancel={() => setEditConfirm(null)}
+        />
+      )}
+
+      {bulkCourseFrom != null && cart.length > 0 && (
+        <BulkCourseSheet
+          cart={cart}
+          fromCourse={bulkCourseFrom}
+          onConfirm={moveLinesToCourse}
+          onCancel={() => setBulkCourseFrom(null)}
         />
       )}
 
