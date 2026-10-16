@@ -33,6 +33,9 @@ import { StornoQtyModal } from "./ui/StornoQtyModal";
 import { VariantSheet } from "./ui/VariantSheet";
 import type { Comanda } from "./useComanda";
 
+/** Come il breakpoint "tablet-l" di Tailwind, negato: telefono o tablet in verticale */
+const NARROW_QUERY = "not all and (orientation: landscape) and (min-width: 900px)";
+
 /**
  * - "handheld": palmare, schede Comanda/Menu (affiancate su tablet orizzontale), barre fisse in basso.
  * - "cassa": dentro il pannello della cassa, menu a tessere a sinistra e comanda a destra.
@@ -108,6 +111,34 @@ export function ComandaWorkspace({
 }) {
   const isCassa = layout === "cassa";
   const [courseModalLineId, setCourseModalLineId] = useState<string | null>(null);
+  // Telefono (non tablet orizzontale): scorrendo la lista verso il basso la barra in alto si
+  // compatta su una riga, scorrendo verso l'alto (o tornando in cima) si riapre.
+  const [narrowScreen, setNarrowScreen] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(NARROW_QUERY).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_QUERY);
+    const onChange = () => setNarrowScreen(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const [headerCompact, setHeaderCompact] = useState(false);
+  const lastScrollTop = useRef(0);
+  const onListScroll = (e: React.UIEvent<HTMLElement>) => {
+    if (layout === "cassa" || !narrowScreen) return;
+    const top = e.currentTarget.scrollTop;
+    const delta = top - lastScrollTop.current;
+    lastScrollTop.current = top;
+    if (top < 24) setHeaderCompact(false);
+    else if (delta > 6) setHeaderCompact(true);
+    else if (delta < -6) setHeaderCompact(false);
+  };
+  useEffect(() => {
+    // Cambio tab: l'altra lista ha il suo scorrimento, si riparte con la barra aperta
+    lastScrollTop.current = 0;
+    setHeaderCompact(false);
+  }, [c.workspaceTab]);
+
   /** Sposta in blocco: portata da cui si parte (tutti i suoi piatti preselezionati) */
   const [bulkCourseFrom, setBulkCourseFrom] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -480,7 +511,10 @@ export function ComandaWorkspace({
   const menuColumn = (
     <div className="flex h-full min-h-0 flex-col">
       <CourseStepBar activeCourse={c.activeCourse} cart={cart} disabled={needsLock} onSelect={c.setActiveCourse} />
-      <div className={`min-h-0 flex-1 ${isCassa ? "flex flex-col" : "overflow-y-auto"}`}>
+      <div
+        onScroll={isCassa ? undefined : onListScroll}
+        className={`min-h-0 flex-1 ${isCassa ? "flex flex-col" : "overflow-y-auto"}`}
+      >
         <MenuPanel
           menu={menu}
           categories={c.categories}
@@ -607,9 +641,10 @@ export function ComandaWorkspace({
     </div>
   );
 
+  const compact = headerCompact && !isCassa;
   const header = (
-    <header className="shrink-0 border-b border-[hsl(var(--pg-border))]">
-      <div className="flex items-center gap-2 px-3 pt-2">
+    <header className="shrink-0 border-b border-[hsl(var(--pg-border))] transition-all">
+      <div className={`flex items-center gap-2 px-3 ${compact ? "py-1" : "pt-2"}`}>
         <button
           type="button"
           onClick={handleBack}
@@ -619,10 +654,20 @@ export function ComandaWorkspace({
         </button>
         <h1 className="min-w-0 flex-1 truncate text-base font-bold leading-tight">
           {compactMergedTableLabel(liveTable, tables)}
+          {compact && (
+            <span className="ml-2 text-xs font-medium text-[hsl(var(--pg-muted-foreground))]">
+              {formatUnionGuests(liveTable, tables) || ""}
+              {cartCount > 0 ? ` · ${cartCount} in bozza` : ""}
+            </span>
+          )}
         </h1>
         <p className="shrink-0 text-base font-bold tabular-nums">€{tableTotal.toFixed(2)}</p>
       </div>
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-3 pb-2 text-xs text-[hsl(var(--pg-muted-foreground))]">
+      <div
+        className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-3 pb-2 text-xs text-[hsl(var(--pg-muted-foreground))] ${
+          compact ? "hidden" : ""
+        }`}
+      >
         <span>{operator.firstName}</span>
         <span aria-hidden>·</span>
         {onEditGuests ? (
@@ -998,7 +1043,11 @@ export function ComandaWorkspace({
         {messageBar}
 
         {/* Tab bar — solo portrait / schermi stretti */}
-        <nav className="flex shrink-0 gap-1 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 p-2 tablet-l:hidden">
+        <nav
+          className={`flex shrink-0 gap-1 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 tablet-l:hidden ${
+            headerCompact ? "p-1" : "p-2"
+          }`}
+        >
           <TabButton
             label="Comanda"
             badge={cartCount > 0 ? cartCount : undefined}
@@ -1016,6 +1065,7 @@ export function ComandaWorkspace({
           style={{ paddingBottom: `calc(7rem + ${selectionBarHeight}px)` }}
         >
           <div
+            onScroll={onListScroll}
             className={`min-h-0 flex-1 overflow-y-auto tablet-l:border-r tablet-l:border-[hsl(var(--pg-border))] ${
               showComanda ? "block" : "hidden"
             } tablet-l:block`}
