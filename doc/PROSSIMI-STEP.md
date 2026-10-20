@@ -1,6 +1,6 @@
 # Prossimi step — checklist di validazione e todo
 
-> Da rivedere insieme. Aggiornato: **14 ottobre 2026** — branch `main`. Cronologia del fatto: [`HANDOFF.md`](HANDOFF.md).
+> Da rivedere insieme. Aggiornato: **20 ottobre 2026** — `main` + branch `fix-16ott` (fix dei test in loco, [`PIANO-FIX-16-10.md`](PIANO-FIX-16-10.md)). Cronologia del fatto: [`HANDOFF.md`](HANDOFF.md).
 > Legenda priorità: **P0** prima del pilota · **P1** consigliato per il pilota · **P2** dopo il pilota / Fase 7.
 
 ---
@@ -58,18 +58,18 @@
 | # | Attività | Perché | Stima |
 |---|----------|--------|-------|
 | T7 | Intestazione dedicata ticket dolci (se confermato V4) | Allineamento a specifica | 0,25 g |
-| T8 | A capo ordinato per nomi/note lunghi (48 colonne, rientro sotto il piatto) | Oggi va a capo la stampante, senza rientro | 0,5 g |
+| T8 | ✅ ~~A capo ordinato per nomi/note lunghi (48 colonne, rientro sotto il piatto)~~ — fatto 20/10 (branch `fix-16ott`): a capo per parole con rientro sotto il testo | Oggi va a capo la stampante, senza rientro | 0,5 g |
 | T9 | e2e Playwright sui flussi critici (comanda → stampa → incasso → chiusura) | T6.5 ancora parziale: oggi 11 test smoke | 1–2 g |
 | T10 | `smoke-giro-test.py` che usa da solo il simulatore di stampa | Evitare decine di ticket sulla stampante reale | 0,25 g |
 | T11 | Stampante del pilota con IP sulla rete del locale (prenotazione DHCP o IP statico corretto) | Eliminare l'alias manuale `ifconfig` usato nei test | on-site |
 | T12 | Formazione staff (T6.6) con la nuova comanda Ora/Segue e Marcia (uguale su palmare e cassa) | — | ½ giornata |
-| T20 | **Ticket ANNULLO al reparto giusto**: oggi esce sempre sulla stampante Cucina, anche per pizze e bevande | Con più stampanti l'annullo arriva al reparto sbagliato | 0,25 g |
-| T21 | **Bozza del palmare dopo un ricaricamento**: verificare che i piatti non spediti non si perdano se la pagina si ricarica con l'Edge online | Un tablet che si riavvia non deve perdere la comanda | 0,5 g |
-| T22 | **Libera tavolo**: pulsante per liberare un tavolo aperto per errore (senza comande né conto) | Oggi resta occupato finché non si incassa o si chiude la giornata | 0,25 g |
-| T23 | **Marcia ▶ suggerita** anche dopo Spedisci: oggi il suggerimento guarda solo la bozza, dopo l'invio chiede la portata | Un tocco in meno per il cameriere | 0,25 g |
+| T20 | ✅ ~~**Ticket ANNULLO al reparto giusto**: oggi esce sempre sulla stampante Cucina, anche per pizze e bevande~~ — fatto 16/10 (`fix-16ott`): annullo alla stampante del reparto del piatto | Con più stampanti l'annullo arriva al reparto sbagliato | 0,25 g |
+| T21 | ✅ ~~**Bozza del palmare dopo un ricaricamento**: verificare che i piatti non spediti non si perdano se la pagina si ricarica con l'Edge online~~ — fatto 20/10 (`fix-16ott`): bozza ripresa dal dispositivo e rimandata all'Edge | Un tablet che si riavvia non deve perdere la comanda | 0,5 g |
+| T22 | ✅ ~~**Libera tavolo**: pulsante per liberare un tavolo aperto per errore (senza comande né conto)~~ — fatto 16/10 (`fix-16ott`): "Chiudi tavolo senza incasso" con PIN, anche con ordini (F4) | Oggi resta occupato finché non si incassa o si chiude la giornata | 0,25 g |
+| T23 | ✅ ~~**Marcia ▶ suggerita** anche dopo Spedisci: oggi il suggerimento guarda solo la bozza, dopo l'invio chiede la portata~~ — fatto 20/10 (`fix-16ott`): suggerisce anche le portate già spedite in attesa | Un tocco in meno per il cameriere | 0,25 g |
 | T25 | ✅ ~~Servizio proposto all'apertura cassa salta pranzo/cena già usati; smoke test in sequenza; CI senza e2e~~ — fatto 14/10, in `main` | La CI falliva sempre; il secondo smoke test della giornata falliva | — |
-| T27 | **Unire PR #6** (`feat/sala-modifica-tavolo`): scheda tavolo nel Sala Builder (etichetta, coperti, elimina al tocco), blocco eliminazione di tavoli/sale in uso, etichette uniche | Pronto e testato, non ancora in `main` | — |
-| T28 | **Sala Builder: tavoli virtuali** (Asporto/Delivery) disegnati in alto a sinistra sopra i tavoli di ogni sala | Possono coprire un tavolo vero e intercettarne il tocco | 0,25 g |
+| T27 | ✅ ~~**Unire PR #6** (`feat/sala-modifica-tavolo`): scheda tavolo nel Sala Builder (etichetta, coperti, elimina al tocco), blocco eliminazione di tavoli/sale in uso, etichette uniche~~ — unita in `main` il 14/10 | Pronto e testato, non ancora in `main` | — |
+| T28 | ✅ ~~**Sala Builder: tavoli virtuali** (Asporto/Delivery) disegnati in alto a sinistra sopra i tavoli di ogni sala~~ — fatto 20/10 (`fix-16ott`): Asporto/Delivery fuori dalla mappa dell'editor | Possono coprire un tavolo vero e intercettarne il tocco | 0,25 g |
 | T24 | ✅ ~~Script di reset dell'ambiente di test~~ — fatto 14/10: `./scripts/dev-up.sh --reset-edge` (Edge da zero, riprovisionata) | Oggi la pulizia si fa a mano | — |
 
 ### P2 — pulizia tecnica e Fase 7

@@ -2,7 +2,7 @@
 
 > Branch `fix-16ott` (da `main`). Richieste emerse nel servizio di prova del 15/10, decisioni prese il 16/10.
 > Legenda: ⬜ da fare · 🔄 in corso · ✅ fatto
-> **Stato 16/10:** tutti i 19 punti implementati sul branch `fix-16ott` (typecheck, 138 test unitari e build ok). Da provare in sala prima del merge in `main`.
+> **Stato 16/10:** tutti i 19 punti implementati sul branch `fix-16ott` (typecheck, 140 test unitari e build ok al 20/10). Da provare in sala prima del merge in `main`.
 
 ## Blocco 1 — conto e cassa (prima del prossimo servizio)
 
@@ -44,7 +44,16 @@
 |---|------|-----------|-------|
 | F20 | **Sposta portata in blocco** | Intestazione della portata in bozza → "Sposta…": selezione dei piatti (tutta la portata o singoli) e "Sposta in". Solo bozza | ✅ |
 | F21 | **Palmare su telefono: barra compatta allo scorrimento** | Giù: una riga (tavolo, coperti, bozza, totale); su o in cima: barra completa | ✅ |
-| — | Drag & drop tavoli da tablet nell'editor sala | Sospeso: da ritestare (riguarda solo l'editor sala, non la mappa) | ⏸ |
+| — | Drag & drop tavoli da tablet nell'editor sala | Sospeso: da ritestare (riguarda solo l'editor sala, non la mappa). Possibile causa risolta con T28: Asporto/Delivery erano disegnati sopra i tavoli in alto a sinistra | ⏸ |
+
+## 20/10 — punti P1 della lista del 14/10
+
+| # | Task | Stato |
+|---|------|-------|
+| T23 | Marcia ▶ suggerita anche dopo Spedisci (portate Segue spedite in attesa) | ✅ |
+| T21 | Bozza del palmare ripresa dopo un ricaricamento, senza ordini doppi | ✅ |
+| T28 | Sala Builder: Asporto/Delivery fuori dalla mappa | ✅ |
+| T8 | Stampa comanda: a capo a 48 colonne con rientro | ✅ |
 
 ## Dalla lista del 14/10 (`PROSSIMI-STEP.md`) che si sovrappone
 - T22 "Libera tavolo" → assorbito da F4 ✅
