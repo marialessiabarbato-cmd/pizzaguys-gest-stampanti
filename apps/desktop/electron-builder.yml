@@ -1,0 +1,23 @@
+appId: it.pizzaguys.gest
+productName: Pizza Guys
+copyright: Pizza Guys
+directories:
+  app: stage
+  output: release
+  buildResources: build
+npmRebuild: true
+asar: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  signAndEditExecutable: false
+  artifactName: PizzaGuys-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh

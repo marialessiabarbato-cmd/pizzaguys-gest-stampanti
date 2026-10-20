@@ -1,0 +1,16 @@
+{
+  "name": "@pizzaguys/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pizza Guys Gest — app Windows (Edge + cassa + palmare + KDS in un unico installatore)",
+  "scripts": {
+    "stage": "node scripts/stage.mjs",
+    "dist:win": "node scripts/stage.mjs && electron-builder --config electron-builder.yml --win nsis --x64 --projectDir .",
+    "typecheck": "node --check src/main.cjs"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8",
+    "esbuild": "0.25.1"
+  }
+}
