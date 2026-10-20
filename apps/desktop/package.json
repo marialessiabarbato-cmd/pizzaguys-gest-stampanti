@@ -1,6 +1,6 @@
 {
   "name": "@pizzaguys/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Pizza Guys Gest — app Windows (Edge + cassa + palmare + KDS in un unico installatore)",
   "scripts": {

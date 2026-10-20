@@ -3,7 +3,7 @@
 "use strict";
 
 const { app, BrowserWindow, Menu, shell, dialog } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, execSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
@@ -60,9 +60,42 @@ function readConfig() {
 }
 
 // ── Edge ─────────────────────────────────────────────────────────
+// Un Edge rimasto attivo da una chiusura precedente terrebbe occupata la porta con la vecchia configurazione.
+function killPortOwners(port) {
+  if (process.platform !== "win32") return;
+  try {
+    const out = execSync("netstat -ano -p tcp", { encoding: "utf8", windowsHide: true });
+    const pids = new Set();
+    for (const line of out.split(/\r?\n/)) {
+      if (!/LISTENING|IN ASCOLTO/i.test(line)) continue;
+      const cols = line.trim().split(/\s+/);
+      if (cols[1] && cols[1].endsWith(":" + port)) pids.add(cols[cols.length - 1]);
+    }
+    for (const pid of pids) {
+      if (String(process.pid) === pid) continue;
+      log(`Porta ${port} occupata dal processo ${pid}: lo termino`);
+      try { execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true }); } catch (e) { log(`taskkill ${pid} fallito: ${e.message}`); }
+    }
+  } catch (e) {
+    log(`Controllo porta ${port} fallito: ${e.message}`);
+  }
+}
+
+function stopEdge() {
+  if (!edgeChild) return;
+  const pid = edgeChild.pid;
+  try {
+    if (process.platform === "win32") execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true });
+    else edgeChild.kill();
+  } catch {
+    try { edgeChild.kill(); } catch { /* già terminato */ }
+  }
+}
+
 function startEdge() {
   if (quitting) return;
   const cfg = readConfig();
+  killPortOwners(cfg.EDGE_API_PORT || 4100);
   const edgeFile = path.join(__dirname, "edge.mjs");
   const out = fs.openSync(path.join(logDir, "edge.log"), "a");
   const env = {
@@ -76,7 +109,7 @@ function startEdge() {
   delete env.KIOSK;
   edgeChild = spawn(process.execPath, [edgeFile], { env, stdio: ["ignore", out, out], windowsHide: true });
   const startedAt = Date.now();
-  log(`Edge avviato (pid ${edgeChild.pid})`);
+  log(`Edge avviato (pid ${edgeChild.pid}) — CLOUD_API_URL=${cfg.CLOUD_API_URL || "(non impostato)"} — config: ${configPath}`);
   edgeChild.on("exit", (code, signal) => {
     log(`Edge terminato (code=${code}, signal=${signal})`);
     edgeChild = null;
@@ -171,6 +204,38 @@ function scheduleBackups() {
   }, 55 * 60 * 1000);
 }
 
+// ── Diagnostica ──────────────────────────────────────────────────
+async function runDiagnostics() {
+  const cfg = readConfig();
+  const cloud = cfg.CLOUD_API_URL || "(non impostato)";
+  const lines = [
+    `Versione app: ${app.getVersion()}`,
+    `Cartella dati: ${dataDir}`,
+    `File configurazione: ${configPath} (${fs.existsSync(configPath) ? "presente" : "MANCANTE"})`,
+    `CLOUD_API_URL letto: ${cloud}`,
+    `Edge in esecuzione: ${edgeChild ? "sì (pid " + edgeChild.pid + ")" : "NO"}`,
+    `Hardware: ${cfg.HARDWARE_BRIDGE_MODE || "mock"}`,
+  ];
+  // Stesso tipo di richiesta che fa l'Edge (fetch di Node) verso il Cloud
+  const script = `const u=process.argv[1];const t=Date.now();fetch(u,{signal:AbortSignal.timeout(8000)}).then(r=>console.log('RISPOSTA '+r.status+' in '+(Date.now()-t)+' ms')).catch(e=>console.log('ERRORE '+e.message+(e.cause?' / '+(e.cause.code||e.cause.message):'')))`;
+  try {
+    const r = spawnSync(process.execPath, ["-e", script, cloud], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, encoding: "utf8", timeout: 15000, windowsHide: true,
+    });
+    lines.push(`Prova Cloud (da questo PC): ${(r.stdout || r.stderr || "nessuna risposta").trim()}`);
+  } catch (e) {
+    lines.push(`Prova Cloud: errore ${e.message}`);
+  }
+  lines.push(`Prova Edge locale: ${await new Promise((res) => {
+    http.get(`${edgeUrl()}/api/status`, { timeout: 3000 }, (r) => { res("risponde " + r.statusCode); r.resume(); })
+      .on("error", (e) => res("ERRORE " + e.message)).on("timeout", function () { this.destroy(); });
+  })}`);
+  const text = lines.join("\n");
+  log("DIAGNOSTICA\n" + text);
+  try { fs.writeFileSync(path.join(logDir, "diagnostica.txt"), text); } catch { /* ignora */ }
+  await dialog.showMessageBox(win || undefined, { type: "info", title: "Diagnostica Pizza Guys", message: "Diagnostica", detail: text + "\n\n(salvata anche in logs\\diagnostica.txt)" });
+}
+
 // ── Finestra ─────────────────────────────────────────────────────
 const LOADING = `data:text/html;charset=utf-8,${encodeURIComponent(
   '<body style="margin:0;display:grid;place-items:center;height:100vh;background:#111;color:#eee;font:22px system-ui"><div>Avvio di Pizza Guys…</div></body>',
@@ -217,6 +282,8 @@ function buildMenu() {
           { label: "Apri cartella log", accelerator: "CmdOrCtrl+Shift+L", click: () => shell.openPath(logDir) },
           { label: "Apri cartella backup", click: () => shell.openPath(backupDir) },
           { label: "Backup database adesso", click: () => backupDb("manuale") },
+          { label: "Diagnostica", accelerator: "CmdOrCtrl+Shift+D", click: () => runDiagnostics() },
+          { label: "Riavvia Edge", click: () => { stopEdge(); } },
           { type: "separator" },
           { label: "Esci", accelerator: "Alt+F4", click: () => app.quit() },
         ],
@@ -252,7 +319,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     quitting = true;
     servers.forEach((s) => s.close());
-    if (edgeChild) edgeChild.kill();
+    stopEdge();
   });
+  app.on("will-quit", () => stopEdge());
   app.on("window-all-closed", () => app.quit());
 }
