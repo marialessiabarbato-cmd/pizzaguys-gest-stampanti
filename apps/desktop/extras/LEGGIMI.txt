@@ -5,10 +5,9 @@ PIZZA GUYS - versione di prova per Windows
 2. Clic destro su "Apri-porte-firewall.bat" -> Esegui come amministratore (una sola volta).
 3. Doppio clic su "Pizza Guys.exe".
    Se Windows mostra "Windows ha protetto il PC": Ulteriori informazioni -> Esegui comunque.
-4. Alla prima apertura si crea la configurazione in:
-   C:\Users\<utente>\AppData\Roaming\Pizza Guys\edge.env
-   Si modifica anche dal menu dell'app: Pizza Guys -> Modifica configurazione (Ctrl+Maiusc+C).
+4. La configurazione e' il file "edge.env" accanto a "Pizza Guys.exe" (modificabile anche da menu: Pizza Guys -> Modifica configurazione, Ctrl+Maiusc+C).
    Imposta CLOUD_API_URL e, per le stampanti reali, HARDWARE_BRIDGE_MODE=network. Poi chiudi e riapri l'app.
+   Se qualcosa non va: Ctrl+Maiusc+D (Diagnostica) mostra cosa legge l'app e se raggiunge il Cloud.
 5. Dai tablet (stessa rete Wi-Fi): palmare http://<IP-del-PC>:5174  -  KDS http://<IP-del-PC>:5175
 
 Cartelle dati (in AppData\Roaming\Pizza Guys):  edge.sqlite (database), backup\ (copia ogni notte alle 4 e ad ogni avvio),

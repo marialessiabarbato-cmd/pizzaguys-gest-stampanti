@@ -21,7 +21,9 @@ const servers = [];
 const dataDir = app.getPath("userData"); // %APPDATA%\Pizza Guys
 const logDir = path.join(dataDir, "logs");
 const backupDir = path.join(dataDir, "backup");
-const configPath = path.join(dataDir, "edge.env");
+// edge.env accanto all'eseguibile (versione ZIP) ha la precedenza; altrimenti in %APPDATA% (versione installata).
+const portableConfig = path.join(path.dirname(process.execPath), "edge.env");
+const configPath = fs.existsSync(portableConfig) ? portableConfig : path.join(dataDir, "edge.env");
 const dbPath = path.join(dataDir, "edge.sqlite");
 const printDir = path.join(dataDir, "prints");
 
@@ -212,6 +214,8 @@ async function runDiagnostics() {
     `Versione app: ${app.getVersion()}`,
     `Cartella dati: ${dataDir}`,
     `File configurazione: ${configPath} (${fs.existsSync(configPath) ? "presente" : "MANCANTE"})`,
+    ...[path.join(path.dirname(process.execPath), "edge.env.txt"), path.join(dataDir, "edge.env.txt")]
+      .filter((f) => fs.existsSync(f)).map((f) => `ATTENZIONE: esiste ${f} (nome sbagliato: deve chiamarsi edge.env, senza .txt)`),
     `CLOUD_API_URL letto: ${cloud}`,
     `Edge in esecuzione: ${edgeChild ? "sì (pid " + edgeChild.pid + ")" : "NO"}`,
     `Hardware: ${cfg.HARDWARE_BRIDGE_MODE || "mock"}`,

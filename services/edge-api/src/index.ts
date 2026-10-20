@@ -26,6 +26,7 @@ const HOST = process.env.EDGE_API_HOST ?? "0.0.0.0";
 const clients = new Set<{ send: (data: string) => void; readyState: number }>();
 
 const app = Fastify({ logger: true });
+app.log.info({ cloudApiUrl: process.env.CLOUD_API_URL ?? "http://localhost:4000", dbPath: process.env.EDGE_DB_PATH }, "Edge: configurazione letta");
 
 await app.register(cors, {
   origin: true,

@@ -17,7 +17,12 @@ export function ProvisionPage({ onDone }: { onDone: () => void }) {
       });
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore provisioning");
+      const msg = e instanceof Error ? e.message : "Errore provisioning";
+      setError(
+        e instanceof TypeError || msg === "Failed to fetch"
+          ? "L'Edge di questo PC non risponde (porta 4100): chiudi e riapri l'app, poi controlla il menu Diagnostica (Ctrl+Maiusc+D)."
+          : msg,
+      );
     } finally {
       setLoading(false);
     }
