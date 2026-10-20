@@ -96,7 +96,7 @@ export function SalaPage() {
     if (!activeRoomId) return;
     // Primo posto libero dentro l'area della sala: il nuovo tavolo è sempre visibile.
     const tableSize = 80;
-    const occupied = tables.filter((t) => t.roomId === activeRoomId || t.isVirtual);
+    const occupied = tables.filter((t) => t.roomId === activeRoomId && !t.isVirtual);
     const slot = findFreeSlot(occupied, { width: tableSize, height: tableSize });
     await edgeApi("/api/tables", {
       method: "POST",
@@ -208,7 +208,9 @@ export function SalaPage() {
   const roomTables = tables.filter((t) => t.roomId === activeRoomId);
   const virtualTables = tables.filter((t) => t.isVirtual);
   const physicalTables = roomTables.filter((t) => !t.isVirtual);
-  const mapTables = useMemo(() => [...roomTables, ...virtualTables], [roomTables, virtualTables]);
+  // Asporto/Delivery non stanno sulla mappa (T28): disegnati in alto a sinistra in ogni sala
+  // coprivano i tavoli veri e ne rubavano il tocco. Cassa e palmare non li mostrano in sala.
+  const mapTables = physicalTables;
   const outsideTables = mapTables.filter((t) => isOutsideArea(t));
 
   // L'area cresce fino a includere ogni tavolo (anche quelli salvati fuori) e lo Stage
@@ -337,9 +339,6 @@ export function SalaPage() {
                     {physicalTables.map((t) => (
                       <TableShape key={t.id} table={t} onMove={moveTable} onSelect={openEditTable} />
                     ))}
-                    {virtualTables.map((t) => (
-                      <TableShape key={t.id} table={t} onMove={moveTable} virtual />
-                    ))}
                   </Layer>
                 </Stage>
               </div>
@@ -349,10 +348,12 @@ export function SalaPage() {
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
                 Tavolo sala
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                Tavolo virtuale (Asporto/Delivery)
-              </span>
+              {virtualTables.length > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  {virtualTables.map((t) => formatTableLabel(t.label)).join(", ")}: fuori mappa, dai tab Asporto/Delivery della cassa
+                </span>
+              )}
             </div>
           </CardContent>
         </Card>
