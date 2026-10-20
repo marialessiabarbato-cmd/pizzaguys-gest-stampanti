@@ -8,6 +8,7 @@ import {
   courseLabel,
   kitchenTicketPreview,
   twoColumnLine,
+  wrapWithIndent,
 } from "./templates.js";
 
 describe("kitchen ticket", () => {
@@ -205,5 +206,26 @@ describe("report chiusura cassa", () => {
     expect(text).toContain("CHIUSURA CASSA CENA");
     expect(text).toContain("NOTA: resto sbagliato");
     expect(text).toContain("*** DOCUMENTO NON FISCALE ***");
+  });
+});
+
+describe("a capo a 48 colonne (T8)", () => {
+  it("rientra le righe successive sotto il testo", () => {
+    const rows = wrapWithIndent(
+      "senza cipolla e con la mozzarella ben cotta, impasto integrale per il bambino",
+      "  NOTA: ",
+    );
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.every((r) => r.length <= 48)).toBe(true);
+    expect(rows[0]?.startsWith("  NOTA: senza")).toBe(true);
+    expect(rows[1]?.startsWith("        ")).toBe(true);
+    expect(rows[1]?.[8]).not.toBe(" ");
+  });
+
+  it("spezza le parole più lunghe della riga e lascia intatte le righe corte", () => {
+    expect(wrapWithIndent("MARGHERITA", "2 x ")).toEqual(["2 x MARGHERITA"]);
+    const long = wrapWithIndent("X".repeat(60), "1 x ");
+    expect(long.every((r) => r.length <= 48)).toBe(true);
+    expect(long.join("").replace(/[ 1x]/g, "")).toHaveLength(60);
   });
 });

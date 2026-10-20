@@ -34,11 +34,48 @@ export function courseLabel(course: number): string {
   return `SEGUE >${course - 1}`;
 }
 
+/**
+ * A capo per parole su `width` colonne (T8): la prima riga inizia con `prefix`, le
+ * successive rientrano sotto il testo (non sotto il prefisso). Parole più lunghe della
+ * riga vengono spezzate.
+ */
+export function wrapWithIndent(text: string, prefix: string, width = LINE_WIDTH): string[] {
+  const indent = " ".repeat(prefix.length);
+  const room = Math.max(8, width - prefix.length);
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const rows: string[] = [];
+  let current = "";
+  for (let word of words) {
+    while (word.length > room) {
+      if (current) {
+        rows.push(current);
+        current = "";
+      }
+      rows.push(word.slice(0, room));
+      word = word.slice(room);
+    }
+    if (!current) current = word;
+    else if (current.length + 1 + word.length <= room) current += ` ${word}`;
+    else {
+      rows.push(current);
+      current = word;
+    }
+  }
+  if (current || rows.length === 0) rows.push(current);
+  return rows.map((row, i) => (i === 0 ? prefix : indent) + row);
+}
+
+function wrappedLines(text: string, prefix: string): Buffer[] {
+  return wrapWithIndent(text, prefix).map((row) => textLine(row));
+}
+
 function lineDetailLines(line: OrderLine): Buffer[] {
   // Le rimozioni arrivano già come "NO …": il "+" resta solo per le aggiunte.
-  const parts = (line.variants ?? []).map((v) => textLine(v.startsWith("NO ") ? `  ${v}` : `  + ${v}`));
+  const parts = (line.variants ?? []).flatMap((v) =>
+    v.startsWith("NO ") ? wrappedLines(v, "  ") : wrappedLines(v, "  + "),
+  );
   const note = line.notes?.trim();
-  if (note) parts.push(textLine(`  NOTA: ${note}`));
+  if (note) parts.push(...wrappedLines(note, "  NOTA: "));
   return parts;
 }
 
@@ -56,7 +93,8 @@ export interface KitchenTicketParams {
 function kitchenItemLines(line: OrderLine): Buffer[] {
   return [
     CMD_DOUBLE_HEIGHT,
-    textLine(`${line.quantity} x ${line.name.toLocaleUpperCase("it-IT")}`),
+    // Doppia altezza: stessa larghezza di 48 colonne; a capo rientrato sotto il nome
+    ...wrappedLines(line.name.toLocaleUpperCase("it-IT"), `${line.quantity} x `),
     CMD_NORMAL_SIZE,
     ...lineDetailLines(line),
   ];
