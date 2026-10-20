@@ -18,7 +18,11 @@ let quitting = false;
 let restartDelay = 1000;
 const servers = [];
 
-const dataDir = app.getPath("userData"); // %APPDATA%\Pizza Guys
+// Versione ZIP: se accanto a "Pizza Guys.exe" c'è la cartella "dati", database, log e backup stanno lì
+// (tutto in una sola cartella). Altrimenti si usa %APPDATA%\Pizza Guys (versione installata).
+const portableData = path.join(path.dirname(process.execPath), "dati");
+const dataDir = fs.existsSync(portableData) ? portableData : app.getPath("userData");
+app.setPath("userData", dataDir);
 const logDir = path.join(dataDir, "logs");
 const backupDir = path.join(dataDir, "backup");
 // edge.env accanto all'eseguibile (versione ZIP) ha la precedenza; altrimenti in %APPDATA% (versione installata).

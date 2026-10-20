@@ -15,3 +15,6 @@ logs\ (app.log, edge.log), prints\ (ticket in modalita mock).
 Menu: F5 ricarica, F11 schermo intero, Ctrl+Maiusc+L apre i log.
 
 Non condividere edge.env: puo contenere accessi della sede.
+
+Versione ZIP: database, log e backup stanno nella cartella "dati" accanto a "Pizza Guys.exe".
+Per spostare l'app basta copiare tutta la cartella. Per ripartire da zero cancella "dati\edge.sqlite".
