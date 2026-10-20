@@ -223,6 +223,7 @@ async function runDiagnostics() {
     `CLOUD_API_URL letto: ${cloud}`,
     `Edge in esecuzione: ${edgeChild ? "sì (pid " + edgeChild.pid + ")" : "NO"}`,
     `Hardware: ${cfg.HARDWARE_BRIDGE_MODE || "mock"}`,
+    `Zoom: impostazione "${zoomSetting()}", attuale ${win ? win.webContents.getZoomFactor() : "-"}; finestra ${win ? win.getContentSize().join("x") : "-"} px`,
   ];
   // Stesso tipo di richiesta che fa l'Edge (fetch di Node) verso il Cloud
   const script = `const u=process.argv[1];const t=Date.now();fetch(u,{signal:AbortSignal.timeout(8000)}).then(r=>console.log('RISPOSTA '+r.status+' in '+(Date.now()-t)+' ms')).catch(e=>console.log('ERRORE '+e.message+(e.cause?' / '+(e.cause.code||e.cause.message):'')))`;
@@ -244,6 +245,45 @@ async function runDiagnostics() {
   await dialog.showMessageBox(win || undefined, { type: "info", title: "Diagnostica Pizza Guys", message: "Diagnostica", detail: text + "\n\n(salvata anche in logs\\diagnostica.txt)" });
 }
 
+// ── Zoom ─────────────────────────────────────────────────────────
+// Le schermate sono pensate per ~1366 px di larghezza: su schermi con scala Windows 125-150% la cassa risulta enorme.
+const ZOOM_REF_WIDTH = 1366;
+const zoomFile = path.join(dataDir, "zoom.txt");
+let zoomTimer = null;
+
+function zoomSetting() {
+  try {
+    const v = fs.readFileSync(zoomFile, "utf8").trim();
+    if (v) return v;
+  } catch { /* nessuna scelta salvata */ }
+  return String(readConfig().ZOOM || "auto").trim();
+}
+
+function applyZoom() {
+  if (!win || win.isDestroyed()) return;
+  const setting = zoomSetting();
+  let f = parseFloat(setting.replace(",", "."));
+  if (setting === "auto" || !(f > 0)) {
+    const w = win.getContentSize()[0];
+    f = Math.min(1, Math.max(0.6, Math.round((w / ZOOM_REF_WIDTH) * 20) / 20));
+  }
+  f = Math.min(1.5, Math.max(0.5, f));
+  win.webContents.setZoomFactor(f);
+  log(`Zoom ${setting} → ${f}`);
+}
+
+function stepZoom(delta) {
+  if (!win) return;
+  const next = Math.min(1.5, Math.max(0.5, Math.round((win.webContents.getZoomFactor() + delta) * 20) / 20));
+  try { fs.writeFileSync(zoomFile, String(next)); } catch { /* ignora */ }
+  applyZoom();
+}
+
+function resetZoom() {
+  try { fs.rmSync(zoomFile, { force: true }); } catch { /* ignora */ }
+  applyZoom();
+}
+
 // ── Finestra ─────────────────────────────────────────────────────
 const LOADING = `data:text/html;charset=utf-8,${encodeURIComponent(
   '<body style="margin:0;display:grid;place-items:center;height:100vh;background:#111;color:#eee;font:22px system-ui"><div>Avvio di Pizza Guys…</div></body>',
@@ -261,6 +301,11 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+  win.webContents.on("did-finish-load", applyZoom);
+  win.on("resize", () => {
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(applyZoom, 300);
   });
   win.on("closed", () => (win = null));
 }
@@ -285,6 +330,9 @@ function buildMenu() {
         label: "Pizza Guys",
         submenu: [
           { label: "Ricarica cassa", accelerator: "F5", click: () => win && win.loadURL(`http://localhost:${WEB_PORTS.cassa}`) },
+          { label: "Riduci dimensioni (zoom −)", accelerator: "CmdOrCtrl+-", click: () => stepZoom(-0.05) },
+          { label: "Ingrandisci (zoom +)", accelerator: "CmdOrCtrl+=", click: () => stepZoom(0.05) },
+          { label: "Zoom automatico", accelerator: "CmdOrCtrl+0", click: () => resetZoom() },
           { label: "Schermo intero", accelerator: "F11", click: () => win && win.setFullScreen(!win.isFullScreen()) },
           { label: "Modifica configurazione (edge.env)", accelerator: "CmdOrCtrl+Shift+C", click: () => shell.openPath(configPath) },
           { label: "Apri cartella log", accelerator: "CmdOrCtrl+Shift+L", click: () => shell.openPath(logDir) },
