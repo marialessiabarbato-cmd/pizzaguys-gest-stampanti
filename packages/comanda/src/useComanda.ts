@@ -1,6 +1,6 @@
 import { calculateLinePrice } from "@pizzaguys/fiscal";
 import { isHeldCourse, type WsMessageType } from "@pizzaguys/types";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { normalizeCourse, stepLabel } from "./course";
 import { buildCartLine, mergeIntoCart, normalizeLineNote, variantsForProduct } from "./menu";
 import { formatTableLabel, resolveLiveTable } from "./table-display";
@@ -60,6 +60,8 @@ export interface PriceOverrideTarget {
 }
 
 interface DraftResponse {
+  /** Portate Segue spedite e ancora in attesa di Marcia */
+  heldCourses?: number[];
   draft: {
     lines: Array<{
       id: string;
@@ -137,6 +139,11 @@ export function useComanda(options: UseComandaOptions) {
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [submittedLines, setSubmittedLines] = useState<SubmittedLine[]>([]);
+  const [heldCourses, setHeldCourses] = useState<number[]>([]);
+  /** Tavolo di cui la bozza è stata caricata: prima non si tocca la copia sul dispositivo */
+  const loadedTableRef = useRef<string | null>(null);
+  /** Bozza recuperata dal dispositivo da rimandare all'Edge (T21) */
+  const restoredDraftRef = useRef<string | null>(null);
   /** Ultimo piatto aggiunto: guida avviso, evidenziazione riga e contatore menu. */
   const [lastAdded, setLastAdded] = useState<LastAddedLine | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
@@ -194,6 +201,8 @@ export function useComanda(options: UseComandaOptions) {
         const lines = (await draftStore.load(tableId)) ?? [];
         setCart(lines);
         setSubmittedLines([]);
+        setHeldCourses([]);
+        loadedTableRef.current = tableId;
         return { cart: lines, submitted: [] as SubmittedLine[] };
       }
       const data = await api<DraftResponse>(`/api/orders?tableId=${tableId}`);
@@ -241,9 +250,25 @@ export function useComanda(options: UseComandaOptions) {
           });
         }
       }
-      setCart(cartLines);
+      // T21: pagina ricaricata mentre si ordinava. L'Edge riceve la bozza solo uscendo dal
+      // tavolo; se lì è vuota ma il dispositivo ne ha una, si riparte da quella.
+      let cartToUse = cartLines;
+      if (cartLines.length === 0 && draftStore) {
+        // Righe già spedite (es. dalla cassa) non tornano in bozza: niente ordini doppi
+        const sentIds = new Set(submitted.map((l) => l.lineId));
+        const local = ((await draftStore.load(tableId).catch(() => null)) ?? []).filter(
+          (l) => !sentIds.has(l.lineId),
+        );
+        if (local.length > 0) {
+          cartToUse = local;
+          restoredDraftRef.current = tableId;
+        }
+      }
+      setCart(cartToUse);
       setSubmittedLines(submitted);
-      return { cart: cartLines, submitted };
+      setHeldCourses(data.heldCourses ?? []);
+      loadedTableRef.current = tableId;
+      return { cart: cartToUse, submitted };
     },
     [api, isOffline, draftStore],
   );
@@ -267,17 +292,21 @@ export function useComanda(options: UseComandaOptions) {
 
   /** Svuota lo stato quando si esce dal tavolo. */
   const reset = useCallback(() => {
+    loadedTableRef.current = null;
     setCart([]);
     setSubmittedLines([]);
+    setHeldCourses([]);
     setSelectedLineId(null);
     setSelectedSubmittedId(null);
     setLastAdded(null);
   }, []);
 
-  // Bozza sempre salvata sul dispositivo (palmare): sopravvive a una perdita di rete.
+  // Bozza sempre salvata sul dispositivo (palmare): sopravvive a una perdita di rete e a un
+  // ricaricamento. Solo dopo aver caricato la bozza del tavolo; bozza svuotata = copia tolta.
   useEffect(() => {
-    if (!draftStore || !table || cart.length === 0) return;
-    void draftStore.save(table.id, cart, operator?.id ?? "");
+    if (!draftStore || !table || loadedTableRef.current !== table.id) return;
+    if (cart.length === 0) void draftStore.clear(table.id);
+    else void draftStore.save(table.id, cart, operator?.id ?? "");
   }, [cart, table, operator, draftStore]);
 
   const findCategory = (categoryId: string) =>
@@ -436,6 +465,16 @@ export function useComanda(options: UseComandaOptions) {
       }),
     });
 
+  // Bozza recuperata dal dispositivo: la si rimanda all'Edge, così la vede anche la cassa.
+  useEffect(() => {
+    if (!table || restoredDraftRef.current !== table.id || cart.length === 0 || !operator || isOffline) return;
+    restoredDraftRef.current = null;
+    void saveDraftOnEdge(cart)
+      .then(() => setMessage(`Bozza recuperata: ${cart.reduce((n, l) => n + l.quantity, 0)} piatti non ancora spediti`))
+      .catch(() => setMessage("Bozza recuperata dal dispositivo (non ancora salvata sull'Edge)"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, table, operator, isOffline]);
+
   /** Salva la bozza sull'Edge (es. uscendo dal tavolo senza spedire). */
   const persistDraft = async () => {
     if (!operator || !table || cart.length === 0) return;
@@ -539,6 +578,7 @@ export function useComanda(options: UseComandaOptions) {
         body: JSON.stringify({ tableId: table.id, course }),
       });
       printWarnings(result.printWarnings);
+      setHeldCourses((prev) => prev.filter((c) => c !== course));
       setMessage(`Marcia — ${stepLabel(course)} inviata in cucina`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Marcia non riuscita");
@@ -738,6 +778,7 @@ export function useComanda(options: UseComandaOptions) {
     cart,
     setCart,
     submittedLines,
+    heldCourses,
     lastAdded,
     // navigazione menu
     selectedCat,

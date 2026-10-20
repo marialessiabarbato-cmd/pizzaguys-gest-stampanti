@@ -880,6 +880,18 @@ export function getKdsTickets(): KdsTicket[] {
   return [...kdsTickets.values()].filter((t) => !t.calledAt);
 }
 
+/** Portate Segue già spedite e ancora in attesa di Marcia (T23: Marcia ▶ suggerita dopo Spedisci). */
+export function getHeldCourses(tableId: string): number[] {
+  const courses = new Set<number>();
+  for (const ticket of kdsTickets.values()) {
+    if (ticket.tableId !== tableId || ticket.calledAt) continue;
+    if (ticket.hold && !ticket.courseCalledAt && !ticket.dessertQueue && ticket.course >= 2) {
+      courses.add(ticket.course);
+    }
+  }
+  return [...courses].sort((a, b) => a - b);
+}
+
 export function callCourse(tableId: string, course: number): KdsTicket[] {
   const released: KdsTicket[] = [];
   const now = new Date().toISOString();

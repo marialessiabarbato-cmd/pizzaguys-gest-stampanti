@@ -29,6 +29,7 @@ import {
   consumeDiscountToken,
   createDiscountToken,
   getAnalyticSplit,
+  getHeldCourses,
   getKdsSnapshot,
   getOrder,
   getOrderByTable,
@@ -236,9 +237,9 @@ export async function orderRoutes(app: FastifyInstance) {
     if (req.query.tableId) {
       const draft = getOrderByTable(req.query.tableId);
       const submitted = getSubmittedOrdersByTable(req.query.tableId);
-      return { draft: draft ?? null, submitted };
+      return { draft: draft ?? null, submitted, heldCourses: getHeldCourses(req.query.tableId) };
     }
-    return { draft: null, submitted: [] };
+    return { draft: null, submitted: [], heldCourses: [] };
   });
 
   app.get("/api/kds/tickets", async () => getKdsSnapshot());

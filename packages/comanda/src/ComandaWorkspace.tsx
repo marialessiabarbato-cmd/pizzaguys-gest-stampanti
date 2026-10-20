@@ -207,7 +207,8 @@ export function ComandaWorkspace({
   }, {});
   const addedToastQty = addedToast ? (cart.find((l) => l.lineId === addedToast.lineId)?.quantity ?? 0) : 0;
   const groups = groupCartByCourse(cart);
-  const suggestedMarcia = suggestMarciaCourse(cart);
+  // Prima la bozza, poi le portate già spedite ancora in attesa (T23)
+  const suggestedMarcia = suggestMarciaCourse(cart) ?? c.heldCourses[0] ?? null;
   const needsLock = !hasLock && table.status !== "FREE";
   const canOpenTransfer =
     !isOffline &&
