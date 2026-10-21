@@ -301,6 +301,20 @@ export function createEdgeDb(dbPath: string) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id);
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      paired_at TEXT NOT NULL,
+      paired_by_staff_id TEXT,
+      paired_by_name TEXT,
+      last_seen_at TEXT,
+      last_ip TEXT,
+      client_version TEXT,
+      revoked_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_token ON devices(token_hash);
   `);
 
   try {

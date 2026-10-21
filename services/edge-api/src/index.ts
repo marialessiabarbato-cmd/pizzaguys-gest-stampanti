@@ -1,4 +1,6 @@
 import cors from "@fastify/cors";
+import { pairingRequired, registerDeviceGuard } from "./lib/device-auth.js";
+import { deviceRoutes } from "./routes/devices.js";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { startHeartbeatLoop } from "./lib/heartbeat.js";
@@ -39,6 +41,9 @@ await app.register(dbPlugin);
 const restored = restoreRuntimeState(app.edgeDb);
 if (restored) app.log.info({ restored }, "Stato operativo ripristinato dopo il riavvio");
 registerRuntimePersistence(app);
+// Fase 2: palmari, KDS e tablet devono essere abbinati con PIN (il PC dell'Edge è fidato)
+registerDeviceGuard(app);
+app.log.info({ devicePairing: pairingRequired() ? "required" : "off" }, "Abbinamento dispositivi");
 
 await statusRoutes(app);
 await salaRoutes(app);
@@ -54,6 +59,7 @@ await printerRoutes(app);
 await staffRoutes(app);
 await reservationRoutes(app);
 await supportRoutes(app);
+await deviceRoutes(app);
 registerWebSocket(app, clients);
 
 startHeartbeatLoop(app);

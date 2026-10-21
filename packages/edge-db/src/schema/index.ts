@@ -11,3 +11,4 @@ export * from "./staff.js";
 export * from "./sync-queue.js";
 export * from "./invoice-customers.js";
 export * from "./reservations.js";
+export * from "./devices.js";

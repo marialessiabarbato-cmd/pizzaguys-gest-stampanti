@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { pinAttemptBlockedSeconds, recordPinFailure, recordPinSuccess } from "../lib/device-auth.js";
+import { blockedMessage } from "./devices.js";
 import { staff } from "@pizzaguys/edge-db";
 import { createStaffSchema, startShiftSchema, updateStaffSchema } from "@pizzaguys/validators";
 import bcrypt from "bcryptjs";
@@ -156,10 +158,13 @@ export async function staffRoutes(app: FastifyInstance) {
     if (!body.pin || !/^[0-9]{4}$/.test(body.pin)) {
       return reply.status(400).send({ error: "PIN non valido" });
     }
+    const blocked = pinAttemptBlockedSeconds(req.ip);
+    if (blocked > 0) return reply.status(429).send({ error: blockedMessage(blocked), code: "PIN_BLOCKED" });
     const members = app.edgeDb.select().from(staff).where(eq(staff.isActive, true)).all();
     for (const member of members) {
       const valid = await bcrypt.compare(body.pin, member.pinHash);
       if (valid) {
+        recordPinSuccess(req.ip);
         // D6: l'accesso con PIN da cassa o palmare avvia il turno dell'operatore.
         const shift = body.startShift ? startOperatorShift(app.edgeDb, member.id).shift : null;
         return {
@@ -172,7 +177,8 @@ export async function staffRoutes(app: FastifyInstance) {
         };
       }
     }
-    return reply.status(401).send({ error: "PIN errato" });
+    recordPinFailure(req.ip);
+    return reply.status(401).send({ error: "PIN errato", code: "PIN_WRONG" });
   });
 
   app.post("/api/staff/logout", async (req) => {

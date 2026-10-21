@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Shell, type EdgePage } from "./components/Shell";
 import { edgeApi, onAdminRequired, setOperatorToken } from "./lib/api";
 import { CassaPage } from "./pages/CassaPage";
+import { DevicesPage } from "./pages/DevicesPage";
 import { PrintersPage } from "./pages/PrintersPage";
 import { ProvisionPage } from "./pages/ProvisionPage";
 import { RoutingPage } from "./pages/RoutingPage";
@@ -52,8 +53,8 @@ export default function App() {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
         <h1 className="text-xl font-bold">Edge non raggiungibile</h1>
         <p className="max-w-md text-sm text-[hsl(var(--pg-muted-foreground))]">
-          L&apos;API locale su porta 4100 non risponde. Riavvia <code className="text-xs">pnpm dev</code> nel
-          terminale del progetto.
+          Il servizio della cassa (porta 4100) non risponde. Sul PC cassa chiudi e riapri l&apos;app Pizza Guys;
+          su un tablet controlla di essere sul Wi-Fi del locale e che il PC cassa sia acceso.
         </p>
         <Button onClick={() => { setStatus(null); void refresh(); }}>Riprova</Button>
       </main>
@@ -75,6 +76,7 @@ export default function App() {
     stampanti: <PrintersPage />,
     routing: <RoutingPage />,
     staff: <StaffPage />,
+    dispositivi: <DevicesPage />,
     supporto: <SupportPage />,
   }[page];
 

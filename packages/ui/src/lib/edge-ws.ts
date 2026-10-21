@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getDeviceToken, onDeviceTokenChange, reportDeviceUnpaired } from "./device-pairing.js";
 
 /**
  * Collegamento WebSocket con l'Edge, comune a cassa, palmare e KDS.
@@ -29,6 +30,8 @@ export interface EdgeWsInfo {
   nextRetryInSec: number | null;
   /** Da quando il collegamento è giù (ISO), null se aperto */
   downSince: string | null;
+  /** L'Edge ha rifiutato il device (non abbinato o revocato): niente riconnessioni finché non si abbina */
+  unpaired: boolean;
 }
 
 interface Envelope {
@@ -72,7 +75,11 @@ export function useEdgeWsConnection(options: { url: string; deviceKind: string; 
     failedAttempts: 0,
     nextRetryInSec: null,
     downSince: new Date().toISOString(),
+    unpaired: false,
   });
+  // Cambia a ogni abbinamento/revoca: il collegamento riparte con il token nuovo
+  const [tokenVersion, setTokenVersion] = useState(0);
+  useEffect(() => onDeviceTokenChange(() => setTokenVersion((v) => v + 1)), []);
 
   const on = useCallback((type: string, handler: (payload: unknown) => void) => {
     const set = handlersRef.current.get(type) ?? new Set();
@@ -103,6 +110,7 @@ export function useEdgeWsConnection(options: { url: string; deviceKind: string; 
     let everOpened = false;
     let lastMessageMs = 0;
     let downSince: string | null = new Date().toISOString();
+    let unpaired = false;
     const deviceId = getStableDeviceId(deviceKind);
 
     const scheduleRetry = () => {
@@ -115,15 +123,17 @@ export function useEdgeWsConnection(options: { url: string; deviceKind: string; 
     };
 
     const connect = () => {
-      if (!alive) return;
+      if (!alive || unpaired) return;
       clearTimeout(retryTimer);
       const current = wsRef.current;
       if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) return;
 
       setInfo((i) => ({ ...i, state: "connecting", nextRetryInSec: null }));
       let ws: WebSocket;
+      const token = getDeviceToken();
+      const fullUrl = token ? `${url}${url.includes("?") ? "&" : "?"}deviceToken=${encodeURIComponent(token)}` : url;
       try {
-        ws = new WebSocket(url);
+        ws = new WebSocket(fullUrl);
       } catch {
         scheduleRetry();
         return;
@@ -136,7 +146,7 @@ export function useEdgeWsConnection(options: { url: string; deviceKind: string; 
         lastMessageMs = Date.now();
         downSince = null;
         setConnected(true);
-        setInfo({ state: "open", lastMessageAt: new Date().toISOString(), failedAttempts: 0, nextRetryInSec: null, downSince: null });
+        setInfo({ state: "open", lastMessageAt: new Date().toISOString(), failedAttempts: 0, nextRetryInSec: null, downSince: null, unpaired: false });
         if (everOpened) setReconnects((n) => n + 1);
         everOpened = true;
         ws.send(
@@ -148,11 +158,23 @@ export function useEdgeWsConnection(options: { url: string; deviceKind: string; 
           } satisfies Envelope),
         );
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         if (wsRef.current !== ws) return;
         wsRef.current = null;
         if (!downSince) downSince = new Date().toISOString();
         setConnected(false);
+        if (ev.code === 4401) {
+          // Device non abbinato o revocato: si riprova solo dopo un nuovo abbinamento
+          unpaired = true;
+          setInfo((i) => ({ ...i, state: "closed", nextRetryInSec: null, unpaired: true, downSince }));
+          reportDeviceUnpaired(
+            ev.reason || "DEVICE_NOT_PAIRED",
+            ev.reason === "DEVICE_REVOKED"
+              ? "Questo dispositivo è stato scollegato dalla cassa: entra di nuovo con il PIN per riabbinarlo."
+              : "Questo dispositivo non è abbinato alla cassa: entra con il tuo PIN per abbinarlo.",
+          );
+          return;
+        }
         scheduleRetry();
       };
       ws.onerror = () => {
@@ -216,7 +238,7 @@ export function useEdgeWsConnection(options: { url: string; deviceKind: string; 
       wsRef.current = null;
       ws?.close();
     };
-  }, [url, deviceKind, clientVersion]);
+  }, [url, deviceKind, clientVersion, tokenVersion]);
 
   return { connected, send, on, reconnects, info };
 }

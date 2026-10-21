@@ -8,6 +8,8 @@
  * l'operazione potrebbe essere comunque avvenuta, e il messaggio lo dice (mai ripetere alla cieca).
  */
 
+import { DEVICE_UNPAIRED_CODES, getDeviceToken, reportDeviceUnpaired, storeDeviceToken } from "./device-pairing.js";
+
 const READ_TIMEOUT_MS = 8_000;
 const WRITE_TIMEOUT_MS = 20_000;
 
@@ -79,9 +81,12 @@ export async function edgeRequest(baseUrl: string, path: string, options: EdgeRe
   const onExternalAbort = () => controller.abort();
   external?.addEventListener("abort", onExternalAbort, { once: true });
 
-  const { timeoutMs: _t, signal: _s, ...init } = options;
+  const { timeoutMs: _t, signal: _s, headers: rawHeaders, ...init } = options;
+  const headers = new Headers(rawHeaders);
+  const deviceToken = getDeviceToken();
+  if (deviceToken && !headers.has("X-Device-Token")) headers.set("X-Device-Token", deviceToken);
   try {
-    return await fetch(`${baseUrl}${path}`, { ...init, signal: controller.signal });
+    return await fetch(`${baseUrl}${path}`, { ...init, headers, signal: controller.signal });
   } catch (err) {
     if (timedOut) {
       const secs = Math.round(timeoutMs / 1000);
@@ -108,6 +113,9 @@ export async function edgeRequest(baseUrl: string, path: string, options: EdgeRe
 /** Errore HTTP dell'Edge → messaggio dell'Edge se presente, altrimenti uno chiaro per codice. */
 export async function edgeHttpError(res: Response): Promise<EdgeRequestError> {
   const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (body.code && DEVICE_UNPAIRED_CODES.has(body.code)) {
+    reportDeviceUnpaired(body.code, body.error ?? "Dispositivo non abbinato: entra con il PIN.");
+  }
   if (body.error) return new EdgeRequestError(body.error, "HTTP", res.status, body.code);
   const byStatus: Record<number, string> = {
     401: "Sessione scaduta: rientra con il tuo PIN.",
@@ -121,4 +129,23 @@ export async function edgeHttpError(res: Response): Promise<EdgeRequestError> {
       ? `Errore interno della cassa (${res.status}). Riprova; se continua, invia la diagnostica.`
       : `La cassa ha risposto con errore ${res.status}.`);
   return new EdgeRequestError(msg, "HTTP", res.status, body.code);
+}
+
+/**
+ * Abbina questo device all'Edge con il PIN di un operatore e salva il token.
+ * Errori: PIN errato (code PIN_WRONG), troppi tentativi (PIN_BLOCKED), KDS con PIN cameriere (403).
+ */
+export async function pairDevice(
+  baseUrl: string,
+  input: { pin: string; deviceId: string; deviceKind: "handheld" | "cassa" | "kds"; deviceName?: string },
+): Promise<{ id: string; name: string; kind: string }> {
+  const res = await edgeRequest(baseUrl, "/api/devices/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await edgeHttpError(res);
+  const data = (await res.json()) as { deviceToken: string; device: { id: string; name: string; kind: string } };
+  storeDeviceToken(data.deviceToken);
+  return data.device;
 }

@@ -1,4 +1,16 @@
-import { Card, CardContent, CardHeader, CardTitle, resolveEdgeUrl } from "@pizzaguys/ui";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  edgeHttpError,
+  edgeRequest,
+  onDeviceUnpaired,
+  resolveEdgeUrl,
+} from "@pizzaguys/ui";
+import { KdsPairing } from "./KdsPairing";
+
+const EDGE_URL = resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100");
 import { useCallback, useEffect, useState } from "react";
 import { useEdgeWs } from "./lib/ws";
 
@@ -64,19 +76,24 @@ export default function App() {
   const [cancellations, setCancellations] = useState<KdsCancellation[]>([]);
   const [, tick] = useState(0);
 
+  const [pairingReason, setPairingReason] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const loadTickets = useCallback(async () => {
     try {
-      const res = await fetch(
-        `${resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100")}/api/kds/tickets`,
-      );
-      if (res.ok) {
-        const data = (await res.json()) as KdsSnapshot | KdsTicket[];
-        applySnapshot(data, setTickets, setCancellations);
-      }
-    } catch {
-      /* edge offline */
+      const res = await edgeRequest(EDGE_URL, "/api/kds/tickets");
+      if (!res.ok) throw await edgeHttpError(res);
+      const data = (await res.json()) as KdsSnapshot | KdsTicket[];
+      applySnapshot(data, setTickets, setCancellations);
+      setLoadError(null);
+    } catch (e) {
+      // Non abbinato: lo gestisce onDeviceUnpaired; altri errori restano visibili
+      setLoadError(e instanceof Error ? e.message : "Errore caricamento comande");
     }
   }, []);
+
+  // KDS non abbinato o revocato: schermata di abbinamento (le comande non si vedono senza)
+  useEffect(() => onDeviceUnpaired(({ message }) => setPairingReason(message)), []);
 
   // Dopo una riconnessione ricarica le comande: quelle arrivate mentre era scollegato non vanno perse
   useEffect(() => {
@@ -109,6 +126,19 @@ export default function App() {
     (c) => Date.now() - new Date(c.cancelledAt).getTime() < 600_000,
   );
 
+  if (pairingReason) {
+    return (
+      <KdsPairing
+        edgeUrl={EDGE_URL}
+        reason={pairingReason}
+        onPaired={() => {
+          setPairingReason(null);
+          void loadTickets();
+        }}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[hsl(var(--pg-background))] p-4">
       <header className="mb-4 flex items-center justify-between">
@@ -120,6 +150,10 @@ export default function App() {
           {connected ? "WS connesso" : "WS disconnesso"}
         </span>
       </header>
+
+      {loadError && !connected && (
+        <p className="mb-4 rounded-md bg-amber-500/15 px-3 py-2 text-sm text-amber-900">{loadError}</p>
+      )}
 
       {recentCancellations.length > 0 && (
         <section className="mb-6">

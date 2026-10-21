@@ -9,7 +9,15 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestsModal, type GuestsConfirmPayload } from "./components/GuestsModal";
 import { TableTransferModal } from "./components/TableTransferModal";
-import { edgeApi, setOperatorToken } from "./lib/api";
+import {
+  describeEdgeError,
+  EdgeRequestError,
+  getDeviceToken,
+  getStableDeviceId,
+  onDeviceUnpaired,
+  pairDevice,
+} from "@pizzaguys/ui";
+import { EDGE_API, edgeApi, setOperatorToken } from "./lib/api";
 import { clearDraft, loadDraft, saveDraft } from "./lib/offline";
 import type { LiveTable, Operator, Screen, WorkspaceTab } from "./lib/types";
 import { useEdgeWs } from "./lib/ws";
@@ -369,6 +377,10 @@ export default function App() {
   const verifyPin = async (value: string) => {
     setPinError("");
     try {
+      // Primo accesso da questo telefono: il PIN abbina anche il dispositivo alla cassa
+      if (!getDeviceToken()) {
+        await pairDevice(EDGE_API, { pin: value, deviceId: getStableDeviceId("handheld"), deviceKind: "handheld" });
+      }
       const { token, ...op } = await edgeApi<Operator & { token?: string }>("/api/staff/verify-pin", {
         method: "POST",
         body: JSON.stringify({ pin: value, startShift: true }),
@@ -379,8 +391,8 @@ export default function App() {
       setScreen("map");
       loadTables();
       void loadMenu();
-    } catch {
-      setPinError("PIN errato");
+    } catch (e) {
+      setPinError(e instanceof EdgeRequestError && e.code === "PIN_WRONG" ? "PIN errato" : describeEdgeError(e));
       setPin("");
     }
   };
@@ -671,6 +683,20 @@ export default function App() {
     });
     loadTables();
   };
+
+  // Device scollegato dalla cassa (revoca) o non abbinato: si torna al PIN, che lo riabbina
+  useEffect(
+    () =>
+      onDeviceUnpaired(({ message }) => {
+        setOperatorToken(null);
+        setOperator(null);
+        setScreen("pin");
+        setActiveTable(null);
+        setPinError(message);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const logout = () => {
     void edgeApi("/api/staff/logout", { method: "POST" }).catch(() => {

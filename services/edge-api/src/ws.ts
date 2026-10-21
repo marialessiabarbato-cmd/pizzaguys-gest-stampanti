@@ -19,6 +19,7 @@ import {
   setBillRequested,
 } from "./lib/runtime.js";
 import { verifyManagerPin } from "./lib/staff-auth.js";
+import { checkDevice, touchDevice } from "./lib/device-auth.js";
 import { parseGuestCount, effectiveCapacityForTable } from "./lib/table-capacity.js";
 import { printTablePrebill } from "./lib/prebill-print.js";
 import { saveRuntimeStateSafe } from "./lib/runtime-persistence.js";
@@ -37,7 +38,23 @@ type WsClient = { send: (data: string) => void; readyState: number };
 export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>) {
   app.get("/ws", { websocket: true }, (socket, req) => {
     const client = socket as unknown as HubClient;
-    addWsClient(client, req.ip);
+    // Fase 2: solo device abbinati (o il PC dell'Edge). Il browser non può mettere header
+    // sul WebSocket: il token arriva come parametro deviceToken.
+    const token = (req.query as { deviceToken?: string } | undefined)?.deviceToken;
+    const check = checkDevice(app.edgeDb, req.ip, token);
+    if (!check.ok) {
+      socket.send(
+        JSON.stringify({
+          type: "ERROR",
+          payload: { code: check.code, message: check.error },
+          timestamp: new Date().toISOString(),
+          messageId: randomUUID(),
+        }),
+      );
+      socket.close(4401, check.code);
+      return;
+    }
+    addWsClient(client, req.ip, check.device);
 
     socket.on("message", async (raw) => {
       touchWsClient(client);
@@ -57,8 +74,12 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
         };
 
         switch (msg.type) {
-          case "HANDSHAKE":
-            identifyWsClient(client, (msg.payload ?? {}) as Record<string, string>);
+          case "HANDSHAKE": {
+            const hs = (msg.payload ?? {}) as Record<string, string>;
+            identifyWsClient(client, hs);
+            if (check.device && typeof hs.clientVersion === "string") {
+              touchDevice(app.edgeDb, check.device.id, req.ip, hs.clientVersion);
+            }
             reply("HANDSHAKE_ACK", {
               edgeId: state?.edgeDeviceId ?? "unprovisioned",
               locationId: state?.locationId ?? "unprovisioned",
@@ -66,6 +87,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
               serverTime: new Date().toISOString(),
             });
             break;
+          }
           case "PING":
             reply("PONG", { serverTime: new Date().toISOString() });
             break;

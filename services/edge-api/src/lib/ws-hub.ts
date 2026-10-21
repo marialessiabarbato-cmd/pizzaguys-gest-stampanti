@@ -7,6 +7,7 @@ export type WsClient = {
   readyState: number;
   ping?: () => void;
   terminate?: () => void;
+  close?: (code?: number, reason?: string) => void;
   on?: (event: "pong", listener: () => void) => void;
 };
 
@@ -15,6 +16,10 @@ export interface ConnectedDevice {
   connectionId: string;
   deviceId: string | null;
   deviceKind: string | null;
+  /** Nome del device abbinato (es. "Palmare Marco") */
+  deviceName: string | null;
+  /** true se si è presentato con un token di abbinamento valido */
+  paired: boolean;
   clientVersion: string | null;
   remoteAddress: string | null;
   connectedAt: string;
@@ -51,12 +56,18 @@ function ensurePingLoop() {
   pingTimer.unref?.();
 }
 
-export function addWsClient(client: WsClient, remoteAddress?: string) {
+export function addWsClient(
+  client: WsClient,
+  remoteAddress?: string,
+  pairedDevice?: { id: string; name: string; kind: string } | null,
+) {
   const now = new Date().toISOString();
   const info = {
     connectionId: randomUUID(),
-    deviceId: null,
-    deviceKind: null,
+    deviceId: pairedDevice?.id ?? null,
+    deviceKind: pairedDevice?.kind ?? null,
+    deviceName: pairedDevice?.name ?? null,
+    paired: Boolean(pairedDevice),
     clientVersion: null,
     remoteAddress: remoteAddress ?? null,
     connectedAt: now,
@@ -85,13 +96,37 @@ export function identifyWsClient(
 ) {
   const info = clients.get(client);
   if (!info) return;
-  info.deviceId = typeof data.deviceId === "string" ? data.deviceId.slice(0, 80) : null;
-  info.deviceKind = typeof data.deviceKind === "string" ? data.deviceKind.slice(0, 20) : null;
+  // Per i device abbinati identità e tipo vengono dal token, non da quanto dichiarano
+  if (!info.paired) {
+    info.deviceId = typeof data.deviceId === "string" ? data.deviceId.slice(0, 80) : null;
+    info.deviceKind = typeof data.deviceKind === "string" ? data.deviceKind.slice(0, 20) : null;
+  }
   info.clientVersion = typeof data.clientVersion === "string" ? data.clientVersion.slice(0, 40) : null;
 }
 
 export function removeWsClient(client: WsClient) {
   clients.delete(client);
+}
+
+/** Chiude i collegamenti di un device revocato (codice 4401: l'app chiede di riabbinarsi). */
+export function disconnectDevice(deviceId: string) {
+  for (const [client, info] of clients) {
+    if (info.deviceId !== deviceId) continue;
+    clients.delete(client);
+    try {
+      client.send(
+        JSON.stringify({
+          type: "ERROR",
+          payload: { code: "DEVICE_REVOKED", message: "Questo dispositivo è stato scollegato dalla cassa: entra di nuovo con il PIN per riabbinarlo." },
+          timestamp: new Date().toISOString(),
+          messageId: randomUUID(),
+        }),
+      );
+      client.close?.(4401, "DEVICE_REVOKED");
+    } catch {
+      /* già chiuso */
+    }
+  }
 }
 
 export function listConnectedDevices(): ConnectedDevice[] {

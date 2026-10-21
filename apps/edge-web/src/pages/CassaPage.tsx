@@ -1,6 +1,15 @@
 import type { CashService, CashSessionStatusPayload, FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
 import { isCashOperatorRole, randomId } from "@pizzaguys/types";
-import { Button, useTheme } from "@pizzaguys/ui";
+import {
+  Button,
+  describeEdgeError,
+  EdgeRequestError,
+  getDeviceToken,
+  getStableDeviceId,
+  onDeviceUnpaired,
+  pairDevice,
+  useTheme,
+} from "@pizzaguys/ui";
 import { ComandaWorkspace, useComanda, type LiveTable as ComandaTable } from "@pizzaguys/comanda";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticSplitPanel } from "../components/AnalyticSplitPanel";
@@ -32,7 +41,7 @@ import { CashMovementModal } from "../components/CashMovementModal";
 import { CashOpenModal } from "../components/CashOpenModal";
 import { OperatorShiftsPanel } from "../components/OperatorShiftsPanel";
 import { TableTransferModal } from "../components/TableTransferModal";
-import { edgeApi, setOperatorToken } from "../lib/api";
+import { EDGE_API, edgeApi, setOperatorToken } from "../lib/api";
 import { dedupeRecentCustomers } from "../lib/counter-customers";
 import {
   TABLE_STATUS_COLORS,
@@ -642,6 +651,10 @@ export function CassaPage({
   const verifyPin = async (value: string) => {
     setPinError("");
     try {
+      // Tablet di supporto al primo accesso: il PIN abbina anche il dispositivo (il PC cassa è già fidato)
+      if (!getDeviceToken()) {
+        await pairDevice(EDGE_API, { pin: value, deviceId: getStableDeviceId("cassa"), deviceKind: "cassa" });
+      }
       const op = await edgeApi<Operator>("/api/staff/verify-pin", {
         method: "POST",
         body: JSON.stringify({ pin: value, startShift: true }),
@@ -649,12 +662,22 @@ export function CassaPage({
       setOperatorToken(op.token ?? null);
       setOperator(op);
       setPin("");
-    } catch {
-      setPinError("PIN errato");
+    } catch (e) {
+      setPinError(e instanceof EdgeRequestError && e.code === "PIN_WRONG" ? "PIN errato" : describeEdgeError(e));
       setPin("");
     }
   };
 
+  // Tablet scollegato dalla cassa (revoca): si torna al PIN, che lo riabbina
+  useEffect(
+    () =>
+      onDeviceUnpaired(({ message }) => {
+        setOperatorToken(null);
+        setOperator(null);
+        setPinError(message);
+      }),
+    [],
+  );
   const acquireTableLock = async (
     table: LiveTable,
     overridePin?: string,

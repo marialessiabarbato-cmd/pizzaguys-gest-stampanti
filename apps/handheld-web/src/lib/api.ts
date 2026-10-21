@@ -26,3 +26,5 @@ export async function edgeApi<T>(path: string, options: RequestInit = {}): Promi
   if (!res.ok) throw await edgeHttpError(res);
   return res.json() as Promise<T>;
 }
+
+export { EDGE_API };
