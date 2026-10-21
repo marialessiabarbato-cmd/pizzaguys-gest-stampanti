@@ -16,6 +16,7 @@
     "src/patch-menu-variants.ts",
     "src/patch-menu-variants-reset.ts",
     "src/patch-menu-variants-extra.ts",
-    "src/patch-menu-variants-aggiunte.ts"
+    "src/patch-menu-variants-aggiunte.ts",
+    "src/patch-menu-variants-unifica.ts"
   ]
 }

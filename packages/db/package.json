@@ -30,6 +30,7 @@
     "patch:variants": "tsx --env-file=../../.env src/patch-menu-variants.ts",
     "patch:variants:extra": "tsx --env-file=../../.env src/patch-menu-variants-extra.ts",
     "patch:variants:aggiunte": "tsx --env-file=../../.env src/patch-menu-variants-aggiunte.ts",
+    "patch:variants:unifica": "tsx --env-file=../../.env src/patch-menu-variants-unifica.ts",
     "patch:variants:reset": "tsx --env-file=../../.env src/patch-menu-variants-reset.ts"
   },
   "dependencies": {
