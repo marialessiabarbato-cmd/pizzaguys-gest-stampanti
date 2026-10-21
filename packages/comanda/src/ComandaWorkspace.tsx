@@ -126,7 +126,10 @@ export function ComandaWorkspace({
   const lastScrollTop = useRef(0);
   const onListScroll = (e: React.UIEvent<HTMLElement>) => {
     if (layout === "cassa" || !narrowScreen) return;
-    const top = e.currentTarget.scrollTop;
+    // Usato con onScrollCapture: lo scroll non risale dal contenitore interno (es. griglia piatti)
+    const target = e.target as HTMLElement;
+    if (typeof target.scrollTop !== "number") return;
+    const top = target.scrollTop;
     const delta = top - lastScrollTop.current;
     lastScrollTop.current = top;
     if (top < 24) setHeaderCompact(false);
@@ -513,7 +516,7 @@ export function ComandaWorkspace({
     <div className="flex h-full min-h-0 flex-col">
       <CourseStepBar activeCourse={c.activeCourse} cart={cart} disabled={needsLock} onSelect={c.setActiveCourse} />
       <div
-        onScroll={isCassa ? undefined : onListScroll}
+        onScrollCapture={isCassa ? undefined : onListScroll}
         className={`min-h-0 flex-1 ${isCassa ? "flex flex-col" : "overflow-y-auto"}`}
       >
         <MenuPanel
@@ -1066,7 +1069,7 @@ export function ComandaWorkspace({
           style={{ paddingBottom: `calc(7rem + ${selectionBarHeight}px)` }}
         >
           <div
-            onScroll={onListScroll}
+            onScrollCapture={onListScroll}
             className={`min-h-0 flex-1 overflow-y-auto tablet-l:border-r tablet-l:border-[hsl(var(--pg-border))] ${
               showComanda ? "block" : "hidden"
             } tablet-l:block`}
