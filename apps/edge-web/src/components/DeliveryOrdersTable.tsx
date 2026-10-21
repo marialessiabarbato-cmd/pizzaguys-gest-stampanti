@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { kitchenTimeClass } from "./OpenTablesModal";
 
 export interface DeliveryOrderRow {
@@ -42,18 +43,45 @@ export function DeliveryOrdersTable<T extends DeliveryOrderRow>({
   selectedId?: string;
   onSelect: (order: T) => void;
 }) {
+  const [filter, setFilter] = useState<string>("");
   const groups = new Map<string, T[]>();
   for (const o of orders) {
     const key = o.broker?.trim() || "Telefono / diretto";
     groups.set(key, [...(groups.get(key) ?? []), o]);
   }
-  const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "it"));
+  const allSorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "it"));
+  const activeFilter = filter && groups.has(filter) ? filter : "";
+  const sorted = activeFilter ? allSorted.filter(([k]) => k === activeFilter) : allSorted;
+
+  const chipClass = (active: boolean) =>
+    `rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+      active
+        ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+        : "border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] hover:border-[hsl(var(--pg-primary))]/50"
+    }`;
 
   return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Piattaforma delivery">
+        <button type="button" className={chipClass(!activeFilter)} onClick={() => setFilter("")}>
+          Tutte · {orders.length}
+        </button>
+        {allSorted.map(([name, rows]) => (
+          <button
+            key={name}
+            type="button"
+            className={chipClass(activeFilter === name)}
+            onClick={() => setFilter(name)}
+          >
+            {name} · {rows.length}
+          </button>
+        ))}
+      </div>
     <div className="overflow-auto rounded-xl border border-[hsl(var(--pg-border))]">
-      <table className="w-full min-w-[820px] text-sm">
+      <table className="w-full min-w-[900px] text-sm">
         <thead className="sticky top-0 bg-[hsl(var(--pg-muted))] text-left text-xs uppercase">
           <tr>
+            <th className="px-3 py-2">Piattaforma</th>
             <th className="px-3 py-2">N° ordine</th>
             <th className="px-3 py-2">Cliente</th>
             <th className="px-3 py-2">Consegna</th>
@@ -77,6 +105,7 @@ export function DeliveryOrdersTable<T extends DeliveryOrderRow>({
         </tbody>
       </table>
     </div>
+    </div>
   );
 }
 
@@ -95,7 +124,7 @@ function PlatformGroup<T extends DeliveryOrderRow>({
   return (
     <>
       <tr className="border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/50">
-        <td colSpan={6} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wide">
+        <td colSpan={7} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wide">
           {platform} <span className="font-normal normal-case">· {rows.length} {rows.length === 1 ? "ordine" : "ordini"}</span>
         </td>
         <td colSpan={2} className="px-3 py-1.5 text-right text-xs font-semibold tabular-nums">
@@ -110,6 +139,7 @@ function PlatformGroup<T extends DeliveryOrderRow>({
           }`}
           onClick={() => onSelect(o)}
         >
+          <td className="px-3 py-2 text-xs font-bold uppercase">{o.broker?.trim() || "Telefono"}</td>
           <td className="px-3 py-2 font-semibold">
             {o.platformOrderNumber ? `n° ${o.platformOrderNumber}` : o.displayNumber}
           </td>
