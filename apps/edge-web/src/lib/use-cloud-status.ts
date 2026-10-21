@@ -19,6 +19,7 @@ export interface SyncQueueView {
 export function useCloudStatus(enabled: boolean) {
   const [cloud, setCloud] = useState<CloudStatusView | null>(null);
   const [syncQueue, setSyncQueue] = useState<SyncQueueView | null>(null);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -39,7 +40,7 @@ export function useCloudStatus(enabled: boolean) {
       alive = false;
       clearInterval(t);
     };
-  }, [enabled]);
+  }, [enabled, nonce]);
 
-  return { cloud, syncQueue };
+  return { cloud, syncQueue, refresh: () => setNonce((n) => n + 1) };
 }

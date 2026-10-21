@@ -1,5 +1,5 @@
 import { edgeState } from "@pizzaguys/edge-db";
-import { getCloudStatus, getSyncQueueSummary } from "../lib/cloud-status.js";
+import { getCloudStatus, getSyncQueueSummary, recordCloudOk } from "../lib/cloud-status.js";
 import { listConnectedDevices } from "../lib/ws-hub.js";
 import { provisionEdgeSchema } from "@pizzaguys/validators";
 import { sql } from "drizzle-orm";
@@ -86,6 +86,8 @@ export async function statusRoutes(app: FastifyInstance) {
 
     try {
       const result = await provisionEdge(app.edgeDb, parsed.data.apiToken);
+      // Handshake riuscito: il Cloud accetta il token, lo stato torna verde subito
+      recordCloudOk();
       return {
         ok: true,
         locationId: result.locationId,

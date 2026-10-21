@@ -13,6 +13,7 @@ import { DiscountModal } from "../components/DiscountModal";
 import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
 import { DeliveryOrdersTable } from "../components/DeliveryOrdersTable";
 import { useCloudStatus } from "../lib/use-cloud-status";
+import { CloudReconnectModal } from "../components/CloudReconnectModal";
 import { TableDiscountModal, type TableDiscountRequest } from "../components/TableDiscountModal";
 import { PaymentScreen, type PaymentChoice } from "../components/PaymentScreen";
 import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
@@ -221,7 +222,8 @@ export function CassaPage({
 }) {
   const { theme, setTheme } = useTheme();
   const { connected, on, send, reconnects, info: wsInfo } = useEdgeWs();
-  const { cloud, syncQueue } = useCloudStatus(connected);
+  const { cloud, syncQueue, refresh: refreshCloud } = useCloudStatus(connected);
+  const [showCloudReconnect, setShowCloudReconnect] = useState(false);
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
@@ -1565,6 +1567,7 @@ export function CassaPage({
         }
         cloud={cloud}
         syncQueue={syncQueue}
+        onReconnectCloud={operator.role === "USER_ADMIN" ? () => setShowCloudReconnect(true) : undefined}
         cashSession={cashStatus ? cashStatus.session : undefined}
         canOperateCash={canOperateCash}
         openTableCount={openTableCount}
@@ -1584,6 +1587,16 @@ export function CassaPage({
         onProfile={() => setShowProfileModal(true)}
         onLogout={() => setConfirmLogout(true)}
       />
+      {showCloudReconnect && (
+        <CloudReconnectModal
+          onClose={() => setShowCloudReconnect(false)}
+          onDone={(name) => {
+            setShowCloudReconnect(false);
+            setMessage(`Cassa ricollegata al Cloud${name ? ` (${name})` : ""}: il menu si aggiorna entro un minuto.`);
+            refreshCloud();
+          }}
+        />
+      )}
 
       <div className="flex min-h-0 flex-col overflow-hidden">
       {venueCapacityWarning && (

@@ -60,6 +60,7 @@ export function CassaHeader({
   connectionDetail,
   cloud,
   syncQueue,
+  onReconnectCloud,
   cashSession,
   canOperateCash,
   openTableCount,
@@ -86,6 +87,8 @@ export function CassaHeader({
   connectionDetail?: string;
   cloud?: CloudStatusView | null;
   syncQueue?: SyncQueueView | null;
+  /** Solo Admin: apre il ricollegamento al Cloud quando il token è rifiutato */
+  onReconnectCloud?: () => void;
   /** Sessione di cassa aperta (null = cassa chiusa, undefined = stato non ancora noto). */
   cashSession: { service: CashService; openedAt: string; openedByName: string } | null | undefined;
   /** Operatore cassa (Cassiere o Admin): può aprire, movimentare e chiudere la cassa. */
@@ -143,6 +146,11 @@ export function CassaHeader({
               : `${cloud.message} — Il servizio continua normalmente; menu e report si aggiorneranno quando il Cloud torna raggiungibile.${
                   cloud.level === "critical" ? " Controlla il router e la linea internet." : ""
                 }`}
+            {cloud.state === "UNAUTHORIZED" && onReconnectCloud && (
+              <button type="button" className="ml-2 font-semibold underline" onClick={onReconnectCloud}>
+                Ricollega ora
+              </button>
+            )}
           </p>
         )}
       </div>
