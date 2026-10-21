@@ -1,4 +1,6 @@
 import { edgeState } from "@pizzaguys/edge-db";
+import { getCloudStatus, getSyncQueueSummary } from "../lib/cloud-status.js";
+import { listConnectedDevices } from "../lib/ws-hub.js";
 import { provisionEdgeSchema } from "@pizzaguys/validators";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -36,6 +38,9 @@ export async function statusRoutes(app: FastifyInstance) {
     };
   });
 
+  /** Device collegati in questo momento (palmari, KDS, cassa) per lo stato rete. */
+  app.get("/api/devices/connected", async () => ({ devices: listConnectedDevices() }));
+
   app.get("/api/status", async () => {
     const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
     const venueCheck = checkVenueCapacity(app.edgeDb);
@@ -50,6 +55,8 @@ export async function statusRoutes(app: FastifyInstance) {
       venueCapacityWarning: venueCheck.ok ? null : venueCheck.warning,
       shiftReminderSchedule: parseShiftReminderSchedule(state?.shiftReminderSchedule),
       runtimeRestore: getRestoreInfo(),
+      cloud: getCloudStatus(),
+      syncQueue: getSyncQueueSummary(app.edgeDb),
       cashSession: withSuggestedService(getCashSessionStatus(app.edgeDb)),
     };
   });

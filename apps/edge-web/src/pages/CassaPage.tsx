@@ -12,6 +12,7 @@ import { CounterOrderModal, type CounterChannel } from "../components/CounterOrd
 import { DiscountModal } from "../components/DiscountModal";
 import { DiscountPresetsBar } from "../components/DiscountPresetsBar";
 import { DeliveryOrdersTable } from "../components/DeliveryOrdersTable";
+import { useCloudStatus } from "../lib/use-cloud-status";
 import { TableDiscountModal, type TableDiscountRequest } from "../components/TableDiscountModal";
 import { PaymentScreen, type PaymentChoice } from "../components/PaymentScreen";
 import { EMPTY_INVOICE_CUSTOMER } from "../components/InvoiceCustomerForm";
@@ -219,7 +220,8 @@ export function CassaPage({
   onAdmin: () => void;
 }) {
   const { theme, setTheme } = useTheme();
-  const { connected, on, send } = useEdgeWs();
+  const { connected, on, send, reconnects, info: wsInfo } = useEdgeWs();
+  const { cloud, syncQueue } = useCloudStatus(connected);
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
@@ -507,6 +509,24 @@ export function CassaPage({
     if (!operator) return;
     loadCounterOrders();
   }, [channelFilter, operator, loadCounterOrders]);
+
+  // Errori dell'Edge su un comando inviato: sempre visibili, mai persi
+  useEffect(
+    () =>
+      on("ERROR", (payload) => {
+        const m = (payload as { message?: string })?.message;
+        if (m) setMessage(m);
+      }),
+    [on],
+  );
+
+  // Dopo una riconnessione ricarica tavoli e asporto/delivery persi mentre era scollegata
+  useEffect(() => {
+    if (reconnects === 0 || !operator) return;
+    loadTables();
+    loadCounterOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconnects]);
 
   useEffect(() => {
     if (!operator) return;
@@ -1536,6 +1556,15 @@ export function CassaPage({
         operatorName={`${operator.firstName} ${operator.lastName}`}
         locationName={locationName}
         connected={connected}
+        connectionDetail={
+          wsInfo.state === "connecting"
+            ? "ricollego…"
+            : wsInfo.nextRetryInSec != null
+              ? `riprovo tra ${wsInfo.nextRetryInSec} s`
+              : undefined
+        }
+        cloud={cloud}
+        syncQueue={syncQueue}
         cashSession={cashStatus ? cashStatus.session : undefined}
         canOperateCash={canOperateCash}
         openTableCount={openTableCount}

@@ -22,15 +22,25 @@ import { verifyManagerPin } from "./lib/staff-auth.js";
 import { parseGuestCount, effectiveCapacityForTable } from "./lib/table-capacity.js";
 import { printTablePrebill } from "./lib/prebill-print.js";
 import { saveRuntimeStateSafe } from "./lib/runtime-persistence.js";
-import { addWsClient, broadcast, broadcastTableStatus, removeWsClient } from "./lib/ws-hub.js";
+import {
+  addWsClient,
+  broadcast,
+  broadcastTableStatus,
+  identifyWsClient,
+  removeWsClient,
+  touchWsClient,
+  type WsClient as HubClient,
+} from "./lib/ws-hub.js";
 
 type WsClient = { send: (data: string) => void; readyState: number };
 
 export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>) {
-  app.get("/ws", { websocket: true }, (socket) => {
-    addWsClient(socket);
+  app.get("/ws", { websocket: true }, (socket, req) => {
+    const client = socket as unknown as HubClient;
+    addWsClient(client, req.ip);
 
     socket.on("message", async (raw) => {
+      touchWsClient(client);
       try {
         const msg = JSON.parse(raw.toString()) as WsEnvelope;
         const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
@@ -48,6 +58,7 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
 
         switch (msg.type) {
           case "HANDSHAKE":
+            identifyWsClient(client, (msg.payload ?? {}) as Record<string, string>);
             reply("HANDSHAKE_ACK", {
               edgeId: state?.edgeDeviceId ?? "unprovisioned",
               locationId: state?.locationId ?? "unprovisioned",
@@ -312,14 +323,31 @@ export function registerWebSocket(app: FastifyInstance, _clients: Set<WsClient>)
           default:
             break;
         }
-      } catch {
-        socket.send(JSON.stringify({ type: "ERROR", payload: { message: "Invalid message" } }));
+      } catch (err) {
+        // Prima ogni errore era "Invalid message": ora si distingue messaggio rotto da errore dell'Edge
+        const message =
+          err instanceof SyntaxError
+            ? "L'Edge ha ricevuto un messaggio non valido"
+            : `Errore dell'Edge: ${err instanceof Error ? err.message : "sconosciuto"}`;
+        app.log.error({ err }, "Errore gestione messaggio WebSocket");
+        try {
+          socket.send(
+            JSON.stringify({
+              type: "ERROR",
+              payload: { message },
+              timestamp: new Date().toISOString(),
+              messageId: randomUUID(),
+            }),
+          );
+        } catch {
+          /* socket chiuso */
+        }
       } finally {
         // T19: i messaggi dei palmari (lock, ordini, pagamenti) modificano lo stato operativo.
         saveRuntimeStateSafe(app);
       }
     });
 
-    socket.on("close", () => removeWsClient(socket));
+    socket.on("close", () => removeWsClient(client));
   });
 }

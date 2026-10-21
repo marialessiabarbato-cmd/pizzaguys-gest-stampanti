@@ -469,7 +469,11 @@ async function processStaffSyncItem(
   }
 }
 
-export async function processSyncQueue(db: EdgeDatabase, log: FastifyBaseLogger) {
+export async function processSyncQueue(
+  db: EdgeDatabase,
+  log: FastifyBaseLogger,
+  opts: { force?: boolean } = {},
+) {
   const state = db.select().from(edgeState).where(sql`id = 1`).get();
   if (!state?.apiToken || state.status !== "ACTIVE") return;
   const apiToken = state.apiToken;
@@ -483,6 +487,7 @@ export async function processSyncQueue(db: EdgeDatabase, log: FastifyBaseLogger)
   const now = Date.now();
   for (const item of pending) {
     if (
+      !opts.force &&
       item.lastAttemptAt &&
       now - new Date(item.lastAttemptAt).getTime() < SYNC_RETRY_INTERVAL_MS
     ) {

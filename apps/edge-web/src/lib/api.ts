@@ -1,7 +1,6 @@
-import { resolveEdgeUrl } from "@pizzaguys/ui";
+import { edgeHttpError, edgeRequest, resolveEdgeUrl } from "@pizzaguys/ui";
 
 const EDGE_API = resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100");
-const DEFAULT_TIMEOUT_MS = 8_000;
 
 /** Token della sessione operatore (da verify-pin): richiesto dalle route di configurazione. */
 let operatorToken: string | null = null;
@@ -25,32 +24,19 @@ export async function edgeApi<T>(path: string, options: RequestInit = {}): Promi
   if (operatorToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${operatorToken}`);
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-  const res = await fetch(`${EDGE_API}${path}`, {
-    ...options,
-    headers,
-    signal: options.signal ?? controller.signal,
-  }).finally(() => clearTimeout(timeout));
+  const res = await edgeRequest(EDGE_API, path, { ...options, headers });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+    const err = await edgeHttpError(res);
     if (err.code === "ADMIN_REQUIRED") adminRequiredHandler?.();
-    throw new Error(err.error ?? `Errore ${res.status}`);
+    throw err;
   }
   return res.json() as Promise<T>;
 }
 
 export async function edgeApiDownload(path: string, filename: string): Promise<void> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   const headers: HeadersInit = operatorToken ? { Authorization: `Bearer ${operatorToken}` } : {};
-  const res = await fetch(`${EDGE_API}${path}`, { headers, signal: controller.signal }).finally(() =>
-    clearTimeout(timeout),
-  );
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Errore ${res.status}`);
-  }
+  const res = await edgeRequest(EDGE_API, path, { headers, timeoutMs: 30_000 });
+  if (!res.ok) throw await edgeHttpError(res);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

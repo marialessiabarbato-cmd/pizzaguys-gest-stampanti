@@ -1,6 +1,44 @@
 import { CASH_SERVICE_LABELS, type CashService } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { HeaderMenu, HeaderMenuItem } from "./HeaderMenu";
+import type { CloudStatusView, SyncQueueView } from "../lib/use-cloud-status";
+
+function sinceLabel(iso: string | null): string {
+  if (!iso) return "";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (min < 60) return `da ${Math.max(min, 1)} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `da ${h} ${h === 1 ? "ora" : "ore"}` : `da ${Math.round(h / 24)} giorni`;
+}
+
+/** Indicatore Cloud: verde se ok, poi giallo/arancio/rosso secondo da quanto non risponde. */
+function CloudBadge({ cloud, syncQueue }: { cloud?: CloudStatusView | null; syncQueue?: SyncQueueView | null }) {
+  if (!cloud || cloud.state === "UNKNOWN") return null;
+  const pending = syncQueue?.pending ?? 0;
+  if (cloud.level === "ok") {
+    return (
+      <span
+        className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-700"
+        title={pending > 0 ? `${pending} invii in coda verso il Cloud` : "Cloud collegato"}
+      >
+        Cloud ok{pending > 0 ? ` · ${pending} in coda` : ""}
+      </span>
+    );
+  }
+  const tone =
+    cloud.level === "critical"
+      ? "bg-red-500/20 text-red-700"
+      : cloud.level === "warning"
+        ? "bg-orange-500/20 text-orange-800"
+        : "bg-amber-500/15 text-amber-900";
+  const label = cloud.state === "UNAUTHORIZED" ? "Cloud: token rifiutato" : `Cloud non raggiungibile ${sinceLabel(cloud.failingSince)}`;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone}`} title={cloud.message ?? undefined}>
+      {label}
+      {pending > 0 ? ` · ${pending} in coda` : ""}
+    </span>
+  );
+}
 
 function formatShiftTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
@@ -19,6 +57,9 @@ export function CassaHeader({
   operatorName,
   locationName,
   connected,
+  connectionDetail,
+  cloud,
+  syncQueue,
   cashSession,
   canOperateCash,
   openTableCount,
@@ -41,6 +82,10 @@ export function CassaHeader({
   operatorName: string;
   locationName?: string;
   connected: boolean;
+  /** Dettaglio quando scollegata (es. "riprovo tra 5 s") */
+  connectionDetail?: string;
+  cloud?: CloudStatusView | null;
+  syncQueue?: SyncQueueView | null;
   /** Sessione di cassa aperta (null = cassa chiusa, undefined = stato non ancora noto). */
   cashSession: { service: CashService; openedAt: string; openedByName: string } | null | undefined;
   /** Operatore cassa (Cassiere o Admin): può aprire, movimentare e chiudere la cassa. */
@@ -73,8 +118,9 @@ export function CassaHeader({
               connected ? "bg-green-500/20 text-green-700" : "bg-red-500/20 text-red-700"
             }`}
           >
-            {connected ? "Online" : "Offline"}
+            {connected ? "Online" : `Offline${connectionDetail ? ` · ${connectionDetail}` : ""}`}
           </span>
+          <CloudBadge cloud={cloud} syncQueue={syncQueue} />
           {cashSession ? (
             <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-800">
               Cassa aperta · {CASH_SERVICE_LABELS[cashSession.service]} · dalle{" "}
@@ -90,6 +136,15 @@ export function CassaHeader({
           {operatorName}
           {locationName ? ` · ${locationName}` : ""}
         </p>
+        {cloud && (cloud.level === "warning" || cloud.level === "critical") && cloud.message && (
+          <p className={`mt-0.5 max-w-3xl text-xs ${cloud.level === "critical" ? "text-red-700" : "text-orange-800"}`}>
+            {cloud.state === "UNAUTHORIZED"
+              ? cloud.message
+              : `${cloud.message} — Il servizio continua normalmente; menu e report si aggiorneranno quando il Cloud torna raggiungibile.${
+                  cloud.level === "critical" ? " Controlla il router e la linea internet." : ""
+                }`}
+          </p>
+        )}
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">

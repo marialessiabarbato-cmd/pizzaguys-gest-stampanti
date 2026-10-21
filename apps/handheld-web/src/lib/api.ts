@@ -1,4 +1,4 @@
-import { resolveEdgeUrl } from "@pizzaguys/ui";
+import { edgeHttpError, edgeRequest, resolveEdgeUrl } from "@pizzaguys/ui";
 
 const EDGE_API = resolveEdgeUrl(import.meta.env.VITE_EDGE_API_URL, "http://localhost:4100");
 
@@ -10,7 +10,7 @@ export function setOperatorToken(token: string | null) {
 }
 
 export async function edgeApi<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${EDGE_API}${path}`, {
+  const res = await edgeRequest(EDGE_API, path, {
     ...options,
     headers: (() => {
       const headers = new Headers(options.headers);
@@ -23,9 +23,6 @@ export async function edgeApi<T>(path: string, options: RequestInit = {}): Promi
       return headers;
     })(),
   });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Errore ${res.status}`);
-  }
+  if (!res.ok) throw await edgeHttpError(res);
   return res.json() as Promise<T>;
 }

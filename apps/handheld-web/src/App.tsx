@@ -26,7 +26,7 @@ const deviceDraftStore = {
 };
 
 export default function App() {
-  const { connected, send, on } = useEdgeWs();
+  const { connected, send, on, reconnects } = useEdgeWs();
   const [online, setOnline] = useState(navigator.onLine);
   const [screen, setScreen] = useState<Screen>("pin");
   const pendingAfterLockRef = useRef<(() => void) | null>(null);
@@ -81,12 +81,18 @@ export default function App() {
 
   /** Preconto dal palmare: la cassa riceve la richiesta e lo stampa. */
   const requestPayment = () => {
-    if (!operator || !activeTable || isOffline) return;
-    send("REQUEST_PAYMENT", {
-      tableId: activeTable.id,
-      operatorId: operator.id,
-      operatorName: `${operator.firstName} ${operator.lastName}`,
-    });
+    if (!operator || !activeTable) return;
+    const sent =
+      !isOffline &&
+      send("REQUEST_PAYMENT", {
+        tableId: activeTable.id,
+        operatorId: operator.id,
+        operatorName: `${operator.firstName} ${operator.lastName}`,
+      });
+    if (!sent) {
+      setMessage("Richiesta non inviata: il palmare non è collegato alla cassa. Controlla il Wi-Fi e riprova.");
+      return;
+    }
     setMessage("Pagamento richiesto — cassa notificata");
     loadTables();
   };
@@ -277,6 +283,22 @@ export default function App() {
       unsub();
     };
   }, [on]);
+
+  // Dopo una riconnessione ricarica i tavoli: gli aggiornamenti persi mentre era scollegato
+  useEffect(() => {
+    if (reconnects > 0 && operator) loadTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconnects]);
+
+  // Errori dell'Edge su un comando inviato: sempre visibili, mai persi
+  useEffect(
+    () =>
+      on("ERROR", (payload) => {
+        const m = (payload as { message?: string })?.message;
+        if (m) setMessage(m);
+      }),
+    [on],
+  );
 
   useEffect(() => {
     const unsub1 = on("TABLE_LOCKED_BROADCAST", () => loadTables());

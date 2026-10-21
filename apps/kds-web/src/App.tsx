@@ -59,7 +59,7 @@ function applySnapshot(
 }
 
 export default function App() {
-  const { connected, on } = useEdgeWs();
+  const { connected, on, reconnects } = useEdgeWs();
   const [tickets, setTickets] = useState<KdsTicket[]>([]);
   const [cancellations, setCancellations] = useState<KdsCancellation[]>([]);
   const [, tick] = useState(0);
@@ -77,6 +77,11 @@ export default function App() {
       /* edge offline */
     }
   }, []);
+
+  // Dopo una riconnessione ricarica le comande: quelle arrivate mentre era scollegato non vanno perse
+  useEffect(() => {
+    if (reconnects > 0) void loadTickets();
+  }, [reconnects, loadTickets]);
 
   useEffect(() => {
     void loadTickets();

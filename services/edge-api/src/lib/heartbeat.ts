@@ -2,6 +2,7 @@ import { edgeState, menuCache } from "@pizzaguys/edge-db";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { cloudDelta, cloudHeartbeat } from "./cloud.js";
+import { initCloudStatus, recordCloudFailure, recordCloudOk } from "./cloud-status.js";
 import { applyInvoiceCustomersFromSnapshot } from "./invoice-customers.js";
 import { applyStaffFromSnapshot } from "./staff-sync.js";
 import { processSyncQueue } from "./sync-queue.js";
@@ -13,9 +14,21 @@ export function startHeartbeatLoop(app: FastifyInstance) {
   const tick = async () => {
     const state = app.edgeDb.select().from(edgeState).where(sql`id = 1`).get();
     if (!state || state.status !== "ACTIVE" || !state.apiToken || !state.locationId) return;
+    initCloudStatus(state.lastHeartbeatAt);
+
+    let result: Awaited<ReturnType<typeof cloudHeartbeat>>;
+    try {
+      result = await cloudHeartbeat(state.apiToken, state.schemaVersion);
+    } catch (err) {
+      // "Ultimo contatto" resta quello dell'ultima risposta valida: niente falso OK
+      recordCloudFailure(err);
+      app.log.warn({ err: err instanceof Error ? err.message : err }, "Heartbeat cloud fallito");
+      return;
+    }
+    // Cloud tornato dopo un errore: la coda riparte subito, senza aspettare i 15 minuti
+    const recovered = recordCloudOk();
 
     try {
-      const result = await cloudHeartbeat(state.apiToken, state.schemaVersion);
       const now = new Date().toISOString();
       app.edgeDb
         .update(edgeState)
@@ -23,9 +36,9 @@ export function startHeartbeatLoop(app: FastifyInstance) {
         .where(eq(edgeState.id, 1))
         .run();
 
-      if (result && result.desyncBuilds > 0) {
+      if (result.desyncBuilds > 0) {
         const delta = await cloudDelta(state.locationId, state.schemaVersion, state.apiToken);
-        if (delta?.delta) {
+        if (delta.delta) {
           app.edgeDb.delete(menuCache).run();
           app.edgeDb
             .insert(menuCache)
@@ -73,9 +86,11 @@ export function startHeartbeatLoop(app: FastifyInstance) {
         }
       }
 
-      await processSyncQueue(app.edgeDb, app.log);
+      await processSyncQueue(app.edgeDb, app.log, { force: recovered });
     } catch (err) {
-      app.log.warn({ err }, "Heartbeat cloud fallito");
+      // Heartbeat ok ma aggiornamento menu/coda fallito: resta visibile nello stato
+      recordCloudFailure(err);
+      app.log.warn({ err: err instanceof Error ? err.message : err }, "Sincronizzazione cloud fallita");
     }
   };
 

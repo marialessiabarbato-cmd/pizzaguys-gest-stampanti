@@ -30,7 +30,9 @@ export type WsMessageType =
   | "PAYMENT_REJECTED"
   | "TABLE_ACCOUNT_MOVED"
   | "PRINT_FAILED"
-  | "CASH_SESSION_STATUS";
+  | "CASH_SESSION_STATUS"
+  /** Errore nella gestione di un messaggio, con testo da mostrare */
+  | "ERROR";
 
 export interface WsEnvelope<T extends WsMessageType = WsMessageType, P = unknown> {
   type: T;
@@ -41,6 +43,8 @@ export interface WsEnvelope<T extends WsMessageType = WsMessageType, P = unknown
 
 export interface HandshakePayload {
   deviceId: string;
+  /** handheld | cassa | kds */
+  deviceKind?: string;
   operatorId?: string;
   sessionToken?: string;
   clientVersion: string;

@@ -251,21 +251,22 @@ export async function syncRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { locationId: string; sinceVersion?: string; apiToken?: string } }>(
     "/api/v2/sync/delta",
     async (req, reply) => {
-      const { locationId, sinceVersion, apiToken } = req.query;
+      const { locationId, sinceVersion } = req.query;
       if (!locationId) {
         return reply.status(400).send({ error: "locationId obbligatorio" });
       }
+      // Token obbligatorio (il menu contiene anche gli operatori): header Bearer, o query per Edge vecchie
+      const auth = req.headers.authorization;
+      const apiToken = auth?.startsWith("Bearer ") ? auth.slice(7) : req.query.apiToken;
+      if (!apiToken) return reply.status(401).send({ error: "Token mancante" });
 
       const location = await app.db.query.locations.findFirst({
         where: eq(locations.id, locationId),
       });
       if (!location) return reply.status(404).send({ error: "Sede non trovata" });
 
-      if (apiToken) {
-        const hash = hashApiToken(apiToken);
-        if (location.apiTokenHash !== hash) {
-          return reply.status(401).send({ error: "Token non valido" });
-        }
+      if (location.apiTokenHash !== hashApiToken(apiToken)) {
+        return reply.status(401).send({ error: "Token non valido" });
       }
 
       const settings = await app.db.query.brandSettings.findFirst({

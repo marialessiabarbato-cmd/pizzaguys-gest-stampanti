@@ -30,95 +30,111 @@ export function describeCloudError(err: unknown): string {
   return reasons[code] ?? `${detail}${code ? ` (${code})` : ""}`;
 }
 
-export async function cloudHandshake(apiToken: string, edgeDeviceId: string) {
+/** Timeout di ogni chiamata al Cloud: un Cloud lento non deve bloccare la sincronizzazione. */
+const CLOUD_TIMEOUT_MS = 10_000;
+
+/** Errore di una chiamata al Cloud, con codice HTTP (se il Cloud ha risposto) e messaggio chiaro. */
+export class CloudError extends Error {
+  constructor(
+    message: string,
+    readonly kind: "UNREACHABLE" | "UNAUTHORIZED" | "HTTP",
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "CloudError";
+  }
+}
+
+/**
+ * Chiamata al Cloud con timeout e messaggi in italiano.
+ * - Cloud non raggiungibile → CloudError UNREACHABLE con il motivo (rete, DNS, firewall…)
+ * - 401/403 → CloudError UNAUTHORIZED (token della sede non valido o rigenerato)
+ * - altro codice non 2xx → CloudError HTTP con il messaggio del Cloud
+ */
+async function cloudRequest<T>(
+  path: string,
+  options: { method?: string; apiToken?: string; body?: unknown; what: string },
+): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${CLOUD_API_URL}/api/v2/prov/handshake`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiToken, edgeDeviceId, schemaVersion: 0 }),
-      signal: AbortSignal.timeout(10_000),
+    res = await fetch(`${CLOUD_API_URL}${path}`, {
+      method: options.method ?? (options.body === undefined ? "GET" : "POST"),
+      headers: {
+        ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(options.apiToken ? { Authorization: `Bearer ${options.apiToken}` } : {}),
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: AbortSignal.timeout(CLOUD_TIMEOUT_MS),
     });
   } catch (err) {
-    throw new Error(`Cloud non raggiungibile (${CLOUD_API_URL}): ${describeCloudError(err)}`);
-  }
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(
-      err.error
-        ? `Il Cloud (${CLOUD_API_URL}) ha risposto ${res.status}: ${err.error}`
-        : `Il Cloud (${CLOUD_API_URL}) ha risposto ${res.status} al collegamento`,
+    throw new CloudError(
+      `${options.what}: Cloud non raggiungibile (${CLOUD_API_URL}): ${describeCloudError(err)}`,
+      "UNREACHABLE",
     );
   }
 
-  return res.json() as Promise<ProvHandshakeResponse>;
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    if (res.status === 401 || res.status === 403) {
+      throw new CloudError(
+        `${options.what}: il Cloud ha rifiutato il token della sede (${res.status}${err.error ? `: ${err.error}` : ""}). ` +
+          "Il token potrebbe essere stato rigenerato: ricollega la cassa con il token nuovo dal Cloud Admin.",
+        "UNAUTHORIZED",
+        res.status,
+      );
+    }
+    throw new CloudError(
+      `${options.what}: il Cloud ha risposto ${res.status}${err.error ? `: ${err.error}` : ""}`,
+      "HTTP",
+      res.status,
+    );
+  }
+
+  return (await res.json()) as T;
+}
+
+export async function cloudHandshake(apiToken: string, edgeDeviceId: string) {
+  return cloudRequest<ProvHandshakeResponse>("/api/v2/prov/handshake", {
+    body: { apiToken, edgeDeviceId, schemaVersion: 0 },
+    what: "Collegamento al Cloud",
+  });
 }
 
 export async function cloudHeartbeat(apiToken: string, schemaVersion: number) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/heartbeat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ apiToken, schemaVersion }),
-  });
-
-  if (!res.ok) return null;
-  return res.json() as Promise<{
+  return cloudRequest<{
     cloudSchemaVersion: number;
     desyncBuilds: number;
     healthStatus: string;
-  }>;
+  }>("/api/v2/sync/heartbeat", {
+    apiToken,
+    body: { apiToken, schemaVersion },
+    what: "Heartbeat",
+  });
 }
 
-export async function cloudDelta(
-  locationId: string,
-  sinceVersion: number,
-  apiToken: string,
-) {
-  const url = new URL(`${CLOUD_API_URL}/api/v2/sync/delta`);
-  url.searchParams.set("locationId", locationId);
-  url.searchParams.set("sinceVersion", String(sinceVersion));
-  url.searchParams.set("apiToken", apiToken);
-
-  const res = await fetch(url.toString());
-  if (!res.ok) return null;
-  return res.json() as Promise<{ schemaVersion: number; delta: unknown }>;
+export async function cloudDelta(locationId: string, sinceVersion: number, apiToken: string) {
+  const qs = new URLSearchParams({ locationId, sinceVersion: String(sinceVersion) });
+  // Il token viaggia nell'header, non nell'indirizzo (gli indirizzi finiscono nei log)
+  return cloudRequest<{ schemaVersion: number; delta: unknown }>(`/api/v2/sync/delta?${qs}`, {
+    apiToken,
+    what: "Aggiornamento menu",
+  });
 }
 
 export async function cloudDailyClosure(apiToken: string, payload: unknown) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/daily-closure`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(payload),
+  return cloudRequest<{ ok: boolean; receivedAt: string }>("/api/v2/sync/daily-closure", {
+    apiToken,
+    body: payload,
+    what: "Invio chiusura giornaliera",
   });
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Sync chiusura fallita (${res.status})`);
-  }
-
-  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
 
 export async function cloudCashSessionSync(apiToken: string, payload: unknown) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/cash-session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(payload),
+  return cloudRequest<{ ok: boolean; receivedAt: string }>("/api/v2/sync/cash-session", {
+    apiToken,
+    body: payload,
+    what: "Invio sessione di cassa",
   });
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Sync sessione di cassa fallita (${res.status})`);
-  }
-
-  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
 
 export async function cloudInvoiceSync(
@@ -129,63 +145,30 @@ export async function cloudInvoiceSync(
     invoice: unknown;
   },
 ) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/invoice`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(payload),
+  return cloudRequest<{ ok: boolean; receivedAt: string; cloudStatus: string }>("/api/v2/sync/invoice", {
+    apiToken,
+    body: payload,
+    what: "Invio fattura",
   });
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Sync fattura fallita (${res.status})`);
-  }
-
-  return res.json() as Promise<{ ok: boolean; receivedAt: string; cloudStatus: string }>;
 }
 
 export async function cloudReportIssue(
   apiToken: string,
   payload: { message: string; appName?: string; operatorName?: string },
 ) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/support/report`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(payload),
+  return cloudRequest<{ ok: boolean; mode: string }>("/api/v2/support/report", {
+    apiToken,
+    body: payload,
+    what: "Invio segnalazione",
   });
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Invio segnalazione fallito (${res.status})`);
-  }
-
-  return res.json() as Promise<{ ok: boolean; mode: string }>;
 }
 
-export async function cloudCustomerProfileSync(
-  apiToken: string,
-  payload: Record<string, unknown>,
-) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/invoice-customer`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(payload),
+export async function cloudCustomerProfileSync(apiToken: string, payload: Record<string, unknown>) {
+  return cloudRequest<{ ok: boolean; receivedAt: string }>("/api/v2/sync/invoice-customer", {
+    apiToken,
+    body: payload,
+    what: "Invio cliente",
   });
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Sync cliente fallita (${res.status})`);
-  }
-
-  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
 
 export async function cloudStaffSync(
@@ -200,19 +183,9 @@ export async function cloudStaffSync(
     isActive: boolean;
   },
 ) {
-  const res = await fetch(`${CLOUD_API_URL}/api/v2/sync/staff`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(payload),
+  return cloudRequest<{ ok: boolean; receivedAt: string }>("/api/v2/sync/staff", {
+    apiToken,
+    body: payload,
+    what: "Invio operatore",
   });
-
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Sync operatore fallita (${res.status})`);
-  }
-
-  return res.json() as Promise<{ ok: boolean; receivedAt: string }>;
 }
