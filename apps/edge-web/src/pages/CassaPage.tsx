@@ -1,4 +1,4 @@
-import type { CashService, CashSessionStatusPayload, FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, TableStatus } from "@pizzaguys/types";
+import type { CashService, CashSessionStatusPayload, FiscalDocumentType, InvoiceCustomer, LocationDiscountPreset, LocationMealVoucherPreset, PaymentMethod, PrintFailedPayload, PrinterHealth, PrinterStatusPayload, PrintNoticePayload, TableStatus } from "@pizzaguys/types";
 import { isCashOperatorRole, randomId } from "@pizzaguys/types";
 import {
   Button,
@@ -34,6 +34,7 @@ import { ClosureHistoryModal } from "../components/ClosureHistoryModal";
 import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModal";
 import { InternalClosureWizard } from "../components/InternalClosureWizard";
 import { DocumentListModal } from "../components/DocumentListModal";
+import { PrintQueuePanel } from "../components/PrintQueuePanel";
 import { OpenTablesModal } from "../components/OpenTablesModal";
 import { ReservationsModal } from "../components/ReservationsModal";
 import { CashCloseWizard } from "../components/CashCloseWizard";
@@ -264,7 +265,15 @@ export function CassaPage({
   } | null>(null);
   const [pendingPayments, setPendingPayments] = useState<PaymentRequest[]>([]);
   /** Stampe non riuscite (da qualunque dispositivo), finché la cassa non le chiude. */
-  const [printAlerts, setPrintAlerts] = useState<{ id: string; at: string; messages: string[] }[]>([]);
+  const [printAlerts, setPrintAlerts] = useState<
+    { id: string; at: string; messages: string[]; level: "error" | "warning" | "info" }[]
+  >([]);
+  /** R3: stato delle stampanti (carta, coperchio, raggiungibilità) e coda di stampa */
+  const [printerHealth, setPrinterHealth] = useState<PrinterHealth[]>([]);
+  const [showPrintQueue, setShowPrintQueue] = useState(false);
+  const printersDown = printerHealth.filter(
+    (p) => ["PAPER_OUT", "COVER_OPEN", "ERROR", "UNREACHABLE"].includes(p.condition) || p.pendingJobs > 0,
+  );
   /** Ripristino dello stato dopo un riavvio dell'Edge (T19). */
   const [runtimeRestore, setRuntimeRestore] = useState<RuntimeRestoreInfo | null>(null);
   const [dismissedRestoreAt, setDismissedRestoreAt] = useState<string | null>(() => {
@@ -476,6 +485,14 @@ export function CassaPage({
     return () => clearInterval(interval);
   }, [cashClosed, shiftReminderSchedule]);
 
+  /** Stato iniziale delle stampanti; poi arrivano gli aggiornamenti PRINTER_STATUS. */
+  useEffect(() => {
+    if (!operator) return;
+    void edgeApi<{ printers: PrinterHealth[] }>("/api/printers/status")
+      .then((r) => setPrinterHealth(r.printers))
+      .catch(() => undefined);
+  }, [operator]);
+
   useEffect(() => {
     if (!operator) return;
     loadTables();
@@ -586,8 +603,24 @@ export function CassaPage({
           id: randomId(),
           at: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
           messages: p.messages,
+          level: "error",
         },
       ]);
+    });
+    const offPrintNotice = on("PRINT_NOTICE", (payload) => {
+      const p = payload as PrintNoticePayload;
+      setPrintAlerts((prev) => [
+        ...prev,
+        {
+          id: randomId(),
+          at: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+          messages: [p.message],
+          level: p.level,
+        },
+      ]);
+    });
+    const offPrinterStatus = on("PRINTER_STATUS", (payload) => {
+      setPrinterHealth((payload as PrinterStatusPayload).printers);
     });
     const offComplete = on("PAYMENT_COMPLETE", () => {
       loadPendingPayments();
@@ -630,6 +663,8 @@ export function CassaPage({
       offStatus();
       offPending();
       offPrintFailed();
+      offPrintNotice();
+      offPrinterStatus();
       offCashStatus();
       offComplete();
       offGranted();
@@ -1599,6 +1634,7 @@ export function CassaPage({
         onOpenTables={() => setWorkspace("openTables")}
         onReservations={() => setWorkspace("reservations")}
         onDocumentList={() => setShowDocumentList(true)}
+        onPrintQueue={() => setShowPrintQueue(true)}
         onClosureHistory={() => setShowClosureHistory(true)}
         onClosureDay={() => setConfirmClosure(true)}
         onInternalClosure={() => setShowInternalClosureWizard(true)}
@@ -1689,21 +1725,62 @@ export function CassaPage({
           </Button>
         </div>
       )}
+      {printersDown.length > 0 && (
+        <div className="shrink-0 border-b border-[hsl(var(--pg-danger))]/40 bg-[hsl(var(--pg-danger))]/10 px-4 py-2">
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <span>
+              <strong>🖨 Stampanti</strong> —{" "}
+              {printersDown
+                .map((p) => `${p.name}: ${p.message}${p.pendingJobs > 0 ? ` (${p.pendingJobs} in attesa)` : ""}`)
+                .join(" · ")}
+            </span>
+            <Button variant="outline" className="h-9 shrink-0" onClick={() => setShowPrintQueue(true)}>
+              Coda di stampa
+            </Button>
+          </div>
+        </div>
+      )}
       {printAlerts.length > 0 && (
-        <div className="shrink-0 space-y-1 border-b border-[hsl(var(--pg-danger))]/40 bg-[hsl(var(--pg-danger))]/10 px-4 py-2">
+        <div className="shrink-0 space-y-1 border-b border-[hsl(var(--pg-border))] px-4 py-2">
           {printAlerts.map((a) => (
-            <div key={a.id} className="flex items-start justify-between gap-2 text-sm">
+            <div
+              key={a.id}
+              className={`flex items-start justify-between gap-2 rounded-md px-2 py-1 text-sm ${
+                a.level === "error"
+                  ? "bg-[hsl(var(--pg-danger))]/10"
+                  : a.level === "warning"
+                    ? "bg-yellow-500/15"
+                    : "bg-[hsl(var(--pg-muted))]"
+              }`}
+            >
               <span>
-                <strong>⚠ Stampa non riuscita ({a.at})</strong> — {a.messages.join(" · ")}. Avvisa la
-                cucina e controlla la stampante.
+                {a.level === "error" ? (
+                  <>
+                    <strong>⚠ Stampa non riuscita ({a.at})</strong> — {a.messages.join(" · ")}. Avvisa la
+                    cucina e controlla la stampante.
+                  </>
+                ) : (
+                  <>
+                    <strong>{a.level === "warning" ? "🖨 Stampa dirottata" : "🖨 Stampa recuperata"} ({a.at})</strong>{" "}
+                    — {a.messages.join(" · ")}
+                    {a.level === "warning" ? ". Porta il ticket al reparto." : "."}
+                  </>
+                )}
               </span>
-              <Button
-                variant="outline"
-                className="h-9 shrink-0"
-                onClick={() => setPrintAlerts((prev) => prev.filter((x) => x.id !== a.id))}
-              >
-                Chiudi
-              </Button>
+              <div className="flex shrink-0 gap-2">
+                {a.level === "error" && (
+                  <Button variant="outline" className="h-9" onClick={() => setShowPrintQueue(true)}>
+                    Coda
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => setPrintAlerts((prev) => prev.filter((x) => x.id !== a.id))}
+                >
+                  Chiudi
+                </Button>
+              </div>
             </div>
           ))}
         </div>
@@ -2912,6 +2989,9 @@ export function CassaPage({
 
       {showDocumentList && operator && (
         <DocumentListModal operatorId={operator.id} onClose={() => setShowDocumentList(false)} />
+      )}
+      {showPrintQueue && (
+        <PrintQueuePanel onClose={() => setShowPrintQueue(false)} />
       )}
 
       

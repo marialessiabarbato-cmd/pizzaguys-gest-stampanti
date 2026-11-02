@@ -1,15 +1,13 @@
+import { printQueued } from "./print-queue.js";
 import type { EdgeDatabase } from "@pizzaguys/edge-db";
 import { printers } from "@pizzaguys/edge-db";
 import { buildPrebillTicket } from "@pizzaguys/escpos";
-import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { consolidateBillForTable } from "./cover-charge.js";
 import { resolveTableContext } from "./counter-order.js";
 import { getTableRuntime, setBillRequested } from "./runtime.js";
 import { reportPrintFailures } from "./print-alerts.js";
 import { broadcastTableStatus } from "./ws-hub.js";
 
-const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 export async function printTablePrebill(edgeDb: EdgeDatabase, tableId: string) {
   const ctx = resolveTableContext(tableId, edgeDb);
@@ -38,12 +36,13 @@ export async function printTablePrebill(edgeDb: EdgeDatabase, tableId: string) {
     guests: bill.coverCharge?.guestCount ?? getTableRuntime(tableId).guests,
   });
 
-  const printResult = await hardware.printEscPos(
-    printer?.id ?? "cassa",
-    payload,
-    `prebill-${tableId}`,
-    printer ? { host: printer.host, port: printer.port } : undefined,
-  );
+  const printResult = await printQueued(edgeDb, {
+    kind: "PRECONTO",
+    tableLabel: ctx.label,
+    printerId: printer?.id ?? "cassa",
+    label: `prebill-${tableId}`,
+    payload: payload,
+  });
 
   setBillRequested(tableId);
   broadcastTableStatus(tableId, "BILL_REQUESTED");

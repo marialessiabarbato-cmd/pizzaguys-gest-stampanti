@@ -1,3 +1,4 @@
+import { printQueued } from "../lib/print-queue.js";
 import { randomUUID } from "node:crypto";
 import { buildPrebillTicket } from "@pizzaguys/escpos";
 import { edgeState, printers, tables } from "@pizzaguys/edge-db";
@@ -19,7 +20,6 @@ import {
   elapsedMinutes,
   formatElapsed,
 } from "../lib/open-tables.js";
-import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
 import { consolidateBillForTable } from "../lib/cover-charge.js";
 import {
@@ -65,8 +65,6 @@ import { verifyManagerPin } from "../lib/staff-auth.js";
 import { CASH_SESSION_CLOSED, isCashSessionOpen } from "../lib/cash-session.js";
 import { broadcast, broadcastTableStatus } from "../lib/ws-hub.js";
 
-const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 type MenuSnapshot = {
   settings?: { maxDiscountPercent?: number; pinDiscountThresholdPercent?: number };
@@ -533,12 +531,13 @@ export async function posRoutes(app: FastifyInstance) {
       total: bill.total,
     });
 
-    const printResult = await hardware.printEscPos(
-      printer?.id ?? "cassa",
-      payload,
-      `prebill-${req.params.id}`,
-      printer ? { host: printer.host, port: printer.port } : undefined,
-    );
+    const printResult = await printQueued(app.edgeDb, {
+      kind: "PRECONTO",
+      tableLabel: ctx.label,
+      printerId: printer?.id ?? "cassa",
+      label: `prebill-${req.params.id}`,
+      payload: payload,
+    });
 
     setBillRequested(req.params.id);
     broadcastTableStatus(req.params.id, "BILL_REQUESTED");

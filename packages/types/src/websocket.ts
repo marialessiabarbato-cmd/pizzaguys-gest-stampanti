@@ -30,6 +30,10 @@ export type WsMessageType =
   | "PAYMENT_REJECTED"
   | "TABLE_ACCOUNT_MOVED"
   | "PRINT_FAILED"
+  /** Avviso solo per la cassa: ticket dirottato o stampato in ritardo (R3) */
+  | "PRINT_NOTICE"
+  /** Stato delle stampanti cambiato (carta, coperchio, raggiungibilità) */
+  | "PRINTER_STATUS"
   | "CASH_SESSION_STATUS"
   /** Errore nella gestione di un messaggio, con testo da mostrare */
   | "ERROR";
@@ -135,7 +139,10 @@ export type PrintJobKind =
   | "ANNULLO"
   | "PRECONTO"
   | "COPIA_SCONTRINO"
-  | "CHIUSURA_CASSA";
+  | "CHIUSURA_CASSA"
+  | "COPIA_CASSA"
+  | "PRENOTAZIONI"
+  | "TEST";
 
 /** Broadcast quando una stampa ESC/POS fallisce (stampante spenta, irraggiungibile, ...). */
 export interface PrintFailedPayload {
@@ -143,4 +150,47 @@ export interface PrintFailedPayload {
   tableLabel: string;
   /** Una riga leggibile per stampante non riuscita. */
   messages: string[];
+}
+
+/**
+ * Avviso per la cassa dalla coda di stampa:
+ * - REROUTED: stampato sulla stampante di riserva ("Comanda tavolo 5 stampata su BAR al posto di CUCINA (carta finita)")
+ * - RECOVERED: un ticket in attesa è stato stampato dopo nuovi tentativi
+ * - GAVE_UP: un ticket non è stato stampato dopo tutti i tentativi
+ */
+export interface PrintNoticePayload {
+  level: "warning" | "info" | "error";
+  event: "REROUTED" | "RECOVERED" | "GAVE_UP";
+  jobId: string;
+  kind: PrintJobKind;
+  tableLabel: string;
+  message: string;
+}
+
+export type PrinterConditionCode =
+  | "OK"
+  | "PAPER_NEAR_END"
+  | "PAPER_OUT"
+  | "COVER_OPEN"
+  | "ERROR"
+  | "UNREACHABLE"
+  | "UNKNOWN";
+
+export interface PrinterHealth {
+  printerId: string;
+  name: string;
+  workCenter: string;
+  host: string;
+  port: number;
+  condition: PrinterConditionCode;
+  message: string;
+  /** La stampante risponde ai comandi di stato (Epson e compatibili). */
+  supported: boolean;
+  checkedAt: string;
+  /** Ticket di questa stampante in attesa di nuovo tentativo. */
+  pendingJobs: number;
+}
+
+export interface PrinterStatusPayload {
+  printers: PrinterHealth[];
 }

@@ -6,6 +6,8 @@ export interface PrintResult {
   printerId: string;
   filePath?: string;
   error?: string;
+  /** Stato letto dalla stampante prima di stampare (solo stampanti di rete). */
+  condition?: import("./printer-status.js").PrinterCondition;
 }
 
 export interface ReceiptLineInput {
@@ -50,6 +52,8 @@ export interface HardwareBridge {
     label?: string,
     target?: PrintTarget,
   ): Promise<PrintResult>;
+  /** Stato della stampante (carta, coperchio, errore). Il mock risponde sempre OK. */
+  getPrinterStatus(target?: PrintTarget): Promise<import("./printer-status.js").PrinterStatus>;
   emitReceipt(order: FiscalOrderInput): Promise<ReceiptResult>;
   emitZReport(): Promise<ZReportResult>;
   openCashDrawer(): Promise<void>;
@@ -57,4 +61,8 @@ export interface HardwareBridge {
 
 export interface HardwareBridgeConfig {
   printDir: string;
+  /** Legge lo stato (DLE EOT) prima di ogni stampa. Default: true. */
+  statusCheck?: boolean;
+  /** Attesa massima della risposta di stato. Default: 800 ms. */
+  statusTimeoutMs?: number;
 }

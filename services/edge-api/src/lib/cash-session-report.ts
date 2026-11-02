@@ -1,3 +1,4 @@
+import { printQueued } from "./print-queue.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { printers, type EdgeDatabase } from "@pizzaguys/edge-db";
@@ -6,7 +7,7 @@ import {
   stripEscPos,
   type CashSessionReportRow,
 } from "@pizzaguys/escpos";
-import { createHardwareBridge, type PrintResult } from "@pizzaguys/hardware-bridge";
+import type { PrintResult } from "@pizzaguys/hardware-bridge";
 import {
   CASH_MOVEMENT_LABELS,
   CASH_SERVICE_LABELS,
@@ -16,7 +17,6 @@ import {
 import { reportPrintFailures } from "./print-alerts.js";
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 const METHOD_LABELS: Record<string, string> = {
   CASH: "Contanti",
@@ -109,12 +109,13 @@ export async function writeAndPrintCashSessionReport(
   let printResult: PrintResult | null = null;
   let printMessages: string[] = [];
   try {
-    printResult = await hardware.printEscPos(
-      printer?.id ?? "cassa",
-      ticket,
-      `cash-session-${session.service.toLowerCase()}`,
-      printer ? { host: printer.host, port: printer.port } : undefined,
-    );
+    printResult = await printQueued(db, {
+      kind: "CHIUSURA_CASSA",
+      tableLabel: `${CASH_SERVICE_LABELS[session.service]} ${formatDate(session.businessDate)}`,
+      printerId: printer?.id ?? "cassa",
+      label: `cash-session-${session.service.toLowerCase()}`,
+      payload: ticket,
+    });
     const label = `${CASH_SERVICE_LABELS[session.service]} ${formatDate(session.businessDate)}`;
     printMessages = reportPrintFailures(db, "CHIUSURA_CASSA", label, [printResult]);
   } catch (err) {

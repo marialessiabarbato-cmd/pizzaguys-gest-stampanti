@@ -1,3 +1,4 @@
+import { printQueued } from "../lib/print-queue.js";
 import { randomUUID } from "node:crypto";
 import { buildCancelTicket, buildGeneralTicket, buildKitchenTicket } from "@pizzaguys/escpos";
 import { isLinePriceValid } from "@pizzaguys/fiscal";
@@ -14,7 +15,7 @@ import {
 } from "@pizzaguys/validators";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { createHardwareBridge, type PrintResult } from "@pizzaguys/hardware-bridge";
+import type { PrintResult } from "@pizzaguys/hardware-bridge";
 import { writeEdgeAudit } from "../lib/audit.js";
 import { reportPrintFailures } from "../lib/print-alerts.js";
 import {
@@ -67,8 +68,6 @@ import {
   effectiveCapacityForTable,
 } from "../lib/table-capacity.js";
 
-const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 type MenuProduct = {
   id: string;
@@ -183,12 +182,13 @@ async function printVoidedLine(
   const printer =
     app.edgeDb.select().from(printers).where(eq(printers.workCenter, workCenter)).get() ??
     app.edgeDb.select().from(printers).where(eq(printers.workCenter, "CUCINA")).get();
-  const printResult = await hardware.printEscPos(
-    printer?.id ?? "printer-cucina",
-    payload,
-    `storno-${line.id}`,
-    printer ? { host: printer.host, port: printer.port } : undefined,
-  );
+  const printResult = await printQueued(app.edgeDb, {
+    kind: "ANNULLO",
+    tableLabel: tableLabel,
+    printerId: printer?.id ?? "printer-cucina",
+    label: `storno-${line.id}`,
+    payload: payload,
+  });
 
   const value = Math.round(line.unitPrice * qty * 100) / 100;
   recordDayStorno(app.edgeDb, new Date().toISOString().slice(0, 10), {
@@ -560,12 +560,13 @@ export async function orderRoutes(app: FastifyInstance) {
         hold,
         lines: ticketLines,
       });
-      const result = await hardware.printEscPos(
-        printer?.id ?? center.toLowerCase(),
-        payload,
-        order.id,
-        printer ? { host: printer.host, port: printer.port } : undefined,
-      );
+      const result = await printQueued(app.edgeDb, {
+        kind: "COMANDA",
+        tableLabel: ticketTableLabel,
+        printerId: printer?.id ?? center.toLowerCase(),
+        label: order.id,
+        payload: payload,
+      });
       printResults.push(result);
     }
 
@@ -581,12 +582,13 @@ export async function orderRoutes(app: FastifyInstance) {
         operatorName: order.operatorName,
         sections: generalSections.sort((a, b) => rank(a.workCenter) - rank(b.workCenter)),
       });
-      const result = await hardware.printEscPos(
-        barPrinter?.id ?? "bar",
-        payload,
-        `${order.id}-generale`,
-        barPrinter ? { host: barPrinter.host, port: barPrinter.port } : undefined,
-      );
+      const result = await printQueued(app.edgeDb, {
+        kind: "COMANDA",
+        tableLabel: ticketTableLabel,
+        printerId: barPrinter?.id ?? "bar",
+        label: `${order.id}-generale`,
+        payload: payload,
+      });
       printResults.push(result);
     }
 
@@ -781,12 +783,13 @@ export async function orderRoutes(app: FastifyInstance) {
     const printerList = app.edgeDb.select().from(printers).all();
     const barPrinter =
       printerList.find((p) => p.workCenter === "BAR" && p.enabled) ?? printerList.find((p) => p.enabled);
-    const printResult = await hardware.printEscPos(
-      barPrinter?.id ?? "bar",
-      payload,
-      `copia-cassa-${tableId}-${Date.now()}`,
-      barPrinter ? { host: barPrinter.host, port: barPrinter.port } : undefined,
-    );
+    const printResult = await printQueued(app.edgeDb, {
+      kind: "COPIA_CASSA",
+      tableLabel: tableLabel,
+      printerId: barPrinter?.id ?? "bar",
+      label: `copia-cassa-${tableId}-${Date.now()}`,
+      payload: payload,
+    });
     const printWarnings = reportPrintFailures(app.edgeDb, "COMANDA", tableLabel, [printResult]);
     return { ok: printResult.success, printWarnings };
   });
@@ -868,12 +871,13 @@ export async function orderRoutes(app: FastifyInstance) {
           lines,
         });
         printResults.push(
-          await hardware.printEscPos(
-            printer?.id ?? center.toLowerCase(),
-            payload,
-            ticket.id,
-            printer ? { host: printer.host, port: printer.port } : undefined,
-          ),
+          await printQueued(app.edgeDb, {
+            kind: "DOLCI",
+            tableLabel: resolveOrderTableLabel(app.edgeDb, parsed.data.tableId),
+            printerId: printer?.id ?? center.toLowerCase(),
+            label: ticket.id,
+            payload: payload,
+          }),
         );
       }
     }

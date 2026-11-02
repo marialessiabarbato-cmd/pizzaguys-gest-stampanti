@@ -52,6 +52,7 @@ sotto mano c'è il file locale `VARIABILI-SISTEMA.local.md`, ignorato da git (ve
 | `EDGE_DB_PATH` | ⚙️ | `./tmp/edge.sqlite` | In sviluppo lo script `dev` la fissa a `tmp/edge.sqlite` nella radice; mini PC: `/var/lib/pizzaguys/edge.sqlite` |
 | `MOCK_PRINT_DIR` | ⚙️ | `./tmp/prints` | Ticket simulati e scontrino fiscale mock |
 | `HARDWARE_BRIDGE_MODE` | ⚙️ | `mock` | `network` = ticket ESC/POS via TCP all'IP:porta di ogni stampante. Fiscale, Z e cassetto restano mock |
+| `PRINTER_STATUS_CHECK` | ⚙️ | `on` | Solo con `network`: legge lo stato della stampante (DLE EOT: carta, coperchio, errore) prima di ogni stampa e ogni 30 s. `off` se una stampante non Epson-compatibile dà problemi |
 | `RECEIPT_COPY_PRINT` | ⚙️ | `false` | `true` = copia non fiscale dello scontrino sulla stampante Bar a ogni incasso |
 
 Il **token API della sede** non è una variabile: lo genera il Cloud (Sedi → Rigenera token), si incolla

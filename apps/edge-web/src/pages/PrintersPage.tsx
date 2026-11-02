@@ -1,6 +1,8 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@pizzaguys/ui";
 import { useEffect, useState } from "react";
+import type { PrinterHealth } from "@pizzaguys/types";
 import { edgeApi } from "@/lib/api";
+import { PrinterHealthList, PrintQueueList } from "@/components/PrintQueuePanel";
 
 interface Printer {
   id: string;
@@ -9,6 +11,7 @@ interface Printer {
   host: string;
   port: number;
   enabled: boolean;
+  fallbackPrinterId: string | null;
 }
 
 type Draft = { host: string; port: string };
@@ -21,6 +24,38 @@ export function PrintersPage() {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [health, setHealth] = useState<PrinterHealth[]>([]);
+
+  const loadHealth = async (refresh = false) => {
+    const res = await edgeApi<{ printers: PrinterHealth[] }>(`/api/printers/status${refresh ? "?refresh=1" : ""}`);
+    setHealth(res.printers);
+  };
+
+  useEffect(() => {
+    void loadHealth().catch(() => undefined);
+    const id = setInterval(() => void loadHealth().catch(() => undefined), 10_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const setFallback = async (p: Printer, fallbackPrinterId: string) => {
+    try {
+      await edgeApi(`/api/printers/${p.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ fallbackPrinterId: fallbackPrinterId || null }),
+      });
+      const fb = printers.find((x) => x.id === fallbackPrinterId);
+      const sameAddress = fb && fb.host === p.host && fb.port === p.port;
+      setMessage({
+        text: fb
+          ? `${p.name}: se è ferma i ticket escono su ${fb.name}${sameAddress ? " — attenzione: è la stessa stampante (stesso IP), la riserva non servirà finché non ha un IP diverso" : ""}`
+          : `${p.name}: nessuna stampante di riserva`,
+        error: !!sameAddress,
+      });
+      await load();
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Errore salvataggio", error: true });
+    }
+  };
 
   const load = async () => {
     const list = await edgeApi<Printer[]>("/api/printers");
@@ -111,6 +146,19 @@ export function PrintersPage() {
           {message.text}
         </p>
       )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between text-base">
+            <span>Stato</span>
+            <Button variant="outline" className="h-9" onClick={() => void loadHealth(true)}>
+              Controlla ora
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PrinterHealthList printers={health} />
+        </CardContent>
+      </Card>
       <div className="grid gap-3 md:grid-cols-2">
         {printers.map((p) => {
           const d = drafts[p.id] ?? { host: p.host, port: String(p.port) };
@@ -148,6 +196,26 @@ export function PrintersPage() {
                     />
                   </label>
                 </div>
+                <label className="block space-y-1">
+                  <span className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    Stampante di riserva (se questa è ferma: carta finita, spenta…)
+                  </span>
+                  <select
+                    className={inputClass}
+                    aria-label={`Stampante di riserva per ${p.name}`}
+                    value={p.fallbackPrinterId ?? ""}
+                    onChange={(e) => void setFallback(p, e.target.value)}
+                  >
+                    <option value="">Nessuna (i ticket restano in attesa e si ritentano)</option>
+                    {printers
+                      .filter((x) => x.id !== p.id)
+                      .map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.name} ({x.host}:{x.port}){x.enabled ? "" : " · disattivata"}
+                        </option>
+                      ))}
+                  </select>
+                </label>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     disabled={!isDirty(p) || busy !== null}
@@ -178,6 +246,14 @@ export function PrintersPage() {
           );
         })}
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Coda di stampa (ultimi 7 giorni)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PrintQueueList compact />
+        </CardContent>
+      </Card>
     </div>
   );
 }

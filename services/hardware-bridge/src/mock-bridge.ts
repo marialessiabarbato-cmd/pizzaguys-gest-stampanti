@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createMockReceipt } from "@pizzaguys/fiscal";
+import { makeStatus, type PrinterStatus } from "./printer-status.js";
 import type {
   FiscalOrderInput,
   HardwareBridge,
@@ -34,6 +35,10 @@ export class MockHardwareBridge implements HardwareBridge {
         error: err instanceof Error ? err.message : "Print failed",
       };
     }
+  }
+
+  async getPrinterStatus(): Promise<PrinterStatus> {
+    return makeStatus("OK", false);
   }
 
   async emitReceipt(order: FiscalOrderInput): Promise<ReceiptResult> {

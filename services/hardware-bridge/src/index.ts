@@ -7,6 +7,14 @@ export type {
   ReceiptResult,
   ZReportResult,
 } from "./types.js";
+export {
+  CONDITION_MESSAGES,
+  isBlocking,
+  makeStatus,
+  parseStatusBytes,
+  type PrinterCondition,
+  type PrinterStatus,
+} from "./printer-status.js";
 export { MockHardwareBridge } from "./mock-bridge.js";
 export { NetworkHardwareBridge } from "./network-bridge.js";
 
@@ -21,5 +29,8 @@ import type { HardwareBridge, HardwareBridgeConfig } from "./types.js";
  */
 export function createHardwareBridge(config: HardwareBridgeConfig): HardwareBridge {
   const mode = process.env.HARDWARE_BRIDGE_MODE ?? "mock";
-  return mode === "network" ? new NetworkHardwareBridge(config) : new MockHardwareBridge(config);
+  const statusCheck = config.statusCheck ?? process.env.PRINTER_STATUS_CHECK !== "off";
+  return mode === "network"
+    ? new NetworkHardwareBridge({ ...config, statusCheck })
+    : new MockHardwareBridge(config);
 }

@@ -4,16 +4,16 @@ import { categoryRouting, printers } from "@pizzaguys/edge-db";
 import {
   categoryRoutingSchema,
   createPrinterSchema,
+  reprintJobSchema,
   updatePrinterSchema,
 } from "@pizzaguys/validators";
-import { eq } from "drizzle-orm";
+import { printJobs } from "@pizzaguys/edge-db";
+import { desc, eq, inArray, ne } from "drizzle-orm";
+import { cancelJob, reprintJob, retryNowForPrinter } from "../lib/print-queue.js";
+import { checkPrinters, getPrinterHealth } from "../lib/printer-monitor.js";
 import type { FastifyInstance } from "fastify";
 import { requireUserAdmin } from "../lib/operator-sessions.js";
-import { friendlyReason } from "../lib/print-alerts.js";
-import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
-
-const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
+import { friendlyReason, sendToPrinter } from "../lib/print-queue.js";
 
 export async function printerRoutes(app: FastifyInstance) {
   const admin = requireUserAdmin(app.edgeDb);
@@ -34,6 +34,7 @@ export async function printerRoutes(app: FastifyInstance) {
       host: parsed.data.host ?? "127.0.0.1",
       port: parsed.data.port ?? 9100,
       enabled: parsed.data.enabled ?? true,
+      fallbackPrinterId: parsed.data.fallbackPrinterId ?? null,
       createdAt: new Date().toISOString(),
     };
     app.edgeDb.insert(printers).values(row).run();
@@ -49,6 +50,17 @@ export async function printerRoutes(app: FastifyInstance) {
         .status(400)
         .send({ error: first ?? "Dati non validi", details: parsed.error.flatten() });
     }
+    if (parsed.data.fallbackPrinterId) {
+      if (parsed.data.fallbackPrinterId === req.params.id) {
+        return reply.status(400).send({ error: "La stampante di riserva deve essere un'altra stampante" });
+      }
+      const fb = app.edgeDb
+        .select()
+        .from(printers)
+        .where(eq(printers.id, parsed.data.fallbackPrinterId))
+        .get();
+      if (!fb) return reply.status(400).send({ error: "Stampante di riserva non trovata" });
+    }
     const updated = app.edgeDb
       .update(printers)
       .set(parsed.data)
@@ -57,6 +69,76 @@ export async function printerRoutes(app: FastifyInstance) {
       .get();
     if (!updated) return reply.status(404).send({ error: "Stampante non trovata" });
     return updated;
+  });
+
+  /** Stato di ogni stampante (carta, coperchio, raggiungibilità) e ticket in attesa. */
+  app.get("/api/printers/status", async (req) => {
+    const refresh = (req.query as { refresh?: string } | undefined)?.refresh === "1";
+    if (refresh) await checkPrinters(app.edgeDb);
+    return { printers: getPrinterHealth(app.edgeDb) };
+  });
+
+  /** Coda di stampa: ultimi ticket (default 50), filtrabili per stato. */
+  app.get<{ Querystring: { status?: string; limit?: string } }>("/api/print-jobs", async (req) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const statuses = req.query.status?.split(",").filter(Boolean) as
+      | (typeof printJobs.$inferSelect.status)[]
+      | undefined;
+    const rows = app.edgeDb
+      .select({
+        id: printJobs.id,
+        kind: printJobs.kind,
+        tableLabel: printJobs.tableLabel,
+        printerId: printJobs.printerId,
+        printerName: printJobs.printerName,
+        printedOnId: printJobs.printedOnId,
+        printedOnName: printJobs.printedOnName,
+        status: printJobs.status,
+        attempts: printJobs.attempts,
+        lastError: printJobs.lastError,
+        nextAttemptAt: printJobs.nextAttemptAt,
+        createdAt: printJobs.createdAt,
+        printedAt: printJobs.printedAt,
+        reprintOf: printJobs.reprintOf,
+      })
+      .from(printJobs)
+      .where(
+        statuses && statuses.length > 0
+          ? inArray(printJobs.status, statuses)
+          : ne(printJobs.kind, "TEST"),
+      )
+      .orderBy(desc(printJobs.createdAt))
+      .limit(limit)
+      .all();
+    return { jobs: rows };
+  });
+
+  /** Ristampa qualsiasi ticket della coda (anche su un'altra stampante). */
+  app.post<{ Params: { id: string } }>("/api/print-jobs/:id/reprint", async (req, reply) => {
+    const parsed = reprintJobSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.status(400).send({ error: "Dati non validi" });
+    const result = await reprintJob(app.edgeDb, req.params.id, parsed.data.printerId);
+    if (!result) return reply.status(404).send({ error: "Ticket non trovato" });
+    return {
+      ok: result.success,
+      status: result.status,
+      jobId: result.jobId,
+      reroutedTo: result.reroutedTo,
+      error: result.success ? undefined : friendlyReason(result.error, result.condition),
+    };
+  });
+
+  /** Toglie dalla coda un ticket in attesa. */
+  app.post<{ Params: { id: string } }>("/api/print-jobs/:id/cancel", async (req, reply) => {
+    if (!cancelJob(app.edgeDb, req.params.id)) {
+      return reply.status(409).send({ error: "Il ticket non è più in attesa" });
+    }
+    return { ok: true };
+  });
+
+  /** Ritenta subito i ticket in attesa di una stampante (es. dopo aver cambiato la carta). */
+  app.post<{ Params: { id: string } }>("/api/printers/:id/retry", async (req) => {
+    return { ok: true, retried: retryNowForPrinter(app.edgeDb, req.params.id) };
   });
 
   app.post<{ Params: { id: string } }>("/api/printers/:id/test", async (req, reply) => {
@@ -74,11 +156,11 @@ export async function printerRoutes(app: FastifyInstance) {
       operatorName: "Edge",
       lines: [{ name: "Stampa di prova", quantity: 1 }],
     });
-    const result = await hardware.printEscPos(printer.id, payload, "test", {
-      host: printer.host,
-      port: printer.port,
-    });
-    return reply.send(result.success ? result : { ...result, error: friendlyReason(result.error) });
+    // La prova va diretta alla stampante (niente coda né riserva): serve a capire se risponde
+    const result = await sendToPrinter(printer.id, printer, payload, "test");
+    return reply.send(
+      result.success ? result : { ...result, error: friendlyReason(result.error, result.condition) },
+    );
   });
 
   app.post("/api/print/test", async (_req, reply) => {
@@ -91,12 +173,7 @@ export async function printerRoutes(app: FastifyInstance) {
       operatorName: "Test",
       lines: [{ name: "Margherita", quantity: 1 }],
     });
-    const result = await hardware.printEscPos(
-      printer?.id ?? "pizzeria",
-      payload,
-      "test",
-      printer ? { host: printer.host, port: printer.port } : undefined,
-    );
+    const result = await sendToPrinter(printer?.id ?? "pizzeria", printer, payload, "test");
     return reply.send(result);
   });
 

@@ -69,6 +69,7 @@ export function CassaHeader({
   onOpenTables,
   onReservations,
   onDocumentList,
+  onPrintQueue,
   onClosureHistory,
   onClosureDay,
   onInternalClosure,
@@ -99,6 +100,8 @@ export function CassaHeader({
   onOpenTables: () => void;
   onReservations: () => void;
   onDocumentList: () => void;
+  /** Coda di stampa: ticket in attesa, dirottati, ristampa (R3). */
+  onPrintQueue: () => void;
   onClosureHistory: () => void;
   onClosureDay: () => void;
   onInternalClosure: () => void;
@@ -201,6 +204,7 @@ export function CassaHeader({
         <HeaderMenu label="Account" variant="ghost" align="right">
           <HeaderMenuItem onClick={onProfile}>Profilo</HeaderMenuItem>
           <HeaderMenuItem onClick={onOperatorShifts}>Operatori in turno</HeaderMenuItem>
+          <HeaderMenuItem onClick={onPrintQueue}>Coda di stampa</HeaderMenuItem>
           {canManage && (
             <>
               <HeaderMenuItem onClick={onDocumentList}>Lista documenti</HeaderMenuItem>

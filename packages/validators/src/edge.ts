@@ -50,9 +50,16 @@ export const createPrinterSchema = z.object({
   host: printerHostSchema.optional(),
   port: z.number().int().min(1).max(65535).optional(),
   enabled: z.boolean().optional(),
+  /** Stampante di riserva (stesso Edge); null per toglierla. */
+  fallbackPrinterId: z.string().min(1).nullable().optional(),
 });
 
 export const updatePrinterSchema = createPrinterSchema.partial();
+
+export const reprintJobSchema = z.object({
+  /** Stampante su cui ristampare; se assente quella originale. */
+  printerId: z.string().min(1).optional(),
+});
 
 export const categoryRoutingSchema = z.object({
   categoryId: z.string().uuid(),

@@ -81,7 +81,7 @@
 | T15 | ✅ ~~`*.tsbuildinfo` tracciati in git~~ — risolto (nessuno tracciato) | Rumore nei diff |
 | T16 | Redis avviato da Docker ma non usato dal codice (`REDIS_URL` non letta) | Rimuovere o pianificarne l'uso |
 | T17 | Integrazione RT Micrelec Hydra SF20 (T7.1) | Scontrino fiscale e Z reali |
-| T18 | Stato stampante (carta finita, coperchio aperto) via comandi ESC/POS di stato | Diagnostica in cassa |
+| T18 | ✅ ~~Stato stampante (carta finita, coperchio aperto) via comandi ESC/POS di stato~~ — fatto 2/11 con il piano rete R3: coda di stampa, stato DLE EOT, stampante di riserva | Diagnostica in cassa |
 | T29 | Aggiornare le action della CI (`checkout`, `setup-node`, `pnpm/action-setup` su Node 20, deprecato) e verificare il passaggio di `ubuntu-latest` a Ubuntu 26 (dal 19/10) | Avvisi nella CI del 14/10 |
 
 ---

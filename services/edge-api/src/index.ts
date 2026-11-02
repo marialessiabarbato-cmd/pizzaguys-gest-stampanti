@@ -4,6 +4,8 @@ import { deviceRoutes } from "./routes/devices.js";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { startHeartbeatLoop } from "./lib/heartbeat.js";
+import { startPrintQueue } from "./lib/print-queue.js";
+import { startPrinterMonitor } from "./lib/printer-monitor.js";
 import { registerRuntimePersistence, restoreRuntimeState } from "./lib/runtime-persistence.js";
 import dbPlugin from "./plugins/db.js";
 import { invoiceCustomerRoutes } from "./routes/invoice-customers.js";
@@ -63,6 +65,9 @@ await deviceRoutes(app);
 registerWebSocket(app, clients);
 
 startHeartbeatLoop(app);
+// R3: ticket in attesa ritentati da soli, stato delle stampanti ogni 30 s
+startPrintQueue(app.edgeDb);
+startPrinterMonitor(app.edgeDb);
 
 try {
   await app.listen({ port: PORT, host: HOST });

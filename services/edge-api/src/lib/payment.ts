@@ -1,3 +1,4 @@
+import { printQueued } from "./print-queue.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -73,17 +74,23 @@ async function printReceiptCopy(
 }
 
 /** Copia non fiscale (testo dello scontrino) sulla stampante Bar, o sulla prima attiva. */
-export async function printNonFiscalCopy(edgeDb: EdgeDatabase, receiptText: string, jobId: string) {
+export async function printNonFiscalCopy(
+  edgeDb: EdgeDatabase,
+  receiptText: string,
+  jobId: string,
+  tableLabel = "",
+) {
   const printer =
     edgeDb.select().from(printers).all().find((p) => p.enabled && p.workCenter === "BAR") ??
     edgeDb.select().from(printers).all().find((p) => p.enabled);
   const payload = buildReceiptCopyTicket({ receiptText });
-  return hardware.printEscPos(
-    printer?.id ?? "cassa",
-    payload,
-    jobId,
-    printer ? { host: printer.host, port: printer.port } : undefined,
-  );
+  return printQueued(edgeDb, {
+    kind: "COPIA_SCONTRINO",
+    tableLabel: tableLabel,
+    printerId: printer?.id ?? "cassa",
+    label: jobId,
+    payload: payload,
+  });
 }
 
 export interface ExecutePaymentParams {

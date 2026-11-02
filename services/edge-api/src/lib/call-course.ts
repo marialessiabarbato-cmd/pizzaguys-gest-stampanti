@@ -1,9 +1,10 @@
+import { printQueued } from "./print-queue.js";
 import { randomUUID } from "node:crypto";
 import { buildCallCourseTicket } from "@pizzaguys/escpos";
 import { printers, tables } from "@pizzaguys/edge-db";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { createHardwareBridge, type PrintResult } from "@pizzaguys/hardware-bridge";
+import type { PrintResult } from "@pizzaguys/hardware-bridge";
 import { broadcastKdsUpdate } from "./kds-broadcast.js";
 import {
   callCourse,
@@ -13,8 +14,6 @@ import { reportPrintFailures } from "./print-alerts.js";
 import { createWorkCenterResolver } from "./work-center.js";
 import { broadcast } from "./ws-hub.js";
 
-const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 export function groupLinesByCenter(
   tickets: KdsTicket[],
@@ -59,12 +58,13 @@ export async function processCallCourse(
         guests: guestCount,
         lines,
       });
-      const result = await hardware.printEscPos(
-        printer?.id ?? center.toLowerCase(),
-        payload,
-        `call-${tableId}-${course}`,
-        printer ? { host: printer.host, port: printer.port } : undefined,
-      );
+      const result = await printQueued(app.edgeDb, {
+        kind: "MARCIA",
+        tableLabel: table?.label ?? tableId,
+        printerId: printer?.id ?? center.toLowerCase(),
+        label: `call-${tableId}-${course}`,
+        payload: payload,
+      });
       printResults.push(result);
     }
   }

@@ -1,9 +1,9 @@
+import { printQueued } from "./print-queue.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildReservationsListTicket } from "@pizzaguys/escpos";
 import { edgeState, printers, reservations, rooms, tables, type EdgeDatabase } from "@pizzaguys/edge-db";
-import { createHardwareBridge } from "@pizzaguys/hardware-bridge";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { openTableWithGuests } from "./runtime.js";
 import { broadcastTableStatus } from "./ws-hub.js";
@@ -402,7 +402,6 @@ const STATUS_PRINT_LABEL: Record<ReservationStatus, string> = {
 };
 
 const PRINT_DIR = process.env.MOCK_PRINT_DIR ?? "./tmp/prints";
-const hardware = createHardwareBridge({ printDir: PRINT_DIR });
 
 export async function printReservationsList(
   db: EdgeDatabase,
@@ -435,12 +434,13 @@ export async function printReservationsList(
     db.select().from(printers).all().find((p) => p.enabled && p.workCenter === "BAR") ??
     db.select().from(printers).all().find((p) => p.enabled);
 
-  const printResult = await hardware.printEscPos(
-    printer?.id ?? "cassa",
-    payload,
-    "reservations-list",
-    printer ? { host: printer.host, port: printer.port } : undefined,
-  );
+  const printResult = await printQueued(db, {
+    kind: "PRENOTAZIONI",
+    tableLabel: "Lista prenotazioni",
+    printerId: printer?.id ?? "cassa",
+    label: "reservations-list",
+    payload: payload,
+  });
 
   await mkdir(PRINT_DIR, { recursive: true });
   const txtPath = join(PRINT_DIR, `${Date.now()}-reservations.txt`);

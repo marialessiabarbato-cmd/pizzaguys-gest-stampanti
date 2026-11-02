@@ -105,7 +105,12 @@ export async function fiscalDocumentRoutes(app: FastifyInstance) {
 
     // Lo scontrino fiscale è ancora simulato: la ristampa esce come copia non fiscale sulla
     // stampante Bar (prima veniva solo scritta su file e in sala non usciva nulla).
-    const printResult = await printNonFiscalCopy(app.edgeDb, text, `reprint-${doc.id}-${stamp}`);
+    const printResult = await printNonFiscalCopy(
+      app.edgeDb,
+      text,
+      `reprint-${doc.id}-${stamp}`,
+      String(doc.meta?.tableLabel ?? doc.documentNumber ?? ""),
+    );
     const printWarnings = reportPrintFailures(
       app.edgeDb,
       "COPIA_SCONTRINO",
@@ -138,7 +143,12 @@ export async function fiscalDocumentRoutes(app: FastifyInstance) {
       const txtPath = join(PRINT_DIR, `${stamp}-proforma-${doc.id}.txt`);
       const text = formatProformaInvoiceText(doc, state?.locationName ?? undefined);
       await writeFile(txtPath, text, "utf8");
-      const printResult = await printNonFiscalCopy(app.edgeDb, text, `proforma-${doc.id}-${stamp}`);
+      const printResult = await printNonFiscalCopy(
+        app.edgeDb,
+        text,
+        `proforma-${doc.id}-${stamp}`,
+        String(doc.meta?.tableLabel ?? doc.documentNumber ?? ""),
+      );
       const printWarnings = reportPrintFailures(
         app.edgeDb,
         "COPIA_SCONTRINO",
