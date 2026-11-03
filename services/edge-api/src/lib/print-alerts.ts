@@ -23,11 +23,23 @@ export function reportPrintFailures(
   if (failed.length === 0) return [];
 
   const printerList = edgeDb.select().from(printers).all();
-  const messages = failed.map((r) => {
+  // Stesso motivo e stesso indirizzo (es. una sola stampante per tutti i reparti, spenta):
+  // un messaggio solo con l'elenco dei reparti, invece di uno per ticket.
+  const groups = new Map<string, { names: string[]; address: string; reason: string; retry: boolean }>();
+  for (const r of failed) {
     const printer = printerList.find((p) => p.id === r.printerId);
-    const where = printer ? `${printer.name} (${printer.host}:${printer.port})` : r.printerId;
-    const retry = r.willRetry ? " — nuovo tentativo automatico appena la stampante è pronta" : "";
-    return `${kindLabel(kind)} ${jobSubject(kind, tableLabel)} non stampata su ${where}: ${friendlyReason(r.error, r.condition)}${retry}`;
+    const address = printer ? `${printer.host}:${printer.port}` : "";
+    const reason = friendlyReason(r.error, r.condition);
+    const key = `${address}|${reason}|${r.willRetry ? 1 : 0}`;
+    const g = groups.get(key) ?? { names: [], address, reason, retry: !!r.willRetry };
+    const name = printer?.name ?? r.printerId;
+    if (!g.names.includes(name)) g.names.push(name);
+    groups.set(key, g);
+  }
+  const messages = [...groups.values()].map((g) => {
+    const where = `${g.names.join(", ")}${g.address ? ` (${g.address})` : ""}`;
+    const retry = g.retry ? ". Nuovo tentativo automatico appena la stampante è pronta" : "";
+    return `${kindLabel(kind)} ${jobSubject(kind, tableLabel)} non stampata su ${where}: ${g.reason}${retry}`;
   });
 
   broadcast({

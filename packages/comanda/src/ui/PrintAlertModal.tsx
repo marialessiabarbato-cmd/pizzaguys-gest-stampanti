@@ -4,8 +4,9 @@ import { BottomSheet, bottomSheetFooterClass } from "./BottomSheet";
 /** Avviso bloccante: la stampa in cucina/bar non è uscita (stampante spenta, carta, rete). */
 export function PrintAlertModal({ messages, onClose }: { messages: string[]; onClose: () => void }) {
   return (
-    <BottomSheet maxHeightClass="max-h-[70dvh]" zClass="z-[70]">
-      <div className="px-4 pb-2 pt-1">
+    <BottomSheet maxHeightClass="max-h-[80dvh]" zClass="z-[70]" onDismiss={onClose}>
+      {/* Il testo scorre, il pulsante resta sempre visibile anche con molti messaggi */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-1">
         <h2 className="text-lg font-bold text-[hsl(var(--pg-danger))]">⚠ Stampa non riuscita</h2>
         <ul className="mt-2 space-y-1 text-sm">
           {messages.map((m) => (
@@ -17,7 +18,7 @@ export function PrintAlertModal({ messages, onClose }: { messages: string[]; onC
           (accesa, carta, cavo di rete).
         </p>
       </div>
-      <div className={bottomSheetFooterClass}>
+      <div className={`${bottomSheetFooterClass} shrink-0`}>
         <Button className="min-h-12 flex-1" onClick={onClose}>
           Ho capito
         </Button>

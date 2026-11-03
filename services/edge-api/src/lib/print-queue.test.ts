@@ -123,7 +123,7 @@ describe("coda di stampa", () => {
     expect(job(r.jobId).status).toBe("RETRYING");
     const msg = reportPrintFailures(db, "COMANDA", "5", [r]);
     expect(msg[0]).toContain("coperchio aperto");
-    expect(msg[0]).toContain("nuovo tentativo automatico");
+    expect(msg[0]).toMatch(/nuovo tentativo automatico/i);
 
     // ancora giù: secondo tentativo fallito, resta in attesa
     makeDue();
@@ -136,6 +136,17 @@ describe("coda di stampa", () => {
     expect(await processRetries(db)).toBe(1);
     expect(job(r.jobId).status).toBe("PRINTED");
     expect(bridge.printed).toHaveLength(1);
+  });
+
+  it("stessa stampante ferma per più reparti: un solo messaggio", async () => {
+    db.update(printers).set({ host: "10.0.0.9", fallbackPrinterId: null }).run();
+    bridge.conditions.set("10.0.0.9", "UNREACHABLE");
+    const a = await printQueued(db, ticket);
+    const b = await printQueued(db, { ...ticket, printerId: "bar" });
+    const c2 = await printQueued(db, { ...ticket, printerId: "bar", label: "generale" });
+    const msg = reportPrintFailures(db, "COMANDA", "t7", [a, b, c2]);
+    expect(msg).toHaveLength(1);
+    expect(msg[0]).toContain("Cucina, Bar (10.0.0.9:9100)");
   });
 
   it("dopo un riavvio i ticket rimasti in invio tornano in attesa", async () => {
