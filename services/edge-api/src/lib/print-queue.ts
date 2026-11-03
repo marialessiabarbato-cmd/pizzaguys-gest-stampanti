@@ -108,15 +108,62 @@ function targetOf(p: PrinterRow | undefined): PrintTarget | undefined {
   return p ? { host: p.host, port: p.port } : undefined;
 }
 
+// ── Indirizzi non raggiungibili ─────────────────────────────────────────────
+// Una stampante spenta costa un'attesa di connessione per ogni ticket. Se più reparti
+// usano lo stesso indirizzo, una comanda ne genera 4 in fila: il palmare scadeva (20 s)
+// e teneva i piatti in bozza anche se l'ordine era registrato. Per un indirizzo appena
+// visto irraggiungibile i nuovi ticket vanno subito in attesa, senza riprovare la rete:
+// ci pensano il controllo ogni 30 s e i nuovi tentativi della coda.
+
+const UNREACHABLE_MEMORY_MS = 35_000;
+const unreachableSince = new Map<string, { at: number; error?: string }>();
+
+function addressKey(t: PrintTarget) {
+  return `${t.host}:${t.port}`;
+}
+
+function noteReachability(target: PrintTarget | undefined, result: { success: boolean; condition?: string; error?: string }) {
+  if (!target) return;
+  const key = addressKey(target);
+  if (result.success || (result.condition && result.condition !== "UNREACHABLE")) unreachableSince.delete(key);
+  else if (result.condition === "UNREACHABLE") unreachableSince.set(key, { at: Date.now(), error: result.error });
+}
+
+/** L'indirizzo è stato visto irraggiungibile da poco: inutile aspettare di nuovo il timeout. */
+export function isKnownUnreachable(printer: PrinterRow | undefined): { error?: string } | null {
+  const target = targetOf(printer);
+  if (!target) return null;
+  const hit = unreachableSince.get(addressKey(target));
+  if (!hit || Date.now() - hit.at > UNREACHABLE_MEMORY_MS) return null;
+  return hit;
+}
+
 /** Una prova su una stampante, in fila con gli altri accessi alla stessa. */
 export async function sendToPrinter(
   printerId: string,
   printer: PrinterRow | undefined,
   payload: Buffer,
   label: string,
+  options: { skipKnownUnreachable?: boolean } = {},
 ): Promise<PrintResult> {
   const target = targetOf(printer);
-  const result = await withPrinterLock(target, () => hardware.printEscPos(printerId, payload, label, target));
+  if (options.skipKnownUnreachable) {
+    const known = isKnownUnreachable(printer);
+    if (known) {
+      return { success: false, printerId, condition: "UNREACHABLE", error: known.error ?? "Timeout" };
+    }
+  }
+  const result = await withPrinterLock(target, async () => {
+    // Mentre si aspettava il proprio turno un altro ticket può aver scoperto che è spenta
+    if (options.skipKnownUnreachable) {
+      const known = isKnownUnreachable(printer);
+      if (known) {
+        return { success: false, printerId, condition: "UNREACHABLE" as const, error: known.error ?? "Timeout" };
+      }
+    }
+    return hardware.printEscPos(printerId, payload, label, target);
+  });
+  noteReachability(target, result);
   if (printer) rememberCondition(printer.id, result.condition, result.success);
   return result;
 }
@@ -194,6 +241,8 @@ async function attempt(
   printerId: string,
   payload: Buffer,
   label: string,
+  /** true per le stampe dal vivo (comande): non si aspetta una stampante appena vista spenta. */
+  live = false,
 ): Promise<AttemptOutcome> {
   const primary = findPrinter(edgeDb, printerId);
   const fallback = resolveFallback(edgeDb, primary);
@@ -205,7 +254,9 @@ async function attempt(
 
   let primaryResult: PrintResult | undefined;
   if (!recentlyUnreachable) {
-    primaryResult = await sendToPrinter(primary?.id ?? printerId, primary, payload, label);
+    primaryResult = await sendToPrinter(primary?.id ?? printerId, primary, payload, label, {
+      skipKnownUnreachable: live,
+    });
     if (primaryResult.success) {
       return { status: "PRINTED", result: primaryResult, printedOn: primary, primary };
     }
@@ -215,7 +266,7 @@ async function attempt(
     : CONDITION_MESSAGES.UNREACHABLE;
 
   if (fallback) {
-    const fbResult = await sendToPrinter(fallback.id, fallback, payload, label);
+    const fbResult = await sendToPrinter(fallback.id, fallback, payload, label, { skipKnownUnreachable: live });
     if (fbResult.success) {
       return { status: "REROUTED", result: fbResult, printedOn: fallback, primary, primaryError };
     }
@@ -260,7 +311,7 @@ export async function printQueued(edgeDb: EdgeDatabase, input: QueuedPrintInput)
     })
     .run();
 
-  const outcome = await attempt(edgeDb, input.printerId, input.payload, input.label);
+  const outcome = await attempt(edgeDb, input.printerId, input.payload, input.label, true);
   const done = new Date().toISOString();
 
   if (outcome.status === "PRINTED" || outcome.status === "REROUTED") {
@@ -346,12 +397,19 @@ export async function processRetries(edgeDb: EdgeDatabase): Promise<number> {
       .orderBy(printJobs.createdAt)
       .all();
 
+    // Un solo tentativo vero per indirizzo a ogni giro: se la stampante è ancora spenta
+    // gli altri ticket per lo stesso indirizzo restano in attesa senza altri timeout.
+    const triedAddresses = new Set<string>();
     for (const job of due) {
       // Il ticket potrebbe essere stato annullato o ristampato nel frattempo
       const current = edgeDb.select().from(printJobs).where(eq(printJobs.id, job.id)).get();
       if (!current || current.status !== "RETRYING") continue;
 
-      const outcome = await attempt(edgeDb, job.printerId, job.payload, job.label);
+      const jobPrinter = findPrinter(edgeDb, job.printerId);
+      const jobTarget = targetOf(jobPrinter);
+      const key = jobTarget ? addressKey(jobTarget) : job.printerId;
+      const outcome = await attempt(edgeDb, job.printerId, job.payload, job.label, triedAddresses.has(key));
+      triedAddresses.add(key);
       const attempts = job.attempts + 1;
       const at = new Date().toISOString();
       const waited = minutesSince(job.createdAt);
@@ -535,6 +593,7 @@ export function countPendingByPrinter(edgeDb: EdgeDatabase): Map<string, number>
 export async function readPrinterStatus(printer: PrinterRow): Promise<PrinterStatus> {
   const target = targetOf(printer);
   const status = await withPrinterLock(target, () => hardware.getPrinterStatus(target));
+  noteReachability(target, { success: status.condition !== "UNREACHABLE", condition: status.condition });
   lastKnown.set(printer.id, status);
   return status;
 }
@@ -543,4 +602,5 @@ export async function readPrinterStatus(printer: PrinterRow): Promise<PrinterSta
 export function setPrintBridgeForTest(bridge: HardwareBridge) {
   hardware = bridge;
   lastKnown.clear();
+  unreachableSince.clear();
 }

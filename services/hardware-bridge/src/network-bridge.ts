@@ -17,7 +17,8 @@ import type {
   ZReportResult,
 } from "./types.js";
 
-const CONNECT_TIMEOUT_MS = 4000;
+// Stampanti in rete locale: rispondono in millisecondi; oltre 2,5 s sono spente o con IP errato
+const CONNECT_TIMEOUT_MS = 2500;
 const DEFAULT_STATUS_TIMEOUT_MS = 800;
 
 function connect(target: PrintTarget): Promise<Socket> {

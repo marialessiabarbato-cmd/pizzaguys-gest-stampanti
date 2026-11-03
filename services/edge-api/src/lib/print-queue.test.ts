@@ -26,8 +26,10 @@ import { reportPrintFailures } from "./print-alerts.js";
 class FakeBridge implements HardwareBridge {
   conditions = new Map<string, PrinterCondition>();
   printed: { host: string; label: string }[] = [];
+  calls = 0;
 
   async printEscPos(printerId: string, _payload: Buffer, label = "t", target?: PrintTarget): Promise<PrintResult> {
+    this.calls++;
     const host = target?.host ?? "mock";
     const condition = this.conditions.get(host) ?? "OK";
     if (condition !== "OK") {
@@ -147,6 +149,24 @@ describe("coda di stampa", () => {
     const msg = reportPrintFailures(db, "COMANDA", "t7", [a, b, c2]);
     expect(msg).toHaveLength(1);
     expect(msg[0]).toContain("Cucina, Bar (10.0.0.9:9100)");
+  });
+
+  it("stampante spenta: i ticket successivi non riaspettano il timeout", async () => {
+    db.update(printers).set({ host: "10.0.0.9", fallbackPrinterId: null }).run();
+    bridge.conditions.set("10.0.0.9", "UNREACHABLE");
+    await printQueued(db, ticket);
+    await printQueued(db, { ...ticket, printerId: "bar" });
+    await printQueued(db, { ...ticket, printerId: "bar", label: "generale" });
+    // solo il primo ticket ha provato la rete, gli altri sono andati subito in attesa
+    expect(bridge.calls).toBe(1);
+    // il giro dei nuovi tentativi prova la rete una volta per indirizzo
+    makeDue();
+    await processRetries(db);
+    expect(bridge.calls).toBe(2);
+    // stampante riaccesa: al giro successivo escono tutti
+    bridge.conditions.clear();
+    makeDue();
+    expect(await processRetries(db)).toBe(3);
   });
 
   it("dopo un riavvio i ticket rimasti in invio tornano in attesa", async () => {
