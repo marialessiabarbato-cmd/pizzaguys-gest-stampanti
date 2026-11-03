@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EU_ALLERGENS } from "../allergens";
 import { fuzzyMatch, localized, resolvePrice } from "../menu";
 import type { Category, LastAddedLine, MenuSnapshot, Product } from "../types";
@@ -18,6 +18,7 @@ export function MenuPanel({
   cartQtyByProduct = {},
   lastAdded = null,
   variant = "list",
+  compactFilters = false,
 }: {
   menu: MenuSnapshot;
   categories: Category[];
@@ -35,6 +36,12 @@ export function MenuPanel({
   lastAdded?: LastAddedLine | null;
   /** "list" righe (palmare), "grid" tessere (cassa, schermo largo). */
   variant?: "list" | "grid";
+  /**
+   * Palmare: ricerca e allergeni chiusi in due icone accanto alle categorie, su una sola
+   * riga che resta in alto mentre si scorre. Così su un telefono piccolo la lista dei piatti
+   * ha quasi tutto lo schermo.
+   */
+  compactFilters?: boolean;
 }) {
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -59,9 +66,133 @@ export function MenuPanel({
   // Lista (palmare): scorre tutto insieme nel contenitore del menu, filtri compresi:
   // su telefono filtri + barra azioni lascerebbero alla lista pochi pixel o nessuno.
   const isGrid = variant === "grid";
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [allergensOpen, setAllergensOpen] = useState(false);
+  const showSearchInput = !compactFilters || searchOpen || searching;
+
+  useEffect(() => {
+    if (compactFilters && searchOpen) searchRef.current?.focus();
+  }, [compactFilters, searchOpen]);
+
+  const categoryChips = categories.map((c) => {
+    const active = !searching && selectedCat === c.id;
+    return (
+      <button
+        key={c.id}
+        type="button"
+        onClick={() => {
+          onSelectCat(c.id);
+          if (searching) onSearchChange("");
+          setSearchOpen(false);
+        }}
+        className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
+          active ? "text-white" : "bg-[hsl(var(--pg-muted))]"
+        }`}
+        style={active ? { backgroundColor: c.colorHex } : undefined}
+      >
+        {localized(c.name)}
+      </button>
+    );
+  });
+
+  const allergenChips = (list: typeof EU_ALLERGENS) =>
+    list.map((a) => (
+      <button
+        key={a.id}
+        type="button"
+        onClick={() => onAllergenToggle(a.id)}
+        aria-pressed={allergenFilter.includes(a.id)}
+        className={`rounded-lg px-2.5 py-1.5 text-xs ${
+          allergenFilter.includes(a.id) ? "bg-red-500 text-white" : "bg-[hsl(var(--pg-muted))]"
+        }`}
+      >
+        −{a.label}
+      </button>
+    ));
+
+  const compactHeader = (
+    <div className="sticky top-0 z-10 shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 px-3 py-2 backdrop-blur-sm">
+      {showSearchInput ? (
+        <div className="flex items-center gap-2">
+          <input
+            ref={searchRef}
+            type="search"
+            placeholder="Cerca piatto..."
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="min-h-11 min-w-0 flex-1 rounded-xl border-2 border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))] px-3 text-base font-medium outline-none focus:border-[hsl(var(--pg-primary))]"
+            aria-label="Cerca piatto"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              onSearchChange("");
+              setSearchOpen(false);
+            }}
+            className="min-h-11 shrink-0 rounded-xl px-3 text-sm font-semibold text-[hsl(var(--pg-muted-foreground))]"
+          >
+            Chiudi
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Cerca piatto"
+            title="Cerca piatto"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--pg-muted))]"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAllergensOpen((v) => !v)}
+            aria-expanded={allergensOpen}
+            aria-label={
+              allergenFilter.length > 0 ? `Allergeni esclusi: ${allergenFilter.length}` : "Escludi allergeni"
+            }
+            title="Escludi allergeni"
+            className={`relative flex h-10 shrink-0 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold ${
+              allergenFilter.length > 0 ? "bg-red-500 text-white" : "bg-[hsl(var(--pg-muted))]"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+              <path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" strokeLinejoin="round" />
+            </svg>
+            {allergenFilter.length > 0 ? allergenFilter.length : null}
+          </button>
+          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">{categoryChips}</div>
+        </div>
+      )}
+      {allergensOpen && !showSearchInput && (
+        <div className="space-y-2 pb-1">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--pg-muted-foreground))]">
+              Escludi allergeni
+            </p>
+            <button
+              type="button"
+              onClick={() => setAllergensOpen(false)}
+              className="min-h-9 rounded-lg px-3 text-sm font-semibold text-[hsl(var(--pg-primary))]"
+            >
+              Fatto
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">{allergenChips(EU_ALLERGENS)}</div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className={isGrid ? "flex h-full flex-col" : "flex flex-col"}>
+      {compactFilters && !isGrid ? (
+        compactHeader
+      ) : (
       <div
         className={`shrink-0 space-y-2 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 p-3 ${
           isGrid ? "sticky top-0 z-10 backdrop-blur-sm" : ""
@@ -112,6 +243,7 @@ export function MenuPanel({
           ))}
         </div>
       </div>
+      )}
 
       {products.length === 0 && (
         <p className="py-10 text-center text-sm text-[hsl(var(--pg-muted-foreground))]">

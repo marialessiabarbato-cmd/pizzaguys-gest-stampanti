@@ -5,11 +5,14 @@ export function CourseStepBar({
   activeCourse,
   cart,
   disabled,
+  compact = false,
   onSelect,
 }: {
   activeCourse: number;
   cart: CartLine[];
   disabled?: boolean;
+  /** Telefono: una sola riga bassa, senza titolo; la spiegazione resta nel tooltip. */
+  compact?: boolean;
   onSelect: (course: number) => void;
 }) {
   const countByCourse = (course: number) =>
@@ -20,8 +23,12 @@ export function CourseStepBar({
   const activeStep = ORDER_STEPS.find((s) => s.course === activeCourse);
 
   return (
-    <div className="shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 px-3 py-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <div
+      className={`shrink-0 border-b border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-muted))]/20 px-3 ${
+        compact ? "py-1.5" : "py-2.5"
+      }`}
+    >
+      <div className={`mb-2 flex items-center justify-between gap-2 ${compact ? "hidden" : ""}`}>
         <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--pg-muted-foreground))]">
           Portata
         </p>
@@ -41,7 +48,9 @@ export function CourseStepBar({
               type="button"
               disabled={disabled}
               onClick={() => onSelect(step.course)}
-              className={`relative flex min-h-12 flex-col items-center justify-center rounded-xl border px-1 py-2 text-center transition disabled:opacity-40 ${
+              title={step.hint}
+              aria-label={`Portata ${step.shortLabel}: ${step.hint}`}
+              className={`relative flex ${compact ? "min-h-10" : "min-h-12"} flex-col items-center justify-center rounded-xl border px-1 ${compact ? "py-1" : "py-2"} text-center transition disabled:opacity-40 ${
                 active
                   ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10 text-[hsl(var(--pg-primary))]"
                   : "border-transparent bg-transparent text-[hsl(var(--pg-muted-foreground))]"

@@ -122,6 +122,8 @@ export function ComandaWorkspace({
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+  /** Telefono / tablet verticale: azioni della riga nel pannello dal basso. */
+  const sheetMode = !isCassa && narrowScreen;
   const [headerCompact, setHeaderCompact] = useState(false);
   const lastScrollTop = useRef(0);
   const onListScroll = (e: React.UIEvent<HTMLElement>) => {
@@ -154,6 +156,12 @@ export function ComandaWorkspace({
   // Se ne misura l'altezza reale per lasciare sotto la lista lo spazio giusto.
   const selectionBarRef = useRef<HTMLDivElement>(null);
   const [selectionBarHeight, setSelectionBarHeight] = useState(0);
+  /**
+   * Telefono: le azioni della riga stanno in un pannello dal basso che si apre solo
+   * toccando una riga. Aggiungere un piatto dal menu la seleziona ma non apre nulla,
+   * così la lista del menu resta libera.
+   */
+  const [lineSheetOpen, setLineSheetOpen] = useState(false);
   useEffect(() => {
     const el = selectionBarRef.current;
     if (!el) return;
@@ -219,6 +227,11 @@ export function ComandaWorkspace({
     table.status !== "SPLIT_IN_PROGRESS" &&
     (cart.length > 0 || submittedLines.length > 0);
   const hasSelection = !!selectedLine || !!selectedSubmitted;
+  // Riga sparita (spedita, eliminata, deselezionata altrove): il pannello si chiude e
+  // non si riapre da solo alla prossima aggiunta dal menu.
+  useEffect(() => {
+    if (!hasSelection) setLineSheetOpen(false);
+  }, [hasSelection]);
   const selectedProduct = selectedLine ? c.products.find((p) => p.id === selectedLine.productId) : undefined;
   const selectedLineHasVariants = selectedProduct
     ? variantsForProduct(selectedProduct, menu.variantGroups ?? []).length > 0
@@ -334,11 +347,18 @@ export function ComandaWorkspace({
   const selectLine = (lineId: string | null) => {
     c.setSelectedLineId(lineId);
     c.setSelectedSubmittedId(null);
+    setLineSheetOpen(!!lineId);
   };
   const selectSubmitted = (lineId: string | null) => {
     c.setSelectedSubmittedId(lineId);
     c.setSelectedLineId(null);
+    setLineSheetOpen(!!lineId);
   };
+  /** Telefono: tocco su una riga = apre sempre il pannello (non deseleziona). */
+  const toggleLine = (lineId: string, active: boolean) =>
+    sheetMode ? selectLine(lineId) : selectLine(active ? null : lineId);
+  const toggleSubmitted = (lineId: string, active: boolean) =>
+    sheetMode ? selectSubmitted(lineId) : selectSubmitted(active ? null : lineId);
 
   const comandaList = (
     <div ref={comandaRef} className="space-y-4 p-3">
@@ -362,7 +382,7 @@ export function ComandaWorkspace({
                 <li key={l.lineId}>
                   <button
                     type="button"
-                    onClick={() => selectSubmitted(active ? null : l.lineId)}
+                    onClick={() => toggleSubmitted(l.lineId, active)}
                     className={`flex min-h-14 w-full items-center gap-2 rounded-xl border px-4 py-3 text-left text-sm ${
                       active
                         ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10"
@@ -463,7 +483,7 @@ export function ComandaWorkspace({
                       // Chiave nuova a ogni aggiunta per far ripartire l'animazione.
                       key={justAdded ? `added-${lastAdded.seq}` : "line"}
                       type="button"
-                      onClick={() => selectLine(active ? null : l.lineId)}
+                      onClick={() => toggleLine(l.lineId, active)}
                       className={`flex min-h-14 w-full items-center justify-between rounded-xl border px-4 py-3 text-left ${
                         justAdded ? "pg-added-flash " : ""
                       }${
@@ -514,7 +534,13 @@ export function ComandaWorkspace({
 
   const menuColumn = (
     <div className="flex h-full min-h-0 flex-col">
-      <CourseStepBar activeCourse={c.activeCourse} cart={cart} disabled={needsLock} onSelect={c.setActiveCourse} />
+      <CourseStepBar
+        activeCourse={c.activeCourse}
+        cart={cart}
+        disabled={needsLock}
+        compact={sheetMode}
+        onSelect={c.setActiveCourse}
+      />
       <div
         onScrollCapture={isCassa ? undefined : onListScroll}
         className={`min-h-0 flex-1 ${isCassa ? "flex flex-col" : "overflow-y-auto"}`}
@@ -533,6 +559,7 @@ export function ComandaWorkspace({
           cartQtyByProduct={cartQtyByProduct}
           lastAdded={lastAdded}
           variant={isCassa ? "grid" : "list"}
+          compactFilters={!isCassa}
         />
       </div>
     </div>
@@ -565,49 +592,110 @@ export function ComandaWorkspace({
       </div>
     ) : null;
 
-  const selectionBar = hasSelection ? (
-    <div className="pointer-events-auto border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 px-3 py-2.5 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-3xl flex-wrap justify-center gap-2">
-        {selectedLine && (
-          <>
-            <ActionChip label="−" disabled={needsLock} onClick={() => requestQtyChange(-1)} />
-            <ActionChip label="+" disabled={needsLock} onClick={() => requestQtyChange(1)} />
-            {selectedLineHasVariants && (
-              <ActionChip label="Modifica" disabled={needsLock} onClick={() => c.editVariants(selectedLine)} />
+  /** Chiude il pannello del telefono prima di aprire un'altra finestra (nota, prezzo...). */
+  const thenCloseSheet = (fn: () => void) => () => {
+    if (sheetMode) setLineSheetOpen(false);
+    fn();
+  };
+
+  const lineActionChips = (
+    <>
+      {selectedLine && (
+        <>
+          <ActionChip label="−" disabled={needsLock} onClick={() => requestQtyChange(-1)} />
+          <ActionChip label="+" disabled={needsLock} onClick={() => requestQtyChange(1)} />
+          {selectedLineHasVariants && (
+            <ActionChip
+              label="Modifica"
+              disabled={needsLock}
+              onClick={thenCloseSheet(() => c.editVariants(selectedLine))}
+            />
+          )}
+          <ActionChip
+            label="Nota"
+            disabled={needsLock}
+            onClick={thenCloseSheet(() => c.setNoteLineId(selectedLine.lineId))}
+          />
+          <ActionChip
+            label="Portata"
+            disabled={needsLock}
+            onClick={thenCloseSheet(() => setCourseModalLineId(selectedLine.lineId))}
+          />
+          <ActionChip
+            label="Prezzo"
+            disabled={needsLock}
+            onClick={thenCloseSheet(() => c.openPriceOverride({ kind: "cart", lineId: selectedLine.lineId }))}
+          />
+          <ActionChip
+            label="Elimina"
+            disabled={needsLock}
+            onClick={thenCloseSheet(() => setEditConfirm({ type: "delete", line: selectedLine }))}
+          />
+        </>
+      )}
+      {selectedSubmitted && !selectedLine && (
+        <>
+          <ActionChip
+            label="+1"
+            disabled={!selectedSubmitted.productId || cashClosed}
+            onClick={() => c.repeatSubmitted(selectedSubmitted)}
+          />
+          <ActionChip
+            label="Prezzo"
+            onClick={thenCloseSheet(() =>
+              c.openPriceOverride({ kind: "submitted", lineId: selectedSubmitted.lineId }),
             )}
-            <ActionChip label="Nota" disabled={needsLock} onClick={() => c.setNoteLineId(selectedLine.lineId)} />
-            <ActionChip label="Portata" disabled={needsLock} onClick={() => setCourseModalLineId(selectedLine.lineId)} />
-            <ActionChip
-              label="Prezzo"
-              disabled={needsLock}
-              onClick={() => c.openPriceOverride({ kind: "cart", lineId: selectedLine.lineId })}
-            />
-            <ActionChip
-              label="Elimina"
-              disabled={needsLock}
-              onClick={() => setEditConfirm({ type: "delete", line: selectedLine })}
-            />
-          </>
-        )}
-        {selectedSubmitted && !selectedLine && (
-          <>
-            <ActionChip
-              label="+1"
-              disabled={!selectedSubmitted.productId || cashClosed}
-              onClick={() => c.repeatSubmitted(selectedSubmitted)}
-            />
-            <ActionChip
-              label="Prezzo"
-              onClick={() => c.openPriceOverride({ kind: "submitted", lineId: selectedSubmitted.lineId })}
-            />
-            <ActionChip label="Storno" onClick={() => c.requestStorno(selectedSubmitted)} />
-          </>
-        )}
-        {/* Nasconde il pannello per scorrere il menu: la riga resta, si riseleziona dalla comanda */}
-        <ActionChip label="✕" ariaLabel="Chiudi pannello" compact onClick={() => selectLine(null)} />
+          />
+          <ActionChip label="Storno" onClick={thenCloseSheet(() => c.requestStorno(selectedSubmitted))} />
+        </>
+      )}
+    </>
+  );
+
+  const selectionBar =
+    hasSelection && !sheetMode ? (
+      <div className="pointer-events-auto border-t border-[hsl(var(--pg-border))] bg-[hsl(var(--pg-background))]/95 px-3 py-2.5 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-3xl flex-wrap justify-center gap-2">
+          {lineActionChips}
+          {/* Nasconde il pannello per scorrere il menu: la riga resta, si riseleziona dalla comanda */}
+          <ActionChip label="✕" ariaLabel="Chiudi pannello" compact onClick={() => selectLine(null)} />
+        </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
+
+  /** Riga a cui si riferisce il pannello del telefono. */
+  const sheetLine = selectedLine
+    ? { qty: selectedLine.quantity, name: selectedLine.name, sent: false }
+    : selectedSubmitted
+      ? { qty: selectedSubmitted.quantity, name: selectedSubmitted.name, sent: true }
+      : null;
+
+  const lineSheet =
+    sheetMode && lineSheetOpen && sheetLine ? (
+      <BottomSheet maxHeightClass="max-h-[70dvh]" widthClass="max-w-md" zClass="z-40" onDismiss={() => selectLine(null)}>
+        <div className="space-y-3 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--pg-muted-foreground))]">
+                {sheetLine.sent ? "Già inviato" : "In bozza"}
+              </p>
+              <p className="break-words text-lg font-semibold leading-tight">
+                {sheetLine.qty}× {sheetLine.name}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => selectLine(null)}
+              aria-label="Chiudi"
+              className="min-h-11 min-w-11 shrink-0 rounded-full text-xl text-[hsl(var(--pg-muted-foreground))]"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 [&>button]:min-h-14 [&>button]:text-base">{lineActionChips}</div>
+        </div>
+      </BottomSheet>
+    ) : null;
 
   const footerButtons = (
     <div className={`grid gap-2 ${c.hasPreconto ? "grid-cols-4" : "grid-cols-3"}`}>
@@ -1092,6 +1180,7 @@ export function ComandaWorkspace({
           {footerButtons}
         </footer>
 
+        {lineSheet}
         {modals}
       </main>
     </SheetLayoutProvider>
