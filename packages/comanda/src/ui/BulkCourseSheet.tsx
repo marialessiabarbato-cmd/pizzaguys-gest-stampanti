@@ -55,41 +55,65 @@ export function BulkCourseSheet({
 
   const pieces = cart.filter((l) => selected.has(l.lineId)).reduce((n, l) => n + l.quantity, 0);
 
-  return (
-    <BottomSheet maxHeightClass="max-h-[88dvh]">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-1">
-        <h2 className="mb-1 text-lg font-semibold">Sposta piatti in un'altra portata</h2>
-        <p className="mb-3 text-xs text-[hsl(var(--pg-muted-foreground))]">
-          Seleziona i piatti della bozza, poi scegli la portata di destinazione.
-        </p>
+  // Portate da cui vengono i piatti scelti: spostarli lì non cambierebbe nulla.
+  const selectedCourses = new Set(
+    cart.filter((l) => selected.has(l.lineId)).map((l) => normalizeCourse(l.course)),
+  );
+  const onlyFrom = selectedCourses.size === 1 ? [...selectedCourses][0] : null;
 
-        <div className="space-y-3">
-          {byCourse.map(([course, lines]) => {
-            const all = lines.every((l) => selected.has(l.lineId));
-            return (
-              <section key={course}>
+  return (
+    <BottomSheet maxHeightClass="max-h-[88dvh]" onDismiss={onCancel}>
+      {/* Titolo fisso: resta visibile mentre si scorre l'elenco */}
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[hsl(var(--pg-border))] px-4 pb-2">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold leading-tight">Sposta piatti</h2>
+          <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">Scegli i piatti, poi la portata.</p>
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Annulla"
+          className="min-h-11 min-w-11 shrink-0 rounded-full text-xl text-[hsl(var(--pg-muted-foreground))]"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        {byCourse.map(([course, lines]) => {
+          const all = lines.every((l) => selected.has(l.lineId));
+          return (
+            <section key={course}>
+              <div className="mb-1 flex items-center justify-between px-1">
+                <span className="text-xs font-bold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
+                  {stepLabel(course)}
+                </span>
                 <button
                   type="button"
                   onClick={() => toggleCourse(lines)}
-                  className="mb-1 flex w-full items-center justify-between rounded-lg bg-[hsl(var(--pg-muted))]/70 px-3 py-2 text-left text-xs font-bold uppercase tracking-wide"
+                  className="min-h-9 rounded-lg px-2 text-sm font-medium text-[hsl(var(--pg-primary))]"
                 >
-                  <span>{stepLabel(course)}</span>
-                  <span className="font-medium normal-case tracking-normal text-[hsl(var(--pg-primary))]">
-                    {all ? "Deseleziona tutti" : "Seleziona tutti"}
-                  </span>
+                  {all ? "Nessuno" : "Tutti"}
                 </button>
-                <ul className="space-y-1">
-                  {lines.map((l) => (
+              </div>
+              <ul className="divide-y divide-[hsl(var(--pg-border))] overflow-hidden rounded-xl border border-[hsl(var(--pg-border))]">
+                {lines.map((l) => {
+                  const on = selected.has(l.lineId);
+                  return (
                     <li key={l.lineId}>
-                      <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-[hsl(var(--pg-border))] px-3 py-2">
+                      <label
+                        className={`flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 ${
+                          on ? "bg-[hsl(var(--pg-primary))]/5" : ""
+                        }`}
+                      >
                         <input
                           type="checkbox"
                           className="h-5 w-5 shrink-0"
-                          checked={selected.has(l.lineId)}
+                          checked={on}
                           onChange={() => toggle(l.lineId)}
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block font-medium">
+                          <span className="block font-medium leading-snug">
                             {l.quantity}× {l.name}
                           </span>
                           {l.variants.length > 0 && (
@@ -100,42 +124,49 @@ export function BulkCourseSheet({
                         </span>
                       </label>
                     </li>
-                  ))}
-                </ul>
-              </section>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+
+      {/* Destinazione e conferma sempre visibili in fondo */}
+      <div className={`${bottomSheetFooterClass} shrink-0 flex-col`}>
+        <div className="grid w-full grid-cols-4 gap-1.5" role="radiogroup" aria-label="Sposta in">
+          {ALL_ORDER_STEPS.map((opt) => {
+            const active = target === opt.course;
+            const same = onlyFrom === opt.course;
+            return (
+              <button
+                key={opt.course}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={same}
+                onClick={() => setTarget(opt.course)}
+                className={`min-h-11 whitespace-nowrap rounded-xl border px-1 text-[13px] font-semibold transition disabled:opacity-30 sm:text-sm ${
+                  active
+                    ? "border-[hsl(var(--pg-primary))] bg-[hsl(var(--pg-primary))]/10 text-[hsl(var(--pg-primary))]"
+                    : "border-[hsl(var(--pg-border))]"
+                }`}
+              >
+                {opt.shortLabel}
+              </button>
             );
           })}
         </div>
-
-        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--pg-muted-foreground))]">
-          Sposta in
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {ALL_ORDER_STEPS.map((opt) => (
-            <Button
-              key={opt.course}
-              type="button"
-              variant={target === opt.course ? "default" : "outline"}
-              className="min-h-12"
-              onClick={() => setTarget(opt.course)}
-            >
-              {opt.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-      <div className={bottomSheetFooterClass}>
-        <Button variant="outline" className="min-h-12 flex-1" onClick={onCancel}>
-          Annulla
-        </Button>
         <Button
-          className="min-h-12 flex-1"
+          className="min-h-12 w-full"
           disabled={selected.size === 0 || target == null}
           onClick={() => target != null && onConfirm([...selected], target)}
         >
-          {target == null
-            ? "Scegli la portata"
-            : `Sposta ${pieces} ${pieces === 1 ? "piatto" : "piatti"} in ${stepLabel(target)}`}
+          {selected.size === 0
+            ? "Scegli almeno un piatto"
+            : target == null
+              ? `${pieces} ${pieces === 1 ? "piatto" : "piatti"} · scegli la portata`
+              : `Sposta ${pieces} ${pieces === 1 ? "piatto" : "piatti"} in ${stepLabel(target)}`}
         </Button>
       </div>
     </BottomSheet>
