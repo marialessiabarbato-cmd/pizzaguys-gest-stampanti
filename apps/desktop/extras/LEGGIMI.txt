@@ -1,20 +1,48 @@
-PIZZA GUYS - versione di prova per Windows
-==========================================
+PIZZA GUYS - app per il PC della cassa (Windows)
+===============================================
 
+PRIMA INSTALLAZIONE
 1. Copia questa cartella sul PC (es. C:\PizzaGuys) e NON eseguirla dalla chiavetta.
-2. Clic destro su "Apri-porte-firewall.bat" -> Esegui come amministratore (una sola volta).
+2. Clic destro su "Apri-porte-firewall.bat" -> Esegui come amministratore.
 3. Doppio clic su "Pizza Guys.exe".
    Se Windows mostra "Windows ha protetto il PC": Ulteriori informazioni -> Esegui comunque.
-4. La configurazione e' il file "edge.env" accanto a "Pizza Guys.exe" (modificabile anche da menu: Pizza Guys -> Modifica configurazione, Ctrl+Maiusc+C).
+4. La configurazione e' il file "edge.env" accanto a "Pizza Guys.exe"
+   (anche da menu: Pizza Guys -> Modifica configurazione, Ctrl+Maiusc+C).
    Imposta CLOUD_API_URL e, per le stampanti reali, HARDWARE_BRIDGE_MODE=network. Poi chiudi e riapri l'app.
-   Se qualcosa non va: Ctrl+Maiusc+D (Diagnostica) mostra cosa legge l'app e se raggiunge il Cloud.
-5. Dai tablet (stessa rete Wi-Fi): palmare http://<IP-del-PC>:5174  -  KDS http://<IP-del-PC>:5175
 
-Cartelle dati (in AppData\Roaming\Pizza Guys):  edge.sqlite (database), backup\ (copia ogni notte alle 4 e ad ogni avvio),
-logs\ (app.log, edge.log), prints\ (ticket in modalita mock).
-Menu: F5 ricarica, F11 schermo intero, Ctrl+Maiusc+L apre i log.
+AGGIORNAMENTO DA UNA VERSIONE PRECEDENTE (i dati restano)
+1. Chiudi Pizza Guys. Per sicurezza prima fai: menu Pizza Guys -> Backup database adesso.
+2. Rinomina la cartella vecchia, es. C:\PizzaGuys -> C:\PizzaGuys-vecchia (e' anche il tuo backup).
+3. Estrai questa cartella nuova in C:\PizzaGuys.
+4. Dalla cartella vecchia copia nella nuova, sostituendo:
+     - la cartella "dati"      (database, backup, log: sale, tavoli, stampanti, incassi)
+     - il file "edge.env"      (la tua configurazione)
+5. Clic destro su "Apri-porte-firewall.bat" -> Esegui come amministratore (serve di nuovo:
+   c'e' una porta nuova per il nome della cassa in rete).
+6. Doppio clic su "Pizza Guys.exe". Se qualcosa non va, chiudi l'app e rinomina di nuovo la
+   cartella vecchia in C:\PizzaGuys: torni alla versione precedente.
+7. Dopo qualche giorno senza problemi puoi cancellare C:\PizzaGuys-vecchia.
 
-Non condividere edge.env: puo contenere accessi della sede.
+PALMARI E KDS (stessa rete Wi-Fi del PC)
+- Palmare:  http://pizzaguys-cassa.local:5174   (oppure http://<IP-del-PC>:5174)
+- KDS:      http://pizzaguys-cassa.local:5175   (oppure http://<IP-del-PC>:5175)
+  Il nome "pizzaguys-cassa.local" funziona anche se il router cambia l'indirizzo del PC.
+  Se un telefono non lo apre (alcuni Android), usa l'indirizzo numerico: lo trovi in
+  cassa -> Rete (in alto) -> prima riga.
+- Al primo accesso ogni dispositivo chiede il PIN per abbinarsi alla cassa.
 
-Versione ZIP: database, log e backup stanno nella cartella "dati" accanto a "Pizza Guys.exe".
+SE QUALCOSA NON VA
+- In cassa, in alto, il pulsante "Rete" (pallino verde/giallo/rosso) apre lo Stato rete:
+  per ogni stampante, palmare, KDS e per il Cloud dice cosa non va e cosa fare.
+- Ctrl+Maiusc+D (Diagnostica) mostra cosa legge l'app e se raggiunge il Cloud.
+- Ctrl+Maiusc+L apre la cartella dei log.
+
+DOVE STANNO I DATI (versione ZIP: cartella "dati" accanto a "Pizza Guys.exe")
+- edge.sqlite: database
+- backup\: copia a ogni avvio e alle 4 di notte; si tengono 7 giorni (sempre almeno le ultime 3)
+- logs\: un file al giorno (app-AAAA-MM-GG.log, edge-AAAA-MM-GG.log), si tengono 7 giorni
+- prints\: ticket salvati su file in modalita' mock
 Per spostare l'app basta copiare tutta la cartella. Per ripartire da zero cancella "dati\edge.sqlite".
+
+Menu: F5 ricarica, F11 schermo intero.
+Non condividere edge.env: puo' contenere accessi della sede.

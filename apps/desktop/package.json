@@ -6,7 +6,8 @@
   "scripts": {
     "stage": "node scripts/stage.mjs",
     "dist:win": "node scripts/stage.mjs && electron-builder --config electron-builder.yml --win nsis --x64 --projectDir .",
-    "typecheck": "node --check src/main.cjs"
+    "typecheck": "node --check src/main.cjs",
+    "zip:win": "node scripts/zip-win.mjs"
   },
   "devDependencies": {
     "electron": "33.4.11",
