@@ -77,6 +77,7 @@ export function buildOf(clientVersion: string | null | undefined): string | null
 }
 
 const KIND_LABEL: Record<string, string> = { handheld: "Palmare", kds: "KDS", cassa: "Cassa" };
+const DEVICE_ARTICLE: Record<string, string> = { handheld: "il palmare", kds: "il KDS", cassa: "il tablet cassa" };
 
 const PRINTER_ACTIONS: Record<string, string> = {
   PAPER_OUT: "Cambia il rotolo: i ticket in attesa escono da soli.",
@@ -211,7 +212,7 @@ export function buildNetworkStatus(db: EdgeDatabase, now = Date.now()): NetworkS
         level: mismatch ? "warning" : "ok",
         message: `Collegato${live.remoteAddress ? ` · ${live.remoteAddress}` : ""}${build ? ` · versione ${build}` : ""}`,
         action: mismatch
-          ? `Versione diversa dalla cassa (${referenceBuild}): ricarica la pagina sul ${kind.toLowerCase()} (o chiudi e riapri l'app).`
+          ? `Versione diversa dalla cassa (${referenceBuild}): su ${label} ricarica la pagina (o chiudi e riapri l'app).`
           : undefined,
       });
       continue;
@@ -226,7 +227,7 @@ export function buildNetworkStatus(db: EdgeDatabase, now = Date.now()): NetworkS
       message: `Non collegato · ultimo contatto ${ago(d.lastSeenAt, now)}`,
       action:
         lastMin < 30
-          ? `Controlla che il ${kind.toLowerCase()} sia acceso, sul Wi-Fi del locale e con la pagina aperta.`
+          ? `Controlla che ${DEVICE_ARTICLE[d.kind] ?? "il dispositivo"} sia acceso, sul Wi-Fi del locale e con la pagina aperta.`
           : undefined,
     });
   }
