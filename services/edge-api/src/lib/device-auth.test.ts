@@ -110,6 +110,14 @@ describe("abbinamento dispositivi", () => {
     expect(other.statusCode).toBe(200);
   });
 
+  it("il PC della cassa non si blocca mai con i PIN errati", async () => {
+    for (let i = 0; i < 8; i++) {
+      await pair({ pin: "0000", deviceId: "cassa-local0001", deviceKind: "cassa" }, "127.0.0.1");
+    }
+    const ok = await pair({ pin: "1234", deviceId: "cassa-local0001", deviceKind: "cassa" }, "127.0.0.1");
+    expect(ok.statusCode).not.toBe(429);
+  });
+
   it("elenco dispositivi solo per l'Admin", async () => {
     await pair({ pin: "1234", deviceId: "handheld-list0001", deviceKind: "handheld", deviceName: "Palmare Marco" });
     const noAdmin = await app.inject({ method: "GET", url: "/api/devices", remoteAddress: "127.0.0.1" });

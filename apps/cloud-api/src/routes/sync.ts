@@ -33,6 +33,15 @@ import { sendClosureEmailIfEnabled } from "../lib/closure-email.js";
 const heartbeatSchema = z.object({
   apiToken: z.string().min(1),
   schemaVersion: z.number().int().min(0),
+  /** Piano rete R3: dove si trova la cassa nella rete del locale (Edge recenti). */
+  edge: z
+    .object({
+      addresses: z.array(z.string().max(64)).max(16),
+      mdnsName: z.string().max(120).nullable(),
+      hostname: z.string().max(120),
+      build: z.string().max(80).nullable(),
+    })
+    .optional(),
 });
 
 const LOCATION_STAFF_ROLES = ["USER_ADMIN", "CASHIER", "WAITER"] as const;
@@ -236,6 +245,9 @@ export async function syncRoutes(app: FastifyInstance) {
         lastHeartbeatAt: new Date(),
         healthStatus,
         schemaVersion: parsed.data.schemaVersion,
+        ...(parsed.data.edge
+          ? { edgeNetwork: { ...parsed.data.edge, reportedAt: new Date().toISOString() } }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(locations.id, location.id));

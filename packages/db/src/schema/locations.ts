@@ -37,6 +37,14 @@ export const locations = pgTable("locations", {
   schemaVersion: integer("schema_version").notNull().default(1),
   healthStatus: locationHealthEnum("health_status").notNull().default("OFFLINE"),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  /** Ultima rete comunicata dall'Edge (indirizzi, nome .local, PC, build): per ritrovare la cassa. */
+  edgeNetwork: jsonb("edge_network").$type<{
+    addresses: string[];
+    mdnsName: string | null;
+    hostname: string;
+    build: string | null;
+    reportedAt: string;
+  }>(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

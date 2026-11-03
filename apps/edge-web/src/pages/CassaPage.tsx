@@ -35,6 +35,7 @@ import { GuestsModal, type GuestsConfirmPayload } from "../components/GuestsModa
 import { InternalClosureWizard } from "../components/InternalClosureWizard";
 import { DocumentListModal } from "../components/DocumentListModal";
 import { PrintQueuePanel } from "../components/PrintQueuePanel";
+import { NetworkStatusPanel, useNetworkStatus } from "../components/NetworkStatusPanel";
 import { OpenTablesModal } from "../components/OpenTablesModal";
 import { ReservationsModal } from "../components/ReservationsModal";
 import { CashCloseWizard } from "../components/CashCloseWizard";
@@ -232,7 +233,8 @@ export function CassaPage({
 }) {
   const { theme, setTheme } = useTheme();
   const { connected, on, send, reconnects, info: wsInfo } = useEdgeWs();
-  const { cloud, syncQueue, refresh: refreshCloud } = useCloudStatus(connected);
+  const { cloud, syncQueue, devicePairing, refresh: refreshCloud } = useCloudStatus(connected);
+  const network = useNetworkStatus(connected);
   const [showCloudReconnect, setShowCloudReconnect] = useState(false);
   const [operator, setOperator] = useState<Operator | null>(null);
   const [pin, setPin] = useState("");
@@ -271,6 +273,7 @@ export function CassaPage({
   /** R3: stato delle stampanti (carta, coperchio, raggiungibilità) e coda di stampa */
   const [printerHealth, setPrinterHealth] = useState<PrinterHealth[]>([]);
   const [showPrintQueue, setShowPrintQueue] = useState(false);
+  const [showNetwork, setShowNetwork] = useState(false);
   const printersDown = printerHealth.filter(
     (p) => ["PAPER_OUT", "COVER_OPEN", "ERROR", "UNREACHABLE"].includes(p.condition) || p.pendingJobs > 0,
   );
@@ -1635,6 +1638,8 @@ export function CassaPage({
         onReservations={() => setWorkspace("reservations")}
         onDocumentList={() => setShowDocumentList(true)}
         onPrintQueue={() => setShowPrintQueue(true)}
+        networkLevel={connected ? (network?.overall ?? null) : "error"}
+        onNetworkStatus={() => setShowNetwork(true)}
         onClosureHistory={() => setShowClosureHistory(true)}
         onClosureDay={() => setConfirmClosure(true)}
         onInternalClosure={() => setShowInternalClosureWizard(true)}
@@ -1723,6 +1728,14 @@ export function CassaPage({
           >
             Chiudi
           </Button>
+        </div>
+      )}
+      {devicePairing === "off" && (
+        <div className="shrink-0 border-b border-[hsl(var(--pg-danger))]/40 bg-[hsl(var(--pg-danger))]/10 px-4 py-2 text-sm">
+          <strong>🔓 Abbinamento dispositivi disattivato</strong> — qualsiasi telefono sul Wi-Fi del locale può
+          aprire tavoli e mandare comande senza PIN. È solo per le emergenze: togli{" "}
+          <code className="rounded bg-[hsl(var(--pg-muted))] px-1">DEVICE_PAIRING=off</code> dalla configurazione
+          (edge.env) e riavvia l&apos;app appena possibile.
         </div>
       )}
       {printersDown.length > 0 && (
@@ -2992,6 +3005,15 @@ export function CassaPage({
       )}
       {showPrintQueue && (
         <PrintQueuePanel onClose={() => setShowPrintQueue(false)} />
+      )}
+      {showNetwork && (
+        <NetworkStatusPanel
+          onClose={() => setShowNetwork(false)}
+          onOpenPrintQueue={() => {
+            setShowNetwork(false);
+            setShowPrintQueue(true);
+          }}
+        />
       )}
 
       

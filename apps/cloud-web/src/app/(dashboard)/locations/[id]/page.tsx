@@ -37,6 +37,13 @@ interface LocationDetail {
   healthStatus: string;
   schemaVersion: number;
   lastHeartbeatAt: string | null;
+  edgeNetwork: {
+    addresses: string[];
+    mdnsName: string | null;
+    hostname: string;
+    build: string | null;
+    reportedAt: string;
+  } | null;
   hasToken: boolean;
   createdAt: string;
   updatedAt: string;
@@ -291,6 +298,29 @@ export default function LocationDetailPage() {
             <Button className="mt-3" variant="outline" onClick={() => setTokenReveal(null)}>
               Ho salvato il token
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {location.edgeNetwork && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Cassa nella rete del locale</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <Field label="Indirizzo" value={location.edgeNetwork.addresses.join(", ")} />
+              <Field
+                label="Nome in rete (per palmari e KDS)"
+                value={location.edgeNetwork.mdnsName ? `${location.edgeNetwork.mdnsName}` : null}
+              />
+              <Field label="PC" value={location.edgeNetwork.hostname} />
+              <Field label="Versione app" value={location.edgeNetwork.build} />
+            </dl>
+            <p className="mt-3 text-xs text-[hsl(var(--pg-muted-foreground))]">
+              Comunicato dalla cassa il {new Date(location.edgeNetwork.reportedAt).toLocaleString("it-IT")}.
+              Palmari: http://{location.edgeNetwork.mdnsName ?? location.edgeNetwork.addresses[0]}:5174
+            </p>
           </CardContent>
         </Card>
       )}

@@ -5,6 +5,7 @@ import { edgeApi, onAdminRequired, setOperatorToken } from "./lib/api";
 import { CassaPage } from "./pages/CassaPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { PrintersPage } from "./pages/PrintersPage";
+import { NetworkStatusView } from "./components/NetworkStatusPanel";
 import { ProvisionPage } from "./pages/ProvisionPage";
 import { RoutingPage } from "./pages/RoutingPage";
 import { SalaPage } from "./pages/SalaPage";
@@ -77,6 +78,12 @@ export default function App() {
     routing: <RoutingPage />,
     staff: <StaffPage />,
     dispositivi: <DevicesPage />,
+    rete: (
+      <div className="max-w-2xl">
+        <h1 className="mb-4 text-2xl font-bold">Stato rete</h1>
+        <NetworkStatusView />
+      </div>
+    ),
     supporto: <SupportPage />,
   }[page];
 

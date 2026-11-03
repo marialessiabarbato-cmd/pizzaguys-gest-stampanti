@@ -1,73 +1,24 @@
-import cors from "@fastify/cors";
-import { pairingRequired, registerDeviceGuard } from "./lib/device-auth.js";
-import { deviceRoutes } from "./routes/devices.js";
-import websocket from "@fastify/websocket";
-import Fastify from "fastify";
+import { buildEdgeApp } from "./app.js";
 import { startHeartbeatLoop } from "./lib/heartbeat.js";
+import { startMdns } from "./lib/mdns.js";
 import { startPrintQueue } from "./lib/print-queue.js";
 import { startPrinterMonitor } from "./lib/printer-monitor.js";
-import { registerRuntimePersistence, restoreRuntimeState } from "./lib/runtime-persistence.js";
-import dbPlugin from "./plugins/db.js";
-import { invoiceCustomerRoutes } from "./routes/invoice-customers.js";
-import { orderRoutes } from "./routes/orders.js";
-import { cashSessionRoutes } from "./routes/cash-sessions.js";
-import { closureRoutes } from "./routes/closure.js";
-import { internalClosureRoutes } from "./routes/internal-closure.js";
-import { fiscalDocumentRoutes } from "./routes/fiscal-documents.js";
-import { posRoutes } from "./routes/pos.js";
-import { printerRoutes } from "./routes/printers.js";
-import { salaRoutes } from "./routes/sala.js";
-import { tableTransferRoutes } from "./routes/table-transfer.js";
-import { staffRoutes } from "./routes/staff.js";
-import { reservationRoutes } from "./routes/reservations.js";
-import { statusRoutes } from "./routes/status.js";
-import { supportRoutes } from "./routes/support.js";
-import { registerWebSocket } from "./ws.js";
 
 const PORT = Number(process.env.EDGE_API_PORT ?? 4100);
 const HOST = process.env.EDGE_API_HOST ?? "0.0.0.0";
 
-const clients = new Set<{ send: (data: string) => void; readyState: number }>();
-
-const app = Fastify({ logger: true });
-app.log.info({ cloudApiUrl: process.env.CLOUD_API_URL ?? "http://localhost:4000", dbPath: process.env.EDGE_DB_PATH }, "Edge: configurazione letta");
-
-await app.register(cors, {
-  origin: true,
-  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-});
-await app.register(websocket);
-await app.register(dbPlugin);
-
-// T19: ripristina tavoli aperti, ordini e KDS salvati prima del riavvio (gli incassi sono su SQLite).
-const restored = restoreRuntimeState(app.edgeDb);
-if (restored) app.log.info({ restored }, "Stato operativo ripristinato dopo il riavvio");
-registerRuntimePersistence(app);
-// Fase 2: palmari, KDS e tablet devono essere abbinati con PIN (il PC dell'Edge è fidato)
-registerDeviceGuard(app);
-app.log.info({ devicePairing: pairingRequired() ? "required" : "off" }, "Abbinamento dispositivi");
-
-await statusRoutes(app);
-await salaRoutes(app);
-await orderRoutes(app);
-await tableTransferRoutes(app);
-await posRoutes(app);
-await invoiceCustomerRoutes(app);
-await cashSessionRoutes(app);
-await closureRoutes(app);
-await internalClosureRoutes(app);
-await fiscalDocumentRoutes(app);
-await printerRoutes(app);
-await staffRoutes(app);
-await reservationRoutes(app);
-await supportRoutes(app);
-await deviceRoutes(app);
-registerWebSocket(app, clients);
+const app = await buildEdgeApp();
+app.log.info(
+  { cloudApiUrl: process.env.CLOUD_API_URL ?? "http://localhost:4000", dbPath: process.env.EDGE_DB_PATH },
+  "Edge: configurazione letta",
+);
 
 startHeartbeatLoop(app);
 // R3: ticket in attesa ritentati da soli, stato delle stampanti ogni 30 s
 startPrintQueue(app.edgeDb);
 startPrinterMonitor(app.edgeDb);
+// R3: nome fisso in rete locale (pizzaguys-cassa.local) per palmari e KDS
+startMdns(app.log);
 
 try {
   await app.listen({ port: PORT, host: HOST });

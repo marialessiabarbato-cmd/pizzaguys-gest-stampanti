@@ -9,8 +9,12 @@ const http = require("node:http");
 const path = require("node:path");
 
 const WEB_PORTS = { cassa: 5173, palmare: 5174, kds: 5175 };
-const MAX_LOG_BYTES = 5 * 1024 * 1024;
-const BACKUP_KEEP = 14;
+// Tetto per file giornaliero: oltre, quel giorno non si scrive più (protegge il disco)
+const MAX_LOG_BYTES = 50 * 1024 * 1024;
+// Log e backup: una settimana (piano rete R7). Dei backup si tengono comunque gli ultimi 3,
+// anche se più vecchi (es. PC rimasto spento per le ferie).
+const KEEP_DAYS = 7;
+const BACKUP_MIN_KEEP = 3;
 
 let win = null;
 let edgeChild = null;
@@ -35,13 +39,42 @@ function ensureDirs() {
   for (const d of [dataDir, logDir, backupDir, printDir]) fs.mkdirSync(d, { recursive: true });
 }
 
-function log(line) {
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Un file al giorno per tipo (app-2026-11-03.log, edge-2026-11-03.log): si cancellano dopo 7 giorni. */
+function appendDaily(kind, data) {
   try {
-    const f = path.join(logDir, "app.log");
-    if (fs.existsSync(f) && fs.statSync(f).size > MAX_LOG_BYTES) fs.renameSync(f, f + ".old");
-    fs.appendFileSync(f, `${new Date().toISOString()} ${line}\n`);
+    const f = path.join(logDir, `${kind}-${today()}.log`);
+    if (fs.existsSync(f) && fs.statSync(f).size > MAX_LOG_BYTES) return; // giornata anomala: non riempire il disco
+    fs.appendFileSync(f, data);
   } catch {
     /* il log non deve mai fermare l'app */
+  }
+}
+
+function log(line) {
+  appendDaily("app", `${new Date().toISOString()} ${line}\n`);
+}
+
+/** Cancella log e backup più vecchi di 7 giorni (dei backup restano sempre gli ultimi 3). */
+function cleanupOldFiles() {
+  const limit = Date.now() - KEEP_DAYS * 24 * 60 * 60 * 1000;
+  try {
+    for (const f of fs.readdirSync(logDir)) {
+      if (!/\.(log|old)$/.test(f) || f === "diagnostica.txt") continue;
+      const p = path.join(logDir, f);
+      if (fs.statSync(p).mtimeMs < limit) fs.rmSync(p, { force: true });
+    }
+    const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith("edge-")).sort().reverse();
+    for (const f of backups.slice(BACKUP_MIN_KEEP)) {
+      const p = path.join(backupDir, f);
+      if (fs.statSync(p).mtimeMs < limit) fs.rmSync(p, { force: true });
+    }
+  } catch (e) {
+    log(`Pulizia log/backup non riuscita: ${e && e.message}`);
   }
 }
 
@@ -103,7 +136,6 @@ function startEdge() {
   const cfg = readConfig();
   killPortOwners(cfg.EDGE_API_PORT || 4100);
   const edgeFile = path.join(__dirname, "edge.mjs");
-  const out = fs.openSync(path.join(logDir, "edge.log"), "a");
   const env = {
     ...process.env,
     ...cfg,
@@ -113,7 +145,10 @@ function startEdge() {
     MOCK_PRINT_DIR: printDir,
   };
   delete env.KIOSK;
-  edgeChild = spawn(process.execPath, [edgeFile], { env, stdio: ["ignore", out, out], windowsHide: true });
+  edgeChild = spawn(process.execPath, [edgeFile], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  // Log dell'Edge nel file del giorno: a mezzanotte si passa da solo al file nuovo
+  edgeChild.stdout.on("data", (d) => appendDaily("edge", d));
+  edgeChild.stderr.on("data", (d) => appendDaily("edge", d));
   const startedAt = Date.now();
   log(`Edge avviato (pid ${edgeChild.pid}) — CLOUD_API_URL=${cfg.CLOUD_API_URL || "(non impostato)"} — config: ${configPath}`);
   edgeChild.on("exit", (code, signal) => {
@@ -194,15 +229,15 @@ async function backupDb(reason) {
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
     await db.backup(dest);
     db.close();
-    const old = fs.readdirSync(backupDir).filter((f) => f.startsWith("edge-")).sort().reverse().slice(BACKUP_KEEP);
-    for (const f of old) fs.rmSync(path.join(backupDir, f), { force: true });
     log(`Backup (${reason}) → ${dest}`);
+    cleanupOldFiles();
   } catch (e) {
     log(`Backup fallito: ${e && e.message}`);
   }
 }
 
 function scheduleBackups() {
+  cleanupOldFiles();
   setTimeout(() => backupDb("avvio"), 30_000);
   setInterval(() => {
     const h = new Date().getHours();

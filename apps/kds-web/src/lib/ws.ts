@@ -5,7 +5,7 @@ const WS_URL = resolveEdgeUrl(import.meta.env.VITE_EDGE_WS_URL, "ws://localhost:
 
 /** Collegamento live con l'Edge (vedi useEdgeWsConnection in @pizzaguys/ui). */
 export function useEdgeWs() {
-  const ws = useEdgeWsConnection({ url: WS_URL, deviceKind: "kds", clientVersion: "kds-0.2.0" });
+  const ws = useEdgeWsConnection({ url: WS_URL, deviceKind: "kds", clientVersion: `kds@${__PG_BUILD__}` });
   return {
     ...ws,
     on: ws.on as (type: WsMessageType, handler: (payload: unknown) => void) => () => void,

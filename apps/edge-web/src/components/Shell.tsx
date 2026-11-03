@@ -1,6 +1,6 @@
 import { Button, useTheme } from "@pizzaguys/ui";
 
-export type EdgePage = "cassa" | "sala" | "stampanti" | "routing" | "staff" | "dispositivi" | "supporto";
+export type EdgePage = "cassa" | "sala" | "stampanti" | "routing" | "staff" | "dispositivi" | "rete" | "supporto";
 
 const NAV: { id: EdgePage; label: string }[] = [
   { id: "cassa", label: "Cassa" },
@@ -9,6 +9,7 @@ const NAV: { id: EdgePage; label: string }[] = [
   { id: "routing", label: "Routing" },
   { id: "staff", label: "Staff" },
   { id: "dispositivi", label: "Dispositivi" },
+  { id: "rete", label: "Stato rete" },
   { id: "supporto", label: "Segnala problema" },
 ];
 

@@ -331,6 +331,11 @@ export function createEdgeDb(dbPath: string) {
   } catch {
     /* colonna già presente */
   }
+  try {
+    sqlite.exec(`ALTER TABLE printers ADD COLUMN mac_address TEXT`);
+  } catch {
+    /* colonna già presente */
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS print_jobs (
       id TEXT PRIMARY KEY,

@@ -41,3 +41,4 @@ packages/db/drizzle/
 
 # Mock prints
 tmp/prints/
+__pycache__/

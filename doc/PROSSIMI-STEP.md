@@ -1,6 +1,7 @@
 # Prossimi step — checklist di validazione e todo
 
-> Da rivedere insieme. Aggiornato: **20 ottobre 2026** — `main` + branch `fix-16ott` (fix dei test in loco, [`PIANO-FIX-16-10.md`](PIANO-FIX-16-10.md)). Cronologia del fatto: [`HANDOFF.md`](HANDOFF.md).
+> Da rivedere insieme. Aggiornato: **3 novembre 2026** — `main` + `fix-16ott` (fix dei test in loco, [`PIANO-FIX-16-10.md`](PIANO-FIX-16-10.md)) + `feat/desktop-windows` (app Windows, piano rete R1–R4 e R7, palmare compatto). Cronologia del fatto: [`HANDOFF.md`](HANDOFF.md).
+> Rete, stampanti, dispositivi e continuità hanno un piano a parte (fasi R1–R7): fatto R1, R2, R3, R4 (parte locale), R7; restano R4 remoto (richiede Cloud online), R5 (device di riserva), R6 (RT).
 > Legenda priorità: **P0** prima del pilota · **P1** consigliato per il pilota · **P2** dopo il pilota / Fase 7.
 
 ---
@@ -33,7 +34,7 @@
 - [ ] **Copia non fiscale** (`RECEIPT_COPY_PRINT`): solo per i test o anche in produzione finché il fiscale è mock?
 - [ ] **Stampanti del pilota**: quante, quali modelli, IP previsti (piano rete FASE-6 usa `192.168.10.x`)
 - [x] **Repository**: tutto unito in `main` di `marialessiabarbato-cmd/pizzaguys-gest-stampanti` (14/10)
-- [ ] **PIN responsabile sullo storno**: oggi qualsiasi cameriere può annullare un piatto già inviato (gli sconti invece chiedono il PIN)
+- [x] **PIN responsabile sullo storno**: fatto con F4 (16/10), lo storno di un piatto inviato chiede il PIN del responsabile
 - [ ] **X DOLCE**: resta un meccanismo separato (i dolci differiti aspettano "X DOLCE" anche in Ora) — confermare con la cucina
 
 ---
@@ -59,8 +60,8 @@
 |---|----------|--------|-------|
 | T7 | Intestazione dedicata ticket dolci (se confermato V4) | Allineamento a specifica | 0,25 g |
 | T8 | ✅ ~~A capo ordinato per nomi/note lunghi (48 colonne, rientro sotto il piatto)~~ — fatto 20/10 (branch `fix-16ott`): a capo per parole con rientro sotto il testo | Oggi va a capo la stampante, senza rientro | 0,5 g |
-| T9 | e2e Playwright sui flussi critici (comanda → stampa → incasso → chiusura) | T6.5 ancora parziale: oggi 11 test smoke | 1–2 g |
-| T10 | `smoke-giro-test.py` che usa da solo il simulatore di stampa | Evitare decine di ticket sulla stampante reale | 0,25 g |
+| T9 | ✅ ~~Test dei flussi critici (comanda → stampa → incasso → chiusura)~~ — fatto 3/11: `services/edge-api/src/flows.test.ts` avvia l'Edge completo con una stampante di rete simulata, senza Cloud né server; gira in CI con `pnpm test` | T6.5 ancora parziale: oggi 11 test smoke | — |
+| T10 | ✅ ~~`smoke-giro-test.py` che usa da solo il simulatore di stampa~~ — fatto 3/11: durante il giro le stampanti puntano a `fake-printer.mjs` (porta 9199) e poi tornano com'erano; `SMOKE_REAL_PRINTER=1` per stampare davvero. Il caso "stampante spenta e riaccesa" è anche in `flows.test.ts` | Evitare decine di ticket sulla stampante reale | — |
 | T11 | Stampante del pilota con IP sulla rete del locale (prenotazione DHCP o IP statico corretto) | Eliminare l'alias manuale `ifconfig` usato nei test | on-site |
 | T12 | Formazione staff (T6.6) con la nuova comanda Ora/Segue e Marcia (uguale su palmare e cassa) | — | ½ giornata |
 | T20 | ✅ ~~**Ticket ANNULLO al reparto giusto**: oggi esce sempre sulla stampante Cucina, anche per pizze e bevande~~ — fatto 16/10 (`fix-16ott`): annullo alla stampante del reparto del piatto | Con più stampanti l'annullo arriva al reparto sbagliato | 0,25 g |
@@ -108,5 +109,5 @@
 1. Giro di validazione della sezione 1 (30–45 min insieme, con la ST30 collegata)
 2. P0: ✅ T1, T2, T3, T19 · T4/T5/T6 on hold fino alle informazioni della sezione 2b
 3. Giro di prova con il cliente su `main` (checklist sezione **T**, stampa sulla ST30, palmare anche da smartphone)
-4. Decisioni aperte: PIN sullo storno, X DOLCE, Edge su Windows o mini PC
+4. Decisioni aperte: X DOLCE (il PIN sullo storno è fatto; l'Edge gira sul PC Windows del locale con l'app desktop)
 5. P1 in base alla data del pilota (T20–T23 sono piccoli e utili prima della formazione)

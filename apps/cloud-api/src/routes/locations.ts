@@ -24,6 +24,7 @@ function formatLocationRow(l: typeof locations.$inferSelect) {
     schemaVersion: l.schemaVersion,
     healthStatus: l.healthStatus,
     lastHeartbeatAt: l.lastHeartbeatAt,
+    edgeNetwork: l.edgeNetwork ?? null,
     hasToken: Boolean(l.apiTokenHash),
     createdAt: l.createdAt,
     updatedAt: l.updatedAt,

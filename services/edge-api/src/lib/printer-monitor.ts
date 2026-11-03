@@ -10,6 +10,7 @@ import {
   setKnownStatus,
 } from "./print-queue.js";
 import { broadcast } from "./ws-hub.js";
+import { learnPrinterMac, rediscoverPrinters } from "./printer-discovery.js";
 
 /**
  * Controllo periodico delle stampanti (R3): ogni 30 s legge lo stato di ogni indirizzo
@@ -76,6 +77,7 @@ export async function checkPrinters(edgeDb: EdgeDatabase): Promise<string[]> {
       const key = `${p.host}:${p.port}`;
       byAddress.set(key, [...(byAddress.get(key) ?? []), p]);
     }
+    const unreachable: typeof list = [];
     for (const group of byAddress.values()) {
       const first = group[0]!;
       let status: PrinterStatus;
@@ -84,6 +86,9 @@ export async function checkPrinters(edgeDb: EdgeDatabase): Promise<string[]> {
       } catch {
         continue;
       }
+      // R3: raggiunta → si segna il MAC; irraggiungibile → candidata alla ricerca in rete
+      if (status.condition === "UNREACHABLE") unreachable.push(first);
+      else void learnPrinterMac(edgeDb, first).catch(() => undefined);
       for (const p of group) {
         const prevCondition = previous.get(p.id);
         setKnownStatus(p.id, status);
@@ -93,6 +98,19 @@ export async function checkPrinters(edgeDb: EdgeDatabase): Promise<string[]> {
           if (wasDown && !isBlocking(status.condition)) retryNowForPrinter(edgeDb, p.id);
         }
         previous.set(p.id, status.condition);
+      }
+    }
+    if (unreachable.length > 0) {
+      const moved = await rediscoverPrinters(edgeDb, unreachable).catch(() => []);
+      if (moved.length > 0) {
+        // Indirizzo aggiornato: si riprova subito e i ticket in attesa ripartono
+        for (const m of moved) {
+          for (const p of edgeDb.select().from(printers).all().filter((x) => x.host === m.to)) {
+            previous.delete(p.id);
+            retryNowForPrinter(edgeDb, p.id);
+          }
+        }
+        changed.push("rediscovered");
       }
     }
     if (changed.length > 0) broadcastHealth(edgeDb);

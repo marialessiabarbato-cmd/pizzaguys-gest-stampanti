@@ -7,6 +7,21 @@ import { applyInvoiceCustomersFromSnapshot } from "./invoice-customers.js";
 import { applyStaffFromSnapshot } from "./staff-sync.js";
 import { processSyncQueue } from "./sync-queue.js";
 import type { MenuSnapshot } from "@pizzaguys/types";
+import { hostname } from "node:os";
+import { mdnsHostname } from "./mdns.js";
+import { buildOf, lanAddresses } from "./network-status.js";
+import { listConnectedDevices } from "./ws-hub.js";
+
+/** Dove si trova la cassa nella rete del locale: il Cloud lo mostra nella pagina della sede. */
+function edgeNetworkReport() {
+  const cassa = listConnectedDevices().find((c) => c.deviceKind === "cassa" && !c.paired);
+  return {
+    addresses: lanAddresses(),
+    mdnsName: mdnsHostname(),
+    hostname: hostname(),
+    build: buildOf(cassa?.clientVersion),
+  };
+}
 
 const INTERVAL_MS = 60_000;
 
@@ -18,7 +33,7 @@ export function startHeartbeatLoop(app: FastifyInstance) {
 
     let result: Awaited<ReturnType<typeof cloudHeartbeat>>;
     try {
-      result = await cloudHeartbeat(state.apiToken, state.schemaVersion);
+      result = await cloudHeartbeat(state.apiToken, state.schemaVersion, edgeNetworkReport());
     } catch (err) {
       // "Ultimo contatto" resta quello dell'ultima risposta valida: niente falso OK
       recordCloudFailure(err);

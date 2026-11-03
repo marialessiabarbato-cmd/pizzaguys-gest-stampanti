@@ -4,6 +4,9 @@ import { provisionEdgeSchema } from "@pizzaguys/validators";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { checkUserAdmin } from "../lib/operator-sessions.js";
+import { pairingRequired } from "../lib/device-auth.js";
+import { buildNetworkStatus } from "../lib/network-status.js";
+import { checkPrinters } from "../lib/printer-monitor.js";
 import { getMenuSnapshot, provisionEdge } from "../lib/provision.js";
 import { getRestoreInfo } from "../lib/runtime-persistence.js";
 import { getCashSessionStatus, suggestCashService } from "../lib/cash-session.js";
@@ -54,7 +57,15 @@ export async function statusRoutes(app: FastifyInstance) {
       cloud: getCloudStatus(),
       syncQueue: getSyncQueueSummary(app.edgeDb),
       cashSession: withSuggestedService(getCashSessionStatus(app.edgeDb)),
+      /** "off" = DEVICE_PAIRING=off: qualsiasi dispositivo sul Wi-Fi entra senza abbinamento. */
+      devicePairing: pairingRequired() ? "required" : "off",
     };
+  });
+
+  /** Centro stato rete (R4): semafori e cosa fare per ogni pezzo del locale. */
+  app.get<{ Querystring: { refresh?: string } }>("/api/network-status", async (req) => {
+    if (req.query.refresh === "1") await checkPrinters(app.edgeDb);
+    return buildNetworkStatus(app.edgeDb);
   });
 
   app.get("/api/menu", async (_req, reply) => {

@@ -12,6 +12,8 @@ export const printers = sqliteTable("printers", {
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   /** Stampante su cui dirottare i ticket se questa è giù (carta finita, spenta...). */
   fallbackPrinterId: text("fallback_printer_id"),
+  /** MAC della stampante, imparato al primo contatto: serve a ritrovarla se cambia IP. */
+  macAddress: text("mac_address"),
   createdAt: text("created_at").notNull(),
 });
 

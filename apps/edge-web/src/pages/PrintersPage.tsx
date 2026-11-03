@@ -12,6 +12,7 @@ interface Printer {
   port: number;
   enabled: boolean;
   fallbackPrinterId: string | null;
+  macAddress: string | null;
 }
 
 type Draft = { host: string; port: string };
@@ -196,6 +197,11 @@ export function PrintersPage() {
                     />
                   </label>
                 </div>
+                {p.macAddress && (
+                  <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
+                    MAC {p.macAddress} · se cambia indirizzo la cassa la ritrova da sola
+                  </p>
+                )}
                 <label className="block space-y-1">
                   <span className="text-xs text-[hsl(var(--pg-muted-foreground))]">
                     Stampante di riserva (se questa è ferma: carta finita, spenta…)

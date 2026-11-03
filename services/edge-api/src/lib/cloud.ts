@@ -100,14 +100,21 @@ export async function cloudHandshake(apiToken: string, edgeDeviceId: string) {
   });
 }
 
-export async function cloudHeartbeat(apiToken: string, schemaVersion: number) {
+export interface EdgeNetworkReport {
+  addresses: string[];
+  mdnsName: string | null;
+  hostname: string;
+  build: string | null;
+}
+
+export async function cloudHeartbeat(apiToken: string, schemaVersion: number, edge?: EdgeNetworkReport) {
   return cloudRequest<{
     cloudSchemaVersion: number;
     desyncBuilds: number;
     healthStatus: string;
   }>("/api/v2/sync/heartbeat", {
     apiToken,
-    body: { apiToken, schemaVersion },
+    body: { apiToken, schemaVersion, ...(edge ? { edge } : {}) },
     what: "Heartbeat",
   });
 }

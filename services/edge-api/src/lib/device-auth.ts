@@ -150,17 +150,22 @@ export function renameDevice(db: EdgeDatabase, deviceId: string, name: string): 
 /**
  * PIN di 4 cifre: senza limite si indovinano provando. Dopo 5 errori dallo stesso indirizzo
  * blocco di 1 minuto, poi raddoppia (max 15 minuti). Un PIN giusto azzera il conteggio.
+ *
+ * Il PC dell'Edge (la cassa) non si blocca mai: chi ci prova è davanti al bancone, e un
+ * cassiere che sbaglia il PIN non deve fermare la cassa per 15 minuti in pieno servizio.
  */
 const attempts = new Map<string, { failures: number; blockedUntil: number }>();
 const FREE_FAILURES = 5;
 
 export function pinAttemptBlockedSeconds(ip: string | undefined): number {
+  if (isLocalIp(ip)) return 0;
   const a = attempts.get(ip ?? "?");
   if (!a || a.blockedUntil <= Date.now()) return 0;
   return Math.ceil((a.blockedUntil - Date.now()) / 1000);
 }
 
 export function recordPinFailure(ip: string | undefined) {
+  if (isLocalIp(ip)) return;
   const key = ip ?? "?";
   const a = attempts.get(key) ?? { failures: 0, blockedUntil: 0 };
   a.failures += 1;

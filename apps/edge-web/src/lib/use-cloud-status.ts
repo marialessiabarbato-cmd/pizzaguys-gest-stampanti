@@ -19,17 +19,21 @@ export interface SyncQueueView {
 export function useCloudStatus(enabled: boolean) {
   const [cloud, setCloud] = useState<CloudStatusView | null>(null);
   const [syncQueue, setSyncQueue] = useState<SyncQueueView | null>(null);
+  const [devicePairing, setDevicePairing] = useState<"required" | "off">("required");
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
     const load = () =>
-      edgeApi<{ cloud?: CloudStatusView; syncQueue?: SyncQueueView }>("/api/status")
+      edgeApi<{ cloud?: CloudStatusView; syncQueue?: SyncQueueView; devicePairing?: "required" | "off" }>(
+        "/api/status",
+      )
         .then((s) => {
           if (!alive) return;
           setCloud(s.cloud ?? null);
           setSyncQueue(s.syncQueue ?? null);
+          setDevicePairing(s.devicePairing ?? "required");
         })
         .catch(() => {
           /* Edge non raggiungibile: lo mostra già l'indicatore di collegamento */
@@ -42,5 +46,5 @@ export function useCloudStatus(enabled: boolean) {
     };
   }, [enabled, nonce]);
 
-  return { cloud, syncQueue, refresh: () => setNonce((n) => n + 1) };
+  return { cloud, syncQueue, devicePairing, refresh: () => setNonce((n) => n + 1) };
 }

@@ -2,6 +2,7 @@ import { CASH_SERVICE_LABELS, type CashService } from "@pizzaguys/types";
 import { Button } from "@pizzaguys/ui";
 import { HeaderMenu, HeaderMenuItem } from "./HeaderMenu";
 import type { CloudStatusView, SyncQueueView } from "../lib/use-cloud-status";
+import { LEVEL_DOT, type NetLevel } from "./NetworkStatusPanel";
 
 function sinceLabel(iso: string | null): string {
   if (!iso) return "";
@@ -70,6 +71,8 @@ export function CassaHeader({
   onReservations,
   onDocumentList,
   onPrintQueue,
+  networkLevel,
+  onNetworkStatus,
   onClosureHistory,
   onClosureDay,
   onInternalClosure,
@@ -102,6 +105,9 @@ export function CassaHeader({
   onDocumentList: () => void;
   /** Coda di stampa: ticket in attesa, dirottati, ristampa (R3). */
   onPrintQueue: () => void;
+  /** Semaforo complessivo dello stato rete (R4) e apertura del pannello. */
+  networkLevel?: NetLevel | null;
+  onNetworkStatus: () => void;
   onClosureHistory: () => void;
   onClosureDay: () => void;
   onInternalClosure: () => void;
@@ -126,6 +132,15 @@ export function CassaHeader({
           >
             {connected ? "Online" : `Offline${connectionDetail ? ` · ${connectionDetail}` : ""}`}
           </span>
+          <button
+            type="button"
+            onClick={onNetworkStatus}
+            title="Stato rete: cassa, stampanti, palmari, KDS, Cloud"
+            className="flex items-center gap-1.5 rounded-full border border-[hsl(var(--pg-border))] px-2 py-0.5 text-xs font-medium"
+          >
+            <span className={`h-2 w-2 rounded-full ${LEVEL_DOT[networkLevel ?? "info"]}`} aria-hidden />
+            Rete
+          </button>
           <CloudBadge cloud={cloud} syncQueue={syncQueue} />
           {cashSession ? (
             <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-800">
@@ -205,6 +220,7 @@ export function CassaHeader({
           <HeaderMenuItem onClick={onProfile}>Profilo</HeaderMenuItem>
           <HeaderMenuItem onClick={onOperatorShifts}>Operatori in turno</HeaderMenuItem>
           <HeaderMenuItem onClick={onPrintQueue}>Coda di stampa</HeaderMenuItem>
+          <HeaderMenuItem onClick={onNetworkStatus}>Stato rete</HeaderMenuItem>
           {canManage && (
             <>
               <HeaderMenuItem onClick={onDocumentList}>Lista documenti</HeaderMenuItem>

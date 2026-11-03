@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -1089,15 +1091,60 @@ def test_closure(ctx: dict) -> None:
         warn("closure z/complete", "pre-check non OK — skip chiusura giornaliera")
 
 
+# ── T10: stampante simulata ────────────────────────────────────────────────
+# Il giro manda decine di ticket: per non consumare carta sulla stampante vera, durante il
+# test tutte le stampanti puntano a scripts/fake-printer.mjs (i ticket finiscono in
+# tmp/fake-printer/) e alla fine tornano all'indirizzo di prima.
+# SMOKE_REAL_PRINTER=1 per stampare davvero.
+FAKE_PRINTER_PORT = int(os.environ.get("SMOKE_FAKE_PRINTER_PORT", "9199"))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def use_fake_printer() -> tuple[subprocess.Popen | None, list[dict], str | None]:
+    if os.environ.get("SMOKE_REAL_PRINTER") == "1":
+        print("Stampa: stampanti vere (SMOKE_REAL_PRINTER=1)")
+        return None, [], None
+    code, admin = req(EDGE, "POST", "/api/staff/verify-pin", {"pin": "5678"})
+    token = admin.get("token") if code == 200 and isinstance(admin, dict) else None
+    code, printers = req(EDGE, "GET", "/api/printers")
+    if code != 200 or not isinstance(printers, list) or not token:
+        warn("stampante simulata", "impossibile leggere/modificare le stampanti: si stampa sulle vere")
+        return None, [], None
+    proc = subprocess.Popen(
+        ["node", os.path.join(ROOT, "scripts", "fake-printer.mjs"), str(FAKE_PRINTER_PORT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(0.8)
+    saved = [{"id": p["id"], "host": p["host"], "port": p["port"]} for p in printers]
+    for p in printers:
+        req(EDGE, "PATCH", f"/api/printers/{p['id']}", {"host": "127.0.0.1", "port": FAKE_PRINTER_PORT}, token)
+    print(f"Stampa: simulata su 127.0.0.1:{FAKE_PRINTER_PORT} (ticket in tmp/fake-printer/)")
+    return proc, saved, token
+
+
+def restore_printers(proc: subprocess.Popen | None, saved: list[dict], token: str | None) -> None:
+    for p in saved:
+        code, _ = req(EDGE, "PATCH", f"/api/printers/{p['id']}", {"host": p["host"], "port": p["port"]}, token)
+        if code != 200:
+            bad("ripristino stampanti", f"{p['id']}: rimettere a mano {p['host']}:{p['port']}")
+    if proc:
+        proc.terminate()
+
+
 def main() -> int:
     print("Giro test autonomo Pizza Guys (esteso)")
     test_cloud()
-    ctx = test_edge_base()
-    if ctx:
-        test_edge_flows(ctx)
-        test_reservations()
-        test_open_tables_and_fiscal(ctx)
-        test_closure(ctx)
+    proc, saved, token = use_fake_printer()
+    try:
+        ctx = test_edge_base()
+        if ctx:
+            test_edge_flows(ctx)
+            test_reservations()
+            test_open_tables_and_fiscal(ctx)
+            test_closure(ctx)
+    finally:
+        restore_printers(proc, saved, token)
 
     print("\n=== RIEPILOGO ===")
     print(f"OK:   {len(PASS)}")
