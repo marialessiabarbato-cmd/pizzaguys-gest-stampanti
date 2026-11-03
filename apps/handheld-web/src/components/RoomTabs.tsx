@@ -12,12 +12,12 @@ export function RoomTabs({
   if (rooms.length <= 1) return null;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex min-w-0 gap-1.5 overflow-x-auto">
       {rooms.map((room) => (
         <Button
           key={room.id}
           type="button"
-          className="h-10 min-w-[88px] px-4 text-sm"
+          className="h-9 shrink-0 px-4 text-sm"
           variant={selectedRoomId === room.id ? "default" : "outline"}
           onClick={() => onSelect(room.id)}
         >

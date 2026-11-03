@@ -172,7 +172,7 @@ export function MapScreen({
             ? { position: "absolute", left: table.x, top: table.y, width: table.width, height: table.height }
             : undefined
         }
-        className={`${layout === "grid" ? "h-20 w-full" : ""} relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
+        className={`${layout === "grid" ? "h-16 w-full" : ""} relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border-2 border-white/20 px-2 py-1.5 text-center text-white shadow-md transition active:scale-[0.98] ${TABLE_STATUS_COLORS[status] ?? "bg-gray-500"} ${
           unionHost ? "ring-2 ring-white/40 ring-offset-1 ring-offset-transparent" : ""
         } ${lockPending === table.id ? "opacity-50" : ""}`}
       >
@@ -207,34 +207,35 @@ export function MapScreen({
 
   return (
     <div className="grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-[hsl(var(--pg-background))]">
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[hsl(var(--pg-border))] px-4 py-3 shadow-sm">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-bold">Mappa sala</h1>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                !isOffline ? "bg-green-500/20 text-green-700" : "bg-yellow-500/20 text-yellow-800"
-              }`}
-            >
-              {!isOffline ? "Online" : "Offline"}
-            </span>
-          </div>
-          <p className="truncate text-sm text-[hsl(var(--pg-muted-foreground))]">
+      {/* Telefono: una riga sola (operatore + stato collegamento), il resto dello schermo ai tavoli */}
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[hsl(var(--pg-border))] px-3 py-2 shadow-sm">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={`h-2.5 w-2.5 shrink-0 rounded-full ${!isOffline ? "bg-green-500" : "bg-yellow-500"}`}
+            title={!isOffline ? "Online" : "Offline"}
+            aria-label={!isOffline ? "Online" : "Offline"}
+          />
+          <h1 className="truncate text-base font-bold">
             {operator.firstName} {operator.lastName}
-          </p>
+          </h1>
+          {isOffline && (
+            <span className="shrink-0 rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs font-medium text-yellow-800">
+              Offline
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {onOpenCounter && (
             <Button
               variant="outline"
-              className="h-10 shrink-0 px-3 text-sm"
+              className="h-9 shrink-0 px-3 text-sm"
               disabled={isOffline}
               onClick={onOpenCounter}
             >
               Asporto
             </Button>
           )}
-          <Button variant="outline" className="h-10 shrink-0 px-4 text-sm" onClick={onLogout}>
+          <Button variant="outline" className="h-9 shrink-0 px-3 text-sm" onClick={onLogout}>
             Esci
           </Button>
         </div>
@@ -242,7 +243,7 @@ export function MapScreen({
 
       <main className="flex min-h-0 flex-col overflow-hidden">
         {cashClosed && <CashClosedBanner />}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-0 pt-2">
           {message && (
             <p className="mb-3 shrink-0 rounded bg-[hsl(var(--pg-muted))] px-3 py-2 text-sm">{message}</p>
           )}
@@ -259,45 +260,59 @@ export function MapScreen({
             />
           )}
 
-          <div className="mb-2 space-y-2">
-            <p className="text-xs text-[hsl(var(--pg-muted-foreground))]">
-              {visibleTables.length} {visibleTables.length === 1 ? "tavolo" : "tavoli"}
-              {activeRoomName ? ` · ${activeRoomName}` : " in sala"}
-            </p>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex rounded-lg border border-[hsl(var(--pg-border))] p-0.5" role="group" aria-label="Vista tavoli">
-                {(["map", "list"] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-pressed={view === option}
-                    disabled={reordering}
-                    onClick={() => changeView(option)}
-                    className={`h-9 rounded-md px-4 text-sm font-medium ${
-                      view === option
-                        ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
-                        : "text-[hsl(var(--pg-muted-foreground))]"
-                    }`}
-                  >
-                    {option === "map" ? "Mappa" : "Lista"}
-                  </button>
-                ))}
-              </div>
-              {view === "list" && canReorder && !reordering && reorderTables.length > 1 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="ml-auto h-9 px-3 text-sm"
-                  disabled={isOffline}
-                  onClick={() => setReordering(true)}
-                >
-                  Riordina
-                </Button>
+          {/* Sale a sinistra, Mappa/Lista come icone a destra: una sola riga */}
+          <div className="mb-2 flex shrink-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              {!reordering && (
+                <RoomTabs rooms={rooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} />
               )}
             </div>
-            {!reordering && (
-              <RoomTabs rooms={rooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} />
+            {view === "list" && canReorder && !reordering && reorderTables.length > 1 && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 shrink-0 px-3 text-sm"
+                disabled={isOffline}
+                onClick={() => setReordering(true)}
+              >
+                Riordina
+              </Button>
             )}
+            <div
+              className="inline-flex shrink-0 rounded-lg border border-[hsl(var(--pg-border))] p-0.5"
+              role="group"
+              aria-label="Vista tavoli"
+            >
+              {(["map", "list"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={view === option}
+                  aria-label={option === "map" ? "Mappa" : "Lista"}
+                  title={option === "map" ? "Mappa" : "Lista"}
+                  disabled={reordering}
+                  onClick={() => changeView(option)}
+                  className={`flex h-8 w-10 items-center justify-center rounded-md ${
+                    view === option
+                      ? "bg-[hsl(var(--pg-primary))] text-[hsl(var(--pg-primary-foreground))]"
+                      : "text-[hsl(var(--pg-muted-foreground))]"
+                  }`}
+                >
+                  {option === "map" ? (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden>
+                      <rect x="3" y="3" width="8" height="8" rx="2" />
+                      <rect x="13" y="3" width="8" height="8" rx="2" />
+                      <rect x="3" y="13" width="8" height="8" rx="2" />
+                      <rect x="13" y="13" width="8" height="8" rx="2" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+                      <path d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -331,7 +346,7 @@ export function MapScreen({
                 className="!p-0"
                 renderGrid={() =>
                   displayTables.length > 0 ? (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3 pb-2">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2 pb-2">
                       {gridTables.map((table) => renderTable(table, "grid", GRID_LABEL_WIDTH))}
                     </div>
                   ) : (
@@ -352,18 +367,23 @@ export function MapScreen({
             )}
 
             {!reordering && (
-              <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[hsl(var(--pg-border))] px-4 py-2.5 text-xs text-[hsl(var(--pg-muted-foreground))]">
-                {(Object.keys(TABLE_STATUS_DOT) as TableStatus[]).map((status) => (
-                  <span key={status} className="flex items-center gap-1.5">
-                    <span className={`h-2.5 w-2.5 rounded-full ${TABLE_STATUS_DOT[status]}`} />
-                    {TABLE_STATUS_LABELS[status]}
-                    {statusSummary[status] != null && statusSummary[status]! > 0 && (
-                      <span className="tabular-nums text-[hsl(var(--pg-foreground))]">
-                        ({statusSummary[status]})
-                      </span>
-                    )}
-                  </span>
-                ))}
+              // Solo gli stati presenti in sala, su una riga: la legenda completa sta nel tooltip
+              <div
+                className="flex shrink-0 items-center gap-x-3 overflow-x-auto whitespace-nowrap border-t border-[hsl(var(--pg-border))] px-1 py-2 text-xs text-[hsl(var(--pg-muted-foreground))]"
+                title={(Object.keys(TABLE_STATUS_DOT) as TableStatus[]).map((st) => TABLE_STATUS_LABELS[st]).join(" · ")}
+              >
+                <span className="font-medium text-[hsl(var(--pg-foreground))]">
+                  {visibleTables.length} {visibleTables.length === 1 ? "tavolo" : "tavoli"}
+                </span>
+                {(Object.keys(TABLE_STATUS_DOT) as TableStatus[])
+                  .filter((status) => (statusSummary[status] ?? 0) > 0)
+                  .map((status) => (
+                    <span key={status} className="flex items-center gap-1.5">
+                      <span className={`h-2.5 w-2.5 rounded-full ${TABLE_STATUS_DOT[status]}`} />
+                      {TABLE_STATUS_LABELS[status]}
+                      <span className="tabular-nums text-[hsl(var(--pg-foreground))]">{statusSummary[status]}</span>
+                    </span>
+                  ))}
               </div>
             )}
           </div>
