@@ -565,6 +565,28 @@ export function useComanda(options: UseComandaOptions) {
       setWorkspaceTab("comanda");
       await onSubmitted?.({ remainingLines: remaining.length });
     } catch (err) {
+      // Risposta persa o in ritardo (es. cassa lenta): l'ordine potrebbe essere già registrato.
+      // Si chiede alla cassa: se i piatti risultano spediti non restano in bozza, così un
+      // secondo Spedisci non manda la comanda due volte in cucina.
+      const sentIds = new Set(
+        ((await reload(table.id).catch(() => null))?.submitted ?? []).map((l) => l.lineId),
+      );
+      if (toSend.every((l) => sentIds.has(l.lineId))) {
+        setCart(remaining);
+        setSelectedLineId(null);
+        if (remaining.length > 0) {
+          await saveDraftOnEdge(remaining).catch(() => undefined);
+          await draftStore?.save(table.id, remaining, operator.id);
+        } else {
+          await draftStore?.clear(table.id);
+        }
+        setMessage("Spedito — la cassa ha risposto in ritardo, ma la comanda è arrivata");
+        setWorkspaceTab("comanda");
+        await onSubmitted?.({ remainingLines: remaining.length });
+        return;
+      }
+      // Non spedita: si rimette la bozza com'era (il controllo potrebbe averla ricaricata)
+      setCart(cart);
       setMessage(err instanceof Error ? err.message : "Errore invio comanda");
     }
   };
